@@ -72,6 +72,7 @@ from mylar import (
     ledger,
     librarysync,
     logger,
+    matching,
     mb,
     moveit,
     notifiers,
@@ -4675,6 +4676,20 @@ class WebInterface(object):
         self._attention_post()
         return self._attention_json({'ok': attention.stop_refile(), 'note': 'Stopping after the folder being filed now.'})
     attention_refile_stop.exposed = True
+
+    def match_files(self, comicid):
+        return self._attention_json(matching.files(comicid))
+    match_files.exposed = True
+
+    def match_file(self, comicid, issueid, name):
+        self._attention_post()
+        return self._attention_json(matching.match(comicid, issueid, name))
+    match_file.exposed = True
+
+    def match_undo(self, comicid, issueid):
+        self._attention_post()
+        return self._attention_json(matching.unmatch(comicid, issueid))
+    match_undo.exposed = True
 
     def cblimport(self):
         return serve_template(templatename="cblimport.html", title="CBL Import")
