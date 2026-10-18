@@ -7610,6 +7610,8 @@ class WebInterface(object):
                     "airdcpp_username": mylar.CONFIG.AIRDCPP_USERNAME,
                     "airdcpp_password": mylar.CONFIG.AIRDCPP_PASSWORD,
                     "airdcpp_download_dir": mylar.CONFIG.AIRDCPP_DOWNLOAD_DIR,
+                    "airdcpp_folder_mode": mylar.CONFIG.AIRDCPP_FOLDER_MODE,
+                    "airdcpp_remote_dir": mylar.CONFIG.AIRDCPP_REMOTE_DIR,
                     "airdcpp_hubs": mylar.CONFIG.AIRDCPP_HUBS,
                     "airdcpp_announce_hub": mylar.CONFIG.AIRDCPP_ANNOUNCE_HUB,
                     "airdcpp_announce_bots": mylar.CONFIG.AIRDCPP_ANNOUNCE_BOTS,
