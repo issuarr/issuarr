@@ -4604,6 +4604,19 @@ class WebInterface(object):
         return self._attention_json({'series': attention.search(q)})
     attention_search.exposed = True
 
+    def attention_find(self, q=''):
+        return self._attention_json(attention.find_series(q))
+    attention_find.exposed = True
+
+    def attention_add_series(self, comicid, name=None, year=None):
+        self._attention_post()
+        return self._attention_json(attention.add_series(comicid, name, year))
+    attention_add_series.exposed = True
+
+    def attention_series_state(self, comicid):
+        return self._attention_json(attention.series_state(comicid))
+    attention_series_state.exposed = True
+
     def attention_issues(self, comicid):
         return self._attention_json({'issues': attention.issues(comicid)})
     attention_issues.exposed = True

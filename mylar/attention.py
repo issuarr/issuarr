@@ -390,8 +390,65 @@ def search(text, limit=12):
     return [{'comicid': c['ComicID'], 'name': c['ComicName'], 'year': c['ComicYear'], 'volume': c['ComicVersion']} for s, c in hits[:limit]]
 
 
+def _cv_key():
+    key = mylar.CONFIG.COMICVINE_API
+    return key if key and key != 'None' else None
+
+
+def find_series(text, limit=20):
+    """Series on ComicVine for the manual pick, for when the right one isn't on the watchlist yet.
+    Uses the same search as Add series, one page of it."""
+    from mylar import mb
+    text = (text or '').strip()
+    if not text:
+        return {'ok': True, 'series': []}
+    if not _cv_key():
+        return {'ok': False, 'note': 'Searching ComicVine needs a ComicVine API key (Settings).', 'series': []}
+    try:
+        found = mb.findComic(text, 'series', None, page=1, pageSize=limit) or []
+    except Exception as e:
+        logger.warn('[ATTENTION] ComicVine search for %s failed: %s' % (text, e))
+        return {'ok': False, 'note': 'The ComicVine search didn\'t work. The log has why.', 'series': []}
+    watched = {str(r['ComicID']) for r in db.DBConnection().select('SELECT ComicID FROM comics')}
+    return {'ok': True, 'series': [{'comicid': str(x['comicid']), 'name': x['name'], 'year': x.get('comicyear'),
+                                    'publisher': x.get('publisher'), 'issues': x.get('issues'), 'volume': x.get('volume'),
+                                    'watched': str(x['comicid']) in watched} for x in found]}
+
+
+def add_series(comicid, name=None, year=None):
+    """Add a ComicVine series to the watchlist from the manual pick, in the background like
+    Add series does. series_state says when its issues are there to pick from."""
+    comicid = re.sub(r'^4050-', '', str(comicid or '')).strip()
+    if not comicid.isdigit():
+        return {'ok': False, 'note': 'That isn\'t a ComicVine series.'}
+    state = series_state(comicid)
+    if state['state'] == 'ready':
+        return dict(state, ok=True, note='%s is already on your watchlist.' % (name or 'That series'))
+    if not _cv_key():
+        return {'ok': False, 'note': 'Adding series needs a ComicVine API key (Settings).'}
+    if state['state'] == 'missing':
+        from mylar import importer
+        logger.info('[ATTENTION] Adding %s (%s) [%s] to the watchlist to file a file as one of its issues.' % (name, year, comicid))
+        importer.importer_thread([{'comicid': comicid, 'comicname': name or None, 'seriesyear': year or None}])
+    return {'ok': True, 'state': 'adding', 'note': 'Adding %s. Its issues load from ComicVine, then you can pick one.' % (name or 'the series')}
+
+
+def series_state(comicid):
+    """'ready' once a series is on the watchlist with its issues, 'adding' while it loads,
+    'missing' when it isn't there at all."""
+    myDB = db.DBConnection()
+    row = myDB.selectone('SELECT ComicName, ComicYear, ComicVersion, Status FROM comics WHERE ComicID=?', [comicid]).fetchone()
+    if row is None:
+        return {'state': 'missing'}
+    have = myDB.selectone('SELECT COUNT(*) AS n FROM issues WHERE ComicID=?', [comicid]).fetchone()['n']
+    if row['Status'] == 'Loading' or not have:
+        return {'state': 'adding'}
+    _COMICS[0] = 0   # the watchlist search should find it now
+    return {'state': 'ready', 'series': {'comicid': comicid, 'name': row['ComicName'], 'year': row['ComicYear'], 'volume': row['ComicVersion']}}
+
+
 def issues(comicid):
-    rows = db.DBConnection().select('SELECT IssueID, Issue_Number, Status, IssueDate FROM issues WHERE ComicID=?', [comicid])
+    rows =db.DBConnection().select('SELECT IssueID, Issue_Number, Status, IssueDate FROM issues WHERE ComicID=?', [comicid])
     rows = [dict(r) for r in rows]
     rows.sort(key=lambda r: (_num(r['Issue_Number']) is None, _num(r['Issue_Number']) or 0))
     return rows
