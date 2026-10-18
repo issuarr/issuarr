@@ -121,3 +121,26 @@ def test_only_files_in_the_series_folder_can_be_matched(series):
     assert not matching.match('500', '1004', '../../etc/passwd')['ok']
     assert not matching.match('500', '9999', 'Bar 007.cbz')['ok']
     assert not matching.match('501', '1004', 'Bar 007.cbz')['ok']
+
+
+@pytest.mark.unit
+def test_a_cover_is_only_made_for_a_file_in_the_series_folder(series, monkeypatch):
+    from mylar import attention
+    made = []
+    monkeypatch.setattr(attention, 'cover_of', lambda path: made.append(path) or path)
+    assert matching.cover('500', 'Bar 007.cbz') == str(series / 'Bar 007.cbz')
+    assert matching.cover('500', '../Foo (2020)/Bar 007.cbz') is None
+    assert matching.cover('501', 'Bar 007.cbz') is None
+    assert made == [str(series / 'Bar 007.cbz')]
+
+
+@pytest.mark.unit
+def test_files_waiting_in_needs_attention_for_this_series_are_listed(series, monkeypatch):
+    from mylar import attention
+    listed = [{'path': '/dl/Foo 004.cbz', 'name': 'Foo 004.cbz', 'size': 9, 'modified': 5.0, 'in_library': False, 'job': None,
+               'parsed': {'issue': '004'}, 'matches': [{'comicid': '500', 'issueid': '1004', 'number': '4'}]},
+              {'path': '/dl/Other 001.cbz', 'name': 'Other 001.cbz', 'size': 9, 'modified': 5.0, 'in_library': False, 'job': None,
+               'parsed': {'issue': '001'}, 'matches': [{'comicid': '777', 'issueid': '1', 'number': '1'}]}]
+    monkeypatch.setattr(attention, 'items', lambda: listed)
+    assert matching.waiting('500') == [{'path': '/dl/Foo 004.cbz', 'name': 'Foo 004.cbz', 'size': 9, 'modified': 5,
+                                        'reads_as': '004', 'issueid': '1004', 'number': '4'}]

@@ -140,9 +140,10 @@ def files(comicid):
     if comic is None:
         return {'ok': False, 'note': 'That series isn\'t on your watchlist.'}
     myDB = db.DBConnection()
-    issues = [dict(r) for r in myDB.select('SELECT IssueID, Issue_Number, IssueName, Status, Location, forced_file FROM issues '
+    issues = [dict(r) for r in myDB.select('SELECT IssueID, Issue_Number, IssueName, Status, Location, forced_file, ImageURL, ImageURL_ALT FROM issues '
                                             'WHERE ComicID=? ORDER BY Int_IssueNumber', [comicid])]
-    linked = {i['Location']: i for i in issues if i['Location'] and i['Status'] in ('Downloaded', 'Archived')}
+    # Archived issues keep the name of a file that has gone, so only Downloaded ones count as having one
+    linked = {i['Location']: i for i in issues if i['Location'] and i['Status'] == 'Downloaded'}
     out = []
     for f in walk(series_dirs(comic)):
         i = linked.get(f['name'])
@@ -150,10 +151,38 @@ def files(comicid):
                     'issueid': i['IssueID'] if i else None, 'number': i['Issue_Number'] if i else None,
                     'pinned': bool(i and i['forced_file']), 'reads_as': attention.parse(f['path']).get('issue')})
     out.sort(key=lambda f: (f['issueid'] is not None, (f['sub'] or '').lower(), f['name'].lower()))
-    return {'ok': True, 'folder': comic['ComicLocation'], 'files': out,
+    return {'ok': True, 'folder': comic['ComicLocation'], 'files': out, 'waiting': waiting(comicid),
             'issues': [{'issueid': i['IssueID'], 'number': i['Issue_Number'], 'name': i['IssueName'], 'status': i['Status'],
-                        'file': i['Location'] if i['Status'] in ('Downloaded', 'Archived') else None,
-                        'pinned': bool(i['forced_file'])} for i in issues]}
+                        'file': i['Location'] if i['Status'] == 'Downloaded' else None,
+                        'pinned': bool(i['forced_file']), 'cover': bool(i['ImageURL'] or i['ImageURL_ALT'])} for i in issues]}
+
+
+def waiting(comicid):
+    """Files in Needs attention that look like this series, each with the issue its name points to."""
+    from mylar import attention
+    out = []
+    try:
+        listed = attention.items()
+    except Exception as e:
+        logger.fdebug('[MATCHING] Could not read Needs attention: %s' % e)
+        return out
+    for i in listed:
+        if i['in_library'] or (i.get('job') or {}).get('state') in ('waiting', 'filing'):
+            continue
+        m = next((m for m in i['matches'] if str(m['comicid']) == str(comicid)), None)
+        if m is None:
+            continue
+        out.append({'path': i['path'], 'name': i['name'], 'size': i['size'], 'modified': round(i['modified']),
+                    'reads_as': (i['parsed'] or {}).get('issue'), 'issueid': m.get('issueid'), 'number': m.get('number')})
+    return out
+
+
+def cover(comicid, name):
+    """The front cover of a file in the series folder (see attention.cover_of), or None."""
+    from mylar import attention
+    comic = _comic(comicid)
+    f = next((f for f in walk(series_dirs(comic)) if f['name'] == name), None) if comic else None
+    return attention.cover_of(f['path']) if f else None
 
 
 def _rescan(comicid):
