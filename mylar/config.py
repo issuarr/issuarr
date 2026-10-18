@@ -416,6 +416,8 @@ _CONFIG_DEFINITIONS = OrderedDict({
     'AIRDCPP_USERNAME': (str, 'DCPP', ""),
     'AIRDCPP_PASSWORD': (str, 'DCPP', ""),
     'AIRDCPP_DOWNLOAD_DIR': (str, 'DCPP', ""),
+    'AIRDCPP_FOLDER_MODE': (str, 'DCPP', 'issuarr'),
+    'AIRDCPP_REMOTE_DIR': (str, 'DCPP', ""),
     'AIRDCPP_HUBS': (str, 'DCPP', ""),
     'AIRDCPP_VERSION': (str, 'DCPP', ""),
     'AIRDCPP_ANNOUNCE_HUB': (str, 'DCPP', ""),

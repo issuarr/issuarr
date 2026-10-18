@@ -95,6 +95,7 @@ class carePackage(object):
                             ('DDL', 'jd2_url'),
                             ('DCPP', 'airdcpp_host'),
                             ('DCPP', 'airdcpp_download_dir'),
+                            ('DCPP', 'airdcpp_remote_dir'),
                             ('DCPP', 'airdcpp_hubs'),
                             ('DCPP', 'airdcpp_announce_hub'),
                             ('DCPP', 'airdcpp_announce_bots')

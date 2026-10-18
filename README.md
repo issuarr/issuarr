@@ -200,6 +200,7 @@ Issuarr marks the missing issues of new series *Wanted* and starts searching. Wa
 - [Moving from Mylar3 to Issuarr](docs/MIGRATING.md): switching an existing install, where pages moved, and changing library paths.
 - [Installing on Unraid](docs/UNRAID.md): the Unraid template, paths and switching from Mylar3.
 - [Using JDownloader 2](docs/JDOWNLOADER2.md) for direct-download mirror links.
+- [Using AirDC++](docs/AIRDCPP.md) to grab from Direct Connect hubs, including when AirDC++ sees folders under different paths.
 - [Troubleshooting](docs/TROUBLESHOOTING.md): database locking, tagging failures, moved libraries.
 - [docs/API.md](docs/API.md) for the web API.
 

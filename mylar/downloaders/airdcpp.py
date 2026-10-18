@@ -316,14 +316,8 @@ class AirDCPP(object):
         check_interval (int): Time between checks in seconds
 
         Returns:
-        bool: True if download is complete, False otherwise
+        dict: The bundle data once AirDC++ reports it complete, or None
         """
-        if mylar.CONFIG.AIRDCPP_DOWNLOAD_DIR:
-            dl_location = mylar.CONFIG.AIRDCPP_DOWNLOAD_DIR
-        else:
-            dl_location = os.path.join(mylar.CONFIG.DDL_LOCATION, 'airdcc')
-
-        filepath = os.path.join(dl_location, filename)
         start_time = time.time()
 
         logger.info(f"[AIRDCPP] Checking download status for {filename}")
@@ -341,13 +335,7 @@ class AirDCPP(object):
                     status = bundle_data.get('status', {})
                     if status.get('completed', False):
                         logger.info(f"[AIRDCPP] Download reported as completed by API")
-                        if os.path.exists(filepath):
-                            final_size = os.path.getsize(filepath)
-                            logger.info(f"[AIRDCPP] Download complete: {filename} ({final_size / (1024 * 1024):.2f} MB)")
-                            return True
-                        else:
-                            logger.warn(f"[AIRDCPP] Download completed but file not found: {filepath}")
-                            return False
+                        return bundle_data
 
                     downloaded = bundle_data.get('downloaded_bytes', 0)
                     total = bundle_data.get('size', 0)
@@ -364,7 +352,7 @@ class AirDCPP(object):
             time.sleep(check_interval)
 
         logger.warn(f"[AIRDCPP] Download timeout for {filename} after {max_wait/60:.2f} minutes")
-        return False
+        return None
 
     def download(self, link, filename, id, issueid=None, site=None, search_instance_id=None):
         """
@@ -383,14 +371,14 @@ class AirDCPP(object):
         """
         logger.info(f"[AIRDCPP] Attempting to download {filename} with TTH: {link}")
 
-        if mylar.CONFIG.AIRDCPP_DOWNLOAD_DIR:
-            dl_location = mylar.CONFIG.AIRDCPP_DOWNLOAD_DIR
-        else:
-            dl_location = os.path.join(mylar.CONFIG.DDL_LOCATION, 'airdcpp')
+        own_folder = use_own_folder()
+        dl_location = download_location()
 
-        dl_location = dl_location.replace('\\', '/')  # Convert Windows backslashes to forward slashes
-        if not dl_location.endswith('/'):
-            dl_location += '/'
+        if own_folder and not os.path.isdir(dl_location):
+            # AirDC++ writes here, so Issuarr must not create an empty look-alike that hides a wrong path
+            logger.warn('[ABORTING] AirDC++ is set to use its own download folder, but Issuarr can\'t see it at %s. '
+                        'Set the download folder to where AirDC++\'s download folder is from Issuarr\'s side.' % dl_location)
+            return {"success": False, "filename": filename, "path": None}
 
         if not os.path.isdir(dl_location):
             checkdirectory = mylar.filechecker.validateAndCreateDirectory(dl_location, True)
@@ -404,10 +392,11 @@ class AirDCPP(object):
                 search_instance_id = self.current_search_instance_id
 
             payload = {
-                "target_directory": dl_location,
                 "target_name": filename,
                 "priority": 4
             }
+            if not own_folder:
+                payload["target_directory"] = dl_location
 
             # Send the download request with the search instance and TTH as result_id
             # The TTH hash is used directly as the result_id
@@ -435,10 +424,13 @@ class AirDCPP(object):
                 return {"success": False, "filename": filename, "path": None}
 
             # Check for download completion using bundle ID
-            download_complete = self.check_download_complete(bundle_id, filename)
+            bundle_data = self.check_download_complete(bundle_id, filename)
 
-            if download_complete:
-                filepath = os.path.join(dl_location, filename)
+            if bundle_data:
+                if own_folder:
+                    filepath = local_path(bundle_data.get('target'), mylar.CONFIG.AIRDCPP_REMOTE_DIR, dl_location, filename)
+                else:
+                    filepath = os.path.join(dl_location, filename)
                 if os.path.exists(filepath):
                     # If the file exists, the download was successful
                     logger.info(f"[AIRDCPP] Download completed successfully: {filepath}")
@@ -447,7 +439,7 @@ class AirDCPP(object):
                     if issueid:
                         file, ext = os.path.splitext(filename)
                         new_filename = f"{file}[__{issueid}__]{ext}"
-                        new_filepath = os.path.join(dl_location, new_filename)
+                        new_filepath = os.path.join(os.path.dirname(filepath), new_filename)
                         try:
                             os.rename(filepath, new_filepath)
                             filepath = new_filepath
@@ -536,6 +528,55 @@ class AirDCPP(object):
         else:
             logger.error(f"[AIRDCPP][RSS] No results returned for TTH search: {tth_hash}")
             return {"success": False, "filename": filename, "path": None}
+
+
+def use_own_folder():
+    """True when AirDC++ picks the download folder instead of Issuarr sending one."""
+    return getattr(mylar.CONFIG, 'AIRDCPP_FOLDER_MODE', 'issuarr') == 'airdcpp'
+
+
+def download_location():
+    """The AirDC++ download folder as Issuarr sees it, ending in '/'."""
+    if mylar.CONFIG.AIRDCPP_DOWNLOAD_DIR:
+        dl_location = mylar.CONFIG.AIRDCPP_DOWNLOAD_DIR
+    else:
+        dl_location = os.path.join(mylar.CONFIG.DDL_LOCATION, 'airdcpp')
+
+    dl_location = dl_location.replace('\\', '/')  # Convert Windows backslashes to forward slashes
+    if not dl_location.endswith('/'):
+        dl_location += '/'
+    return dl_location
+
+
+def local_path(target, remote_dir, local_dir, filename):
+    """
+    Where Issuarr finds a file AirDC++ saved in its own download folder.
+
+    target is the path AirDC++ reports for the finished bundle, as AirDC++ sees it.
+    When it sits under remote_dir (AirDC++'s download folder as AirDC++ sees it), that
+    part is swapped for local_dir so subfolders are kept. Otherwise the file is looked
+    for directly in local_dir.
+    """
+    local_dir = local_dir.replace('\\', '/').rstrip('/') + '/'
+    if not target:
+        return local_dir + filename
+
+    target = target.replace('\\', '/')
+    if remote_dir:
+        remote = remote_dir.replace('\\', '/').rstrip('/') + '/'
+        # Windows paths compare without case, and a drive letter is the giveaway
+        windows = re.match(r'^[A-Za-z]:/', remote) is not None
+        if (target.lower() if windows else target).startswith(remote.lower() if windows else remote):
+            rest = target[len(remote):]
+            if rest.endswith('/'):
+                # a directory bundle: the file is inside it
+                rest += filename
+            return local_dir + rest
+
+    name = target.rstrip('/').rsplit('/', 1)[-1]
+    if target.endswith('/'):
+        return local_dir + name + '/' + filename
+    return local_dir + name
 
 
 if __name__ == '__main__':

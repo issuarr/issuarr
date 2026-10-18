@@ -584,7 +584,11 @@
                 ${field('airdcpp_host', 'Address', config['airdcpp_host'], id='airdcpp_host', placeholder='http://localhost:5600')}
                 ${field('airdcpp_username', 'User name', config['airdcpp_username'], id='airdcpp_username')}
                 ${field('airdcpp_password', 'Password', config['airdcpp_password'], id='airdcpp_password', type='password', attrs='autocomplete="new-password"')}
-                ${field('airdcpp_download_dir', 'Download folder', config['airdcpp_download_dir'], id='airdcpp_download_dir')}
+                ${select('airdcpp_folder_mode', 'Where downloads go', [('issuarr', 'Issuarr sends the download folder'), ('airdcpp', 'AirDC++ uses its own download folder')], config['airdcpp_folder_mode'], id='airdcpp_folder_mode', help='Pick AirDC++\'s own folder when the two programs see folders under different paths, such as Docker or Windows.')}
+                ${field('airdcpp_download_dir', 'Download folder', config['airdcpp_download_dir'], id='airdcpp_download_dir', help='As Issuarr sees it. With AirDC++\'s own folder, this is that folder from Issuarr\'s side.')}
+                <div id="airdcpp_own_folder">
+                ${field('airdcpp_remote_dir', 'AirDC++ download folder, as AirDC++ sees it', config['airdcpp_remote_dir'], id='airdcpp_remote_dir', placeholder='/downloads', help='Optional. Lets Issuarr swap AirDC++\'s path for its own, so files in subfolders are found too.')}
+                </div>
                 ${field('airdcpp_hubs', 'Hubs to search', config['airdcpp_hubs'], id='airdcpp_hubs', help='Comma-separated. Leave empty for all hubs.')}
                 ${field('airdcpp_announce_hub', 'Announcement hub', config['airdcpp_announce_hub'], id='airdcpp_announce_hub', help='One hub, as address:port, to watch for new releases the way an RSS feed would.')}
                 ${field('airdcpp_announce_bots', 'Announcement bots', config['airdcpp_announce_bots'], id='airdcpp_announce_bots', help='Nicknames whose announcements are read.')}
@@ -1218,6 +1222,19 @@ else
 {
     $("#airdcpp_options").hide();
 }
+
+function airdcppfolder(){
+    if ($("#airdcpp_folder_mode").val() == 'airdcpp')
+    {
+        $("#airdcpp_own_folder").show();
+    }
+    else
+    {
+        $("#airdcpp_own_folder").hide();
+    }
+}
+airdcppfolder();
+$("#airdcpp_folder_mode").change(airdcppfolder);
 
 $("#enable_airdcpp").click(function(){
     if ($("#enable_airdcpp").is(":checked"))
