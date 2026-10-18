@@ -17,6 +17,12 @@
                 <p><input type="submit" value="Remove series" /></p>
             </form>
         </div>
+        <dialog id="match-dialog" class="match-dialog" aria-labelledby="match-title">
+            <h2 id="match-title">Match files</h2>
+            <p id="match-intro" class="match-intro"></p>
+            <div id="match-body" class="match-body"></div>
+            <div class="match-actions"><button type="button" class="btn" data-close>Close</button></div>
+        </dialog>
         <input type="hidden" name="meta_enabled" id="meta_enabled" value="${mylar.CONFIG.ENABLE_META}" />
         <input type="hidden" name="meta_cbr2cbz" id="meta_cbr2cbz" value="${mylar.CONFIG.CBR2CBZ_ONLY}" />
         <input type="hidden" name="rename_enabled" id="rename_enabled" value="${mylar.CONFIG.RENAME_FILES}" />
@@ -125,6 +131,7 @@
                             <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" aria-hidden="true"><path d="M5 12h.01M12 12h.01M19 12h.01"/></svg>
                         </summary>
                         <div class="menu-list">
+                            <button type="button" class="btn btn-ghost" title="Choose which issue each file in the series folder is" onclick="IssuarrMatch.open('${comic['ComicID'] | h}');">Match files…</button>
                             % if mylar.CONFIG.RENAME_FILES:
                             <a class="btn btn-ghost" href="previewRename?comicid=${comic['ComicID'] | u}" title="See the new file names, then rename">Rename files…</a>
                             % endif
@@ -502,6 +509,7 @@
         <script src="js/libs/jquery.jeditable.js"></script>
         <script src="js/libs/full_numbers_no_ellipses.js"></script>
         <script src="js/libs/dataTables.rowGroup.min.js"></script>
+        <script src="js/matching.js?v=${mylar.CURRENT_VERSION}"></script>
         <style>
         .ui-autocomplete-loading {
           background: white url('images/loader_black.gif') right center no-repeat;
@@ -548,6 +556,7 @@
             } else {
                 first = main('manqueueit', 'Search now', 'Search for this issue now');
             }
+            if (!p) more.push(item('matchfile', 'Match a file…', 'Choose which file in the series folder is this issue'));
             more.push('<a id="' + p + 'listbox" name="' + p + 'listbox" href="#issue-box" class="btn btn-ghost issue-window" title="Details read from ComicVine or the file">Issue details</a>');
             return '<span class="issue-acts">' + first + '<details class="menu row-menu"><summary class="btn btn-sm btn-ghost" aria-label="More for #' + escHtml(full[0]) + '">⋯</summary>' +
                    '<div class="menu-list">' + more.join('') + '</div></details></span>';
@@ -692,6 +701,8 @@
                 runMetaIssue(issueid);
                 document.getElementById("issue-box").style.display = "block";
                 $("#issue-box").draggable();
+            } else if (action == 'matchfile'){
+                IssuarrMatch.open(comicid, issueid);
             } else if (action == 'metatag' || action == 'ametatag'){
                 run_single_metatag(issueid, comicid, issuenumber);
             } else if (action == 'readlistadd'){

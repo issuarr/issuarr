@@ -30,6 +30,10 @@ The warning `Failed to convert cbr to cbz - check permissions on folder ...` is 
 
 Issuarr stores the full path of every series folder. If the library now has a different path (a new machine, a new Docker volume path, Windows to Linux), see [Moving to a new machine or new paths](MIGRATING.md#moving-to-a-new-machine-or-new-paths).
 
+## A file is matched to the wrong issue, or not at all
+
+**Recheck files** matches each file in a series folder by its name, and when the name doesn't say which issue it is, by the ComicVine issue ID in its tags. When that still gets it wrong, open the series and choose **Match files…** from the series menu (the ⋯ button), or **Match a file…** from an issue's own ⋯ menu, and pick the issue. Each file's own cover is shown next to the issue's ComicVine cover so you can compare them, and the search box narrows the list by file name, issue number or title. Files in **Downloads > Needs attention** that look like the series are listed too, and picking an issue for one files it. Issuarr keeps a match through later rechecks until you press **Undo** or the file is removed.
+
 ## Importing comics that aren't in your library yet
 
 Use **Tools > Import & scan**. See [Bringing in comics Mylar never knew about](MIGRATING.md#bringing-in-comics-mylar-never-knew-about) for the options.

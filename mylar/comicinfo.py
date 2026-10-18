@@ -50,6 +50,25 @@ def read_raw(path):
     return None
 
 
+# Where tagged files keep their ComicVine issue ID: the notes ComicTagger writes ("[Issue ID 123]"),
+# the [CVDB123] form, and the ComicVine page link.
+_CV_NOTES = re.compile(r'\[(?:Issue ID |CVDB)(\d+)\]', re.I)
+_CV_WEB = re.compile(r'comicvine\.gamespot\.com/[^\s]*?/4000-(\d+)', re.I)
+
+
+def cv_issue_id(path):
+    """The ComicVine issue ID a tagged file says it is, or None."""
+    raw = read_raw(path)
+    if raw is None:
+        return None
+    try:
+        root = ET.fromstring(raw)
+    except ET.ParseError:
+        return None
+    m = _CV_NOTES.search(root.findtext('Notes') or '') or _CV_WEB.search(root.findtext('Web') or '')
+    return m.group(1) if m else None
+
+
 def _decode(raw):
     if raw.startswith((b'\xff\xfe', b'\xfe\xff')):
         return raw.decode('utf-16'), 'utf-16'

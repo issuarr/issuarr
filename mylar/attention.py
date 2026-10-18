@@ -494,6 +494,12 @@ def file_cover(path):
     gets a fresh one."""
     if not _known(path):
         return None
+    return cover_of(path)
+
+
+def cover_of(path):
+    """The front cover inside any comic file, as a cached JPEG path, BUSY, or None. Callers check
+    the file is one they may show."""
     try:
         st = os.stat(path)
     except OSError:
