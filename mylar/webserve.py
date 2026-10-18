@@ -7768,7 +7768,6 @@ class WebInterface(object):
                     "setdefaultvolume": helpers.checked(mylar.CONFIG.SETDEFAULTVOLUME),
                     "cmtagger_path": mylar.CONFIG.CMTAGGER_PATH,
                     "ct_tag_cr": helpers.checked(mylar.CONFIG.CT_TAG_CR),
-                    "ct_tag_cbl": helpers.checked(mylar.CONFIG.CT_TAG_CBL),
                     "ct_cbz_overwrite": helpers.checked(mylar.CONFIG.CT_CBZ_OVERWRITE),
                     "ct_tag_mode": ct_tag_mode(),
                     "cmtag_volume": helpers.checked(mylar.CONFIG.CMTAG_VOLUME),
@@ -8998,7 +8997,7 @@ class WebInterface(object):
 
             metaresponse = cmtagmylar.run(dirName, issueid=issueid, filename=filename, comversion=vol_label, manualmeta=True, readingorder=readingorder, agerating=agerating)
         except ImportError:
-            logger.warn(module + ' comictaggerlib not found on system. Ensure the ENTIRE lib directory is located within mylar/lib/comictaggerlib/ directory.')
+            logger.warn(module + ' unable to load the tagging module.')
             metaresponse = "fail"
 
         if metaresponse == "fail":
