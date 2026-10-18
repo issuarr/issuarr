@@ -54,10 +54,10 @@ def grab(target, make_file=None):
 def test_default_mode_still_sends_the_download_folder(monkeypatch, tmp_path):
     configure(monkeypatch, tmp_path)
     payload, result = grab(None, lambda: (tmp_path / 'Batman 001 (2020).cbz').write_bytes(b'x'))
-    assert payload['target_directory'] == str(tmp_path) + '/'
+    assert payload['target_directory'] == tmp_path.as_posix() + '/'
     assert payload['target_name'] == 'Batman 001 (2020).cbz'
     assert result['success'] is True
-    assert result['path'] == str(tmp_path) + '/Batman 001 (2020)[__555__].cbz'
+    assert result['path'] == tmp_path.as_posix() + '/Batman 001 (2020)[__555__].cbz'
 
 
 @pytest.mark.unit
@@ -69,7 +69,7 @@ def test_own_folder_mode_leaves_the_folder_to_airdcpp_and_maps_its_path(monkeypa
     assert 'target_directory' not in payload
     assert payload['target_name'] == 'Batman 001 (2020).cbz'
     assert result['success'] is True
-    assert result['path'] == str(tmp_path) + '/Comics/Batman 001 (2020)[__555__].cbz'
+    assert result['path'] == tmp_path.as_posix() + '/Comics/Batman 001 (2020)[__555__].cbz'
 
 
 @pytest.mark.unit

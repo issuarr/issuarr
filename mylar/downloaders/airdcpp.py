@@ -439,7 +439,8 @@ class AirDCPP(object):
                     if issueid:
                         file, ext = os.path.splitext(filename)
                         new_filename = f"{file}[__{issueid}__]{ext}"
-                        new_filepath = os.path.join(os.path.dirname(filepath), new_filename)
+                        # keep the folder part exactly as it was, slashes included
+                        new_filepath = filepath[:len(filepath) - len(os.path.basename(filepath))] + new_filename
                         try:
                             os.rename(filepath, new_filepath)
                             filepath = new_filepath
