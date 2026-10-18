@@ -2171,8 +2171,10 @@ class WebInterface(object):
         raise cherrypy.HTTPRedirect("comicDetails?ComicID=%s" % ComicID)
     resumeSeries.exposed = True
 
-    def deleteSeries(self, ComicID, delete_dir=None):
+    def deleteSeries(self, ComicID, delete_dir=None, ajax=None):
+        # ajax=1 (the Ledger page) gets a JSON answer instead of a redirect to the home page.
         myDB = db.DBConnection()
+        deleted = False
         comic = myDB.selectone('SELECT * from comics WHERE ComicID=?', [ComicID]).fetchone()
         try:
             if comic['ComicName'] is None:
@@ -2215,6 +2217,10 @@ class WebInterface(object):
                 dspline = '%s %s (%s)' % (ComicName, seriesvol, seriesyear)
             logger.info('Successful deletion of %s from your watchlist' % (dspline))
             helpers.ComicSort(sequence='update')
+            deleted = True
+        if ajax:
+            cherrypy.response.headers['Content-Type'] = 'application/json'
+            return json.dumps({'ok': deleted})
         raise cherrypy.HTTPRedirect("home")
     deleteSeries.exposed = True
 
@@ -4912,7 +4918,10 @@ class WebInterface(object):
         cherrypy.response.headers['Content-Type'] = 'application/json'
         if view == 'collected':
             return json.dumps(ledger.collected_data())
-        return json.dumps(ledger.missing_data(mylar.CONFIG.LEDGER_CUTOFF or None))
+        d = ledger.missing_data(mylar.CONFIG.LEDGER_CUTOFF or None)
+        # Same default as the series page's Remove series dialog.
+        d['delete_dir'] = bool(mylar.CONFIG.DELETE_REMOVE_DIR)
+        return json.dumps(d)
     ledger_data.exposed = True
 
     def ledger_build(self, force=0, **kwargs):

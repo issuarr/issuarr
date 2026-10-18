@@ -11,7 +11,7 @@
 
   var st = {
     tab: 'missing', by: 'issue', kinds: { missing: [0], collected: [0, 1] }, q: '', pub: '', dec: '',
-    sort: null, limit: 300, sel: {}, open: {}, status: ''
+    sort: null, limit: 300, sel: {}, open: {}, status: '', del: null
   };
   try { var saved = JSON.parse(localStorage.getItem('mylar-ledger') || 'null'); if (saved) { st.tab = saved.tab || st.tab; st.kinds = saved.kinds || st.kinds; st.by = saved.by || st.by; } } catch (e) {}
   function save() { try { localStorage.setItem('mylar-ledger', JSON.stringify({ tab: st.tab, kinds: st.kinds, by: st.by })); } catch (e) {} }
@@ -145,7 +145,7 @@
   // The sidebar opens this page as Ledger (no hash) or Library > Trades (#trades).
   function tabFromHash() { return location.hash === '#trades' ? 'collected' : 'missing'; }
   function setTab(t) {
-    st.tab = t; st.sel = {}; st.limit = 300; st.sort = null; save();
+    st.tab = t; st.sel = {}; st.del = null; st.limit = 300; st.sort = null; save();
     $id('lg-tab-missing').setAttribute('aria-selected', t === 'missing');
     $id('lg-tab-collected').setAttribute('aria-selected', t === 'collected');
     if (tabFromHash() !== t) history.replaceState(null, '', t === 'collected' ? '#trades' : location.pathname + location.search);
@@ -162,7 +162,7 @@
   }
   $('#lg-tab-missing').on('click', function () { setTab('missing'); });
   $('#lg-tab-collected').on('click', function () { setTab('collected'); });
-  function setBy(b) { st.by = b; st.sort = null; st.limit = 300; save(); $id('lg-by-issue').setAttribute('aria-pressed', b === 'issue'); $id('lg-by-series').setAttribute('aria-pressed', b === 'series'); render(); }
+  function setBy(b) { st.by = b; st.del = null; st.sort = null; st.limit = 300; save(); $id('lg-by-issue').setAttribute('aria-pressed', b === 'issue'); $id('lg-by-series').setAttribute('aria-pressed', b === 'series'); render(); }
   $('#lg-by-issue').on('click', function () { setBy('issue'); });
   $('#lg-by-series').on('click', function () { setBy('series'); });
 
@@ -173,7 +173,7 @@
     }).join('') + '</tr>');
   }
   $('#lg-table').on('click', 'th[data-key]', function () {
-    var k = this.getAttribute('data-key'); if (k === 'mix' || k === 'lack') return;
+    var k = this.getAttribute('data-key'); if (k === 'mix' || k === 'lack' || k === 'del') return;
     st.sort = st.sort && st.sort.key === k ? { key: k, dir: -st.sort.dir } : { key: k, dir: ['miss', 'own', 'w', 'found', 'lacking'].indexOf(k) >= 0 ? -1 : 1 };
     render();
   });
@@ -279,7 +279,7 @@
     });
     var list = Object.keys(g).map(function (k) { var x = g[k], S = M.series[x.s]; x.series = S[0].toLowerCase(); x.pub = M.pubs[S[4]]; x.own = S[2] / (S[3] || 1); x.total = x.p[0] + x.p[1] + x.p[2] + x.none; x.miss = x.total * 1e6 + x.p[1]; x.tr = -(S[6] || []).length; return x; });
     list.sort(function (a, b) { return s.dir * cmp(a[s.key], b[s.key]) || cmp(a.series, b.series); });
-    head([['series', 'Series'], ['mix', 'Collection'], ['own', 'Owned', 'num'], ['miss', 'Missing <small class="lg-dim">before / gap / after</small>', 'num'], ['w', 'Wanted', 'num'], ['tr', 'Trades']], true);
+    head([['series', 'Series'], ['mix', 'Collection'], ['own', 'Owned', 'num'], ['miss', 'Missing <small class="lg-dim">before / gap / after</small>', 'num'], ['w', 'Wanted', 'num'], ['tr', 'Trades'], ['del', '<span class="sr-only">Remove</span>', 'lg-del']], true);
     var page = list.slice(0, st.limit);
     $('#lg-table tbody').html(page.length ? page.map(function (x) {
       var S = M.series[x.s], all = x.ids.every(function (i) { return st.sel[i]; });
@@ -289,12 +289,31 @@
         '<td class="lg-cbar-cell">' + runsBar(S[7]) + '</td>' +
         '<td class="num lg-mono">' + S[2] + ' / ' + S[3] + '</td><td class="num lg-mono">' + missCell(x) + '</td>' +
         '<td class="num lg-mono is-wanted">' + (x.w || '') + '</td>' +
-        '<td class="lg-trades">' + seriesTrades(S[6]) + '</td></tr>';
+        '<td class="lg-trades">' + seriesTrades(S[6]) + '</td>' +
+        '<td class="lg-del"><button type="button" class="btn btn-sm btn-ghost" data-del="' + x.s + '" aria-expanded="' + (st.del === String(x.s)) + '" title="Remove this series from Issuarr">Remove…</button></td></tr>' +
+        (st.del === String(x.s) ? delRow(S) : '');
     }).join('') : '<tr><td class="lg-empty" colspan="9">No series match these filters.</td></tr>');
     countLine(Math.min(st.limit, list.length), list.length, 'series', sf.wanted);
     $id('lg-more').hidden = list.length <= st.limit;
-    $id('lg-note').textContent = KEYS + ' Selecting a series selects all of its missing issues that match the filters.';
+    $id('lg-note').textContent = KEYS + ' Selecting a series selects all of its missing issues that match the filters. Remove… takes a series out of Issuarr, the same as Remove series on its page.';
   }
+
+  // Same choices as the series page's Remove series dialog; the files box starts from the Delete directory setting.
+  function delRow(S) {
+    return '<tr class="lg-sub-row"><td></td><td colspan="7"><div class="lg-confirm">Remove <b>' + esc(S[0]) + ' (' + esc(S[1]) + ')</b> and its issue list from Issuarr? ' +
+      '<label class="lg-del-files"><input type="checkbox" id="lg-del-files"' + (M.delete_dir ? ' checked' : '') + '> Also delete the series folder and its files</label><br>' +
+      '<button type="button" class="btn btn-sm btn-danger" data-delgo="' + S[5] + '">Remove series</button><button type="button" class="btn btn-sm btn-ghost" data-delcancel>Cancel</button></div></td></tr>';
+  }
+  $('#lg-table').on('click', '[data-del]', function () { var k = this.getAttribute('data-del'); st.del = st.del === k ? null : k; render(); });
+  $('#lg-table').on('click', '[data-delcancel]', function () { st.del = null; render(); });
+  $('#lg-table').on('click', '[data-delgo]', function () {
+    var box = $(this).closest('.lg-confirm');
+    box.find('button, input').prop('disabled', true);
+    $.post('deleteSeries', { ComicID: this.getAttribute('data-delgo'), delete_dir: $id('lg-del-files').checked ? 1 : '', ajax: 1 }, function (r) {
+      if (!r.ok) { box.find('button, input').prop('disabled', false); box.append('<br><small>Issuarr couldn\'t remove this series. Check the log.</small>'); return; }
+      st.del = null; reload();
+    }, 'json').fail(function () { box.find('button, input').prop('disabled', false); box.append('<br><small>Issuarr couldn\'t remove this series. Check the log.</small>'); });
+  });
 
   function missCell(x) {
     if (x.done) return '<span class="lg-pill" style="--c:var(--lg-done)">Complete</span>';
@@ -338,6 +357,7 @@
 
   $('#lg-table').on('click', '[data-open]', function () { var k = this.getAttribute('data-open'); st.open[k] = !st.open[k]; render(); });
   $('#lg-table').on('change', 'input[type=checkbox]', function () {
+    if (this.id === 'lg-del-files') return;
     if (this.id === 'lg-all') {
       var on = this.checked;
       $('#lg-table tbody input[type=checkbox]').each(function () { ids(this).forEach(function (i) { if (on) st.sel[i] = 1; else delete st.sel[i]; }); });
