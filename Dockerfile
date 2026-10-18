@@ -23,12 +23,15 @@ RUN \
   apt-get install -y --no-install-recommends \
     build-essential \
     libffi-dev \
+    libicu-dev \
     libjpeg9-dev \
     libwebp-dev \
+    pkg-config \
     python3-dev \
     zlib1g-dev && \
   echo "**** install runtime packages ****" && \
   apt-get install -y --no-install-recommends \
+    libicu70 \
     libjpeg9 \
     nodejs \
     python3-venv \
@@ -45,8 +48,10 @@ RUN \
   apt-get -y purge \
     build-essential \
     libffi-dev \
+    libicu-dev \
     libjpeg9-dev \
     libwebp-dev \
+    pkg-config \
     python3-dev \
     zlib1g-dev && \
   apt-get -y autoremove && \

@@ -710,7 +710,7 @@
         </section>
 
         <section class="set-group" aria-labelledby="sg-meta">
-            <div class="set-group-head"><h2 id="sg-meta">Metadata</h2><p>Uses the built-in copy of ComicTagger. With a ComicVine API key set, each kind of tag written uses more API requests.</p></div>
+            <div class="set-group-head"><h2 id="sg-meta">Metadata</h2><p>Uses ComicTagger to write ComicInfo.xml into each file. Each tagged issue uses ComicVine API requests.</p></div>
             <div class="set-row set-tog">
                 <label class="set-label" for="cbr2cbz_only"><b>Convert CBR to CBZ</b><span id="cbr2cbz_section" style="display:none;"><span id="cbr2cbz_blurb"></span></span></label>
                 <% cbr2cbz_config = int(mylar.CONFIG.CBR2CBZ_ONLY) %>
@@ -721,7 +721,6 @@
             <div class="set-sub">
                 <div id="metataggingoptions">
                     ${toggle('ct_tag_cr', 'ComicRack tags (ComicInfo.xml)', config['ct_tag_cr'])}
-                    ${toggle('ct_tag_cbl', 'ComicBookLover tags (zip comment)', config['ct_tag_cbl'], id='ct_tag_cbl', attrs='disabled', help='Not recommended.')}
                     ${select('ct_tag_mode', 'When a file already has tags', [('fill', 'Fill in missing tags, keep every existing value'), ('skip', 'Leave the file\'s tags alone'), ('overwrite', 'Overwrite them with ComicVine data')], config['ct_tag_mode'],
                              help='Fill and overwrite both keep fields ComicTagger can\'t write, such as Pages, Tags and GTIN.')}
                     <div class="set-row">
@@ -1434,22 +1433,6 @@ $("#enable_airdcpp").click(function(){
 
                         }
                 });
-                if ($("#ct_tag_cbl").is(":checked"))
-                        {
-                            document.getElementById("ct_tag_cbl").removeAttribute("disabled");
-                        }
-                else
-                        {
-                            document.getElementById("ct_tag_cbl").setAttribute("disabled", "disabled");
-                        }
-
-                $("#ct_tag_cbl").click(function(){
-                    if (!$("#ct_tag_cbl").checked)
-                    {
-                        document.getElementById("ct_tag_cbl").setAttribute("disabled", "disabled");
-                    }
-                });
-
                 if ($("#cmtag_volume").is(":checked"))
                         {
                                 $("#volumetag_options").slideDown();

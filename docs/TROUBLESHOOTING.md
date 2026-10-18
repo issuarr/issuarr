@@ -24,7 +24,7 @@ The warning `Failed to convert cbr to cbz - check permissions on folder ...` is 
 - **unrar.** cbr files are RAR archives and need `unrar`. The Docker image includes it. On a source install, check that `unrar` runs from the same user and `PATH` Issuarr uses.
 - **The cache folder.** By default it is `cache` in the data folder (`/config/mylar/cache` in Docker), or whatever `cache_dir` in `config.ini` says. A `config.ini` restored from another machine can point `cache_dir` at a path that doesn't exist or isn't writable here. The user Issuarr runs as (`PUID`/`PGID` in Docker) must be able to create and delete folders there. If it is on a network share, try a local folder.
 - **The library folder.** Issuarr writes the tagged file into the series folder, so it needs write access to the folder, not only to the file.
-- **The file itself.** `file is not expected size` or `Failed the read` in the log means the archive is damaged or incomplete. Issuarr marks it as bad and doesn't file it.
+- **The file itself.** When ComicTagger can't read the archive because it is damaged or incomplete (a CRC error or a truncated file), Issuarr marks it as bad and doesn't file it. A file that isn't a comic archive at all is filed untagged.
 
 ## A series' files aren't found after moving
 

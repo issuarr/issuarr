@@ -48,7 +48,7 @@ New issues of the series you follow arrive the same way, week after week.
 - Manual post-processing for a folder of files you drop in yourself.
 
 ### Metadata
-- Writes ComicInfo.xml into each file using a built-in copy of [ComicTagger](https://github.com/comictagger/comictagger). Readers such as Komga, Kavita and ComicRack use it to show titles, credits, story arcs and more.
+- Writes ComicInfo.xml into each file using [ComicTagger](https://github.com/comictagger/comictagger) 1.6. Readers such as Komga, Kavita and ComicRack use it to show titles, credits, story arcs and more.
 - **Fill mode (default)** writes every field ComicVine has but never overwrites a value already in the file, so your hand-made corrections stay put. Skip and overwrite modes are available too.
 - Optional conversion of cbr to cbz during tagging.
 - series.json files for third-party apps.
@@ -79,7 +79,7 @@ New issues of the series you follow arrive the same way, week after week.
 ## Requirements
 
 - A free **ComicVine API key**, from [comicvine.gamespot.com/api](https://comicvine.gamespot.com/api/). Issuarr can't look up series without one.
-- **Docker**, or **Python 3** with `unrar` installed (needed to read cbr files).
+- **Docker**, or **Python 3.10 or newer** with `unrar` installed (needed to read cbr files). On Linux and macOS, `pip` also needs the ICU headers to build PyICU, which ComicTagger uses: `libicu-dev` and `pkg-config` on Debian and Ubuntu, `icu4c` and `pkg-config` from Homebrew on macOS.
 - At least one place to download from: a Newznab indexer plus SABnzbd or NZBGet, a Torznab indexer plus a torrent client, or GetComics direct download.
 - Optional: FlareSolverr (for GetComics) and JDownloader 2 (for mirror links).
 

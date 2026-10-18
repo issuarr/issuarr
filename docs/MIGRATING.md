@@ -153,6 +153,9 @@ Settings were reworded, but each one is the same `config.ini` key as before, so 
 - **GetComics searches** now also look for packs and series-and-year posts, so issues that only exist inside a pack can be found.
 - **Notifications say Issuarr.** Snatch, download and tagging-error messages say Issuarr instead of Mylar, and Discord posts appear under the name Issuarr. If you filter or route notifications by the word "Mylar", update those rules.
 - **The publisher imprints list comes from Issuarr.** The list that maps imprints such as Vertigo to their parent publisher now ships with Issuarr and updates from Issuarr's repository instead of Mylar's site. Your existing `cache/imprints.json` keeps working, and a new install gets the list even without a network connection.
+- **Tagging uses ComicTagger 1.6.** Mylar3 shipped its own copy of ComicTagger 1.3.5; Issuarr installs ComicTagger 1.6 instead. Tagging, cbr to cbz conversion and the fill, skip and overwrite modes work as before, and story arc numbers and the notes format are still written. Two things change:
+    - **ComicBookLover tags are gone.** ComicTagger no longer writes them, so the setting was removed. If it was the only kind you had turned on, Issuarr writes ComicRack tags (ComicInfo.xml) instead.
+    - **ComicTagger's own settings start fresh.** It still uses the folder in `ct_settingspath`, but keeps its settings in a new format, so the old `settings` file there is ignored. Issuarr passes your ComicVine key and URL each time, so nothing needs re-entering.
 - **The API is the same, with tighter checks.** Scripts that use your API key keep working unchanged, and the key can now also be sent as an `X-Api-Key` header. The web UI's internal message key no longer works for other commands, and IDs with quotes or spaces in them are now treated as IDs rather than SQL. See [API.md](API.md).
 
 ## Moving to a new machine or new paths

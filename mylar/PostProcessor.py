@@ -2182,7 +2182,7 @@ class PostProcessor(object):
                                         from . import cmtagmylar
                                         metaresponse = cmtagmylar.run(self.nzb_folder, issueid=issueid, comversion=vol_label, filename=ofilename, readingorder=readingorder, agerating=None)
                                     except ImportError:
-                                        logger.warn('%s comictaggerlib not found on system. Ensure the ENTIRE lib directory is located within mylar/lib/comictaggerlib/' % module)
+                                        logger.warn('%s unable to load the tagging module.' % module)
                                         metaresponse = "fail"
 
                                     if metaresponse == "fail":
@@ -2799,7 +2799,7 @@ class PostProcessor(object):
                                 tmp_ppdir = os.path.join(odir, ofilename)
                             metaresponse = cmtagmylar.run(location, issueid=issueid, comversion=vol_label, filename=tmp_ppdir, readingorder=readingorder, agerating=None)
                         except ImportError:
-                            logger.warn('%s comictaggerlib not found on system. Ensure the ENTIRE lib directory is located within mylar/lib/comictaggerlib/' % module)
+                            logger.warn('%s unable to load the tagging module.' % module)
                             metaresponse = "fail"
 
                         if metaresponse == "fail":
@@ -3258,7 +3258,7 @@ class PostProcessor(object):
                         pcheck = cmtagmylar.run(self.nzb_folder, issueid=issueid, comversion=vol_label, manual="yes", filename=ml['ComicLocation'], readingorder=readingorder, agerating=agerating)
 
                 except ImportError:
-                    logger.fdebug('%s comictaggerlib not found on system. Ensure the ENTIRE lib directory is located within mylar/lib/comictaggerlib/' % module)
+                    logger.fdebug('%s unable to load the tagging module.' % module)
                     logger.fdebug('%s continuing with PostProcessing, but I am not using metadata.' % module)
                     pcheck = "fail"
 
