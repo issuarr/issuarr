@@ -9119,11 +9119,10 @@ class WebInterface(object):
             logger.warn('No issues physically exist for me to (re)-tag.')
             return
         
-        if mylar.CONFIG.CV_BATCH_LIMIT_PROTECTION and len(groupinfo) > mylar.CONFIG.CV_BATCH_LIMIT_THRESHOLD:
-            warningMessage = f"CV Batch Limit Protection ({mylar.CONFIG.CV_BATCH_LIMIT_THRESHOLD}) has been triggered trying to tag {len(groupinfo)} issues.  This will likely breach ComicVine API Limits."
-            logger.warn(f"[SERIES-METATAGGER][{comicinfo['ComicName']} ({comicinfo['ComicYear']})] {warningMessage}")
-            mylar.GLOBAL_MESSAGES = {'status': 'failure', 'comicname': cinfo['ComicName'], 'seriesyear': cinfo['ComicYear'], 'comicid': ComicID, 'tables': 'both', 'message': warningMessage}
-            return
+        from . import cmtagmylar
+        if len(groupinfo) > cmtagmylar.HOURLY_TAGS:
+            # tagging keeps under ComicVine's hourly limit itself (cmtagmylar.pace)
+            logger.info(f"[SERIES-METATAGGER][{comicinfo['ComicName']} ({comicinfo['ComicYear']})] Tagging {len(groupinfo)} issues. Issues ComicTagger hasn't cached are paced to stay under ComicVine's hourly limit, so this can take a while.")
         
         issueinfo = []
         for ginfo in groupinfo:
@@ -9169,11 +9168,10 @@ class WebInterface(object):
             logger.warn('No issues physically exist within the series directory for me to (re)-tag.')
             return
 
-        if mylar.CONFIG.CV_BATCH_LIMIT_PROTECTION and len(groupinfo) > mylar.CONFIG.CV_BATCH_LIMIT_THRESHOLD:
-            warningMessage = f"CV Batch Limit Protection ({mylar.CONFIG.CV_BATCH_LIMIT_THRESHOLD}) has been triggered trying to tag {len(groupinfo)} issues.  This will likely breach ComicVine API Limits."
-            logger.warn(f"[SERIES-METATAGGER][{comicinfo['ComicName']} ({comicinfo['ComicYear']})] {warningMessage}")
-            mylar.GLOBAL_MESSAGES = {'status': 'failure', 'comicname': cinfo['ComicName'], 'seriesyear': cinfo['ComicYear'], 'comicid': ComicID, 'tables': 'both', 'message': warningMessage}
-            return
+        from . import cmtagmylar
+        if len(groupinfo) > cmtagmylar.HOURLY_TAGS:
+            # tagging keeps under ComicVine's hourly limit itself (cmtagmylar.pace)
+            logger.info(f"[SERIES-METATAGGER][{comicinfo['ComicName']} ({comicinfo['ComicYear']})] Tagging {len(groupinfo)} issues. Issues ComicTagger hasn't cached are paced to stay under ComicVine's hourly limit, so this can take a while.")
 
         issueinfo = []
         for ginfo in groupinfo:
