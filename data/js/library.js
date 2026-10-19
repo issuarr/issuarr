@@ -24,7 +24,7 @@
     delete: { done: 'Removed', confirm: 'Remove {n} from Issuarr? The series, its issue list and statuses are removed. Files on disk stay where they are.' }
   };
 
-  var st = { all: [], tab: 'all', q: '', pub: '', sort: 'title', view: 'covers', limit: CHUNK, selecting: /[?&]select=1\b/.test(location.search), sel: {}, loaded: false, noArt: {} };
+  var st = { all: [], tab: 'all', q: '', pub: '', sort: 'title', col: null, view: 'covers', limit: CHUNK, selecting: /[?&]select=1\b/.test(location.search), sel: {}, loaded: false, noArt: {} };
   try {
     var saved = JSON.parse(localStorage.getItem(STORE) || 'null');
     if (saved) { st.view = saved.view || st.view; st.sort = saved.sort || st.sort; }
@@ -142,6 +142,24 @@
       missing: function (a, b) { return (b.total - b.have) - (a.total - a.have) || byTitle(a, b); },
       publisher: function (a, b) { return String(a.publisher || '').localeCompare(String(b.publisher || '')) || byTitle(a, b); }
     };
+    if (st.col) {
+      // A column header was clicked: sort by that column, title breaks ties.
+      var col = st.col, num = function (v) { var n = parseFloat(v); return isNaN(n) ? null : n; };
+      var val = {
+        name: function (s) { return String(s.sort || s.name); },
+        publisher: function (s) { return s.publisher || null; },
+        year: function (s) { return num(s.year); },
+        latest: function (s) { return num(s.latest); },
+        status: function (s) { return statusOf(s)[0]; },
+        missing: function (s) { return (s.total || 0) - (s.have || 0); }
+      }[col.key] || function (s) { return String(s.sort || s.name); };
+      return list.sort(function (a, b) {
+        var x = val(a), y = val(b);
+        if (x === null || y === null) return (x === y ? 0 : x === null ? 1 : -1) || byTitle(a, b);
+        var c = typeof x === 'number' ? x - y : String(x).localeCompare(String(y), undefined, { sensitivity: 'base', numeric: true });
+        return col.dir * c || byTitle(a, b);
+      });
+    }
     return list.sort(sorts[st.sort] || byTitle);
   }
 
@@ -312,7 +330,8 @@
     qTimer = setTimeout(function () { st.q = e.target.value.trim(); st.limit = CHUNK; render(); }, 120);
   });
   $id('lib-pub').addEventListener('change', function (e) { st.pub = e.target.value; st.limit = CHUNK; render(); });
-  $id('lib-sort').addEventListener('change', function (e) { st.sort = e.target.value; save(); render(); });
+  $id('lib-sort').addEventListener('change', function (e) { st.sort = e.target.value; st.col = null; I().clearSort($id('lib-table')); save(); render(); });
+  $id('lib-table').addEventListener('issuarr:sort', function (e) { st.col = e.detail; render(); });
   $id('lib-more-rows').addEventListener('click', function () { st.limit += CHUNK; render(); });
   if (window.IntersectionObserver) {
     new IntersectionObserver(function (entries) {

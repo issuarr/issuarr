@@ -172,10 +172,11 @@
   $('#lg-by-issue').on('click', function () { setBy('issue'); });
   $('#lg-by-series').on('click', function () { setBy('series'); });
 
+  // cols: [sort key, label, class, fixed width in px]. Fixed widths keep columns still when the sort flips.
   function head(cols, check) {
     var s = st.sort || {};
     $('#lg-table thead').html('<tr>' + (check ? '<th class="lg-chk"><input type="checkbox" id="lg-all" aria-label="Select all shown"></th>' : '') + cols.map(function (c) {
-      return '<th data-key="' + c[0] + '" class="' + (c[2] || '') + '" aria-sort="' + (s.key === c[0] ? (s.dir > 0 ? 'ascending' : 'descending') : 'none') + '" tabindex="0">' + c[1] + '</th>';
+      return '<th data-key="' + c[0] + '" class="' + (c[2] || '') + '"' + (c[3] ? ' style="width:' + c[3] + 'px"' : '') + ' aria-sort="' + (s.key === c[0] ? (s.dir > 0 ? 'ascending' : 'descending') : 'none') + '" tabindex="0">' + c[1] + '</th>';
     }).join('') + '</tr>');
   }
   $('#lg-table').on('click', 'th[data-key]', function () {
@@ -251,7 +252,7 @@
 
   function renderIssues() {
     var sf = statusFilter(missingRows()), f = sf.rows, s = st.sort || { key: 'k', dir: 1 };
-    head([['k', 'Kind'], ['series', 'Series'], ['n', '#', 'num'], ['t', 'Title'], ['d', 'Released'], ['st', 'Status'], ['tr', 'Trades'], ['own', 'Series owned', 'num']], true);
+    head([['k', 'Kind', '', 190], ['series', 'Series'], ['n', '#', 'num', 80], ['t', 'Title'], ['d', 'Released', '', 130], ['st', 'Status', '', 140], ['tr', 'Trades', '', 250], ['own', 'Series owned', 'num', 140]], true);
     var tv = function (r) { var l = r[8] || []; return l.some(function (i) { return M.trades[i][4]; }) ? 2 : l.length ? 1 : 0; };
     var v = function (r) { var S = M.series[r[1]]; return s.key === 'series' ? S[0].toLowerCase() : s.key === 'own' ? S[2] / (S[3] || 1) : s.key === 'k' ? r[0] : s.key === 'n' ? r[3] : s.key === 't' ? r[4] : s.key === 'd' ? r[5] : s.key === 'tr' ? -tv(r) : r[7]; };
     f.sort(function (a, b) { return s.dir * cmp(v(a), v(b)) || cmp(M.series[a[1]][0], M.series[b[1]][0]) || cmp(a[3], b[3]); });
@@ -285,7 +286,7 @@
     });
     var list = Object.keys(g).map(function (k) { var x = g[k], S = M.series[x.s]; x.series = S[0].toLowerCase(); x.pub = M.pubs[S[4]]; x.own = S[2] / (S[3] || 1); x.total = x.p[0] + x.p[1] + x.p[2] + x.none; x.miss = x.total * 1e6 + x.p[1]; x.tr = -(S[6] || []).length; return x; });
     list.sort(function (a, b) { return s.dir * cmp(a[s.key], b[s.key]) || cmp(a.series, b.series); });
-    head([['series', 'Series'], ['mix', 'Collection'], ['own', 'Owned', 'num'], ['miss', 'Missing <small class="lg-dim">before / gap / after</small>', 'num'], ['w', 'Wanted', 'num'], ['tr', 'Trades']], true);
+    head([['series', 'Series'], ['mix', 'Collection'], ['own', 'Owned', 'num', 120], ['miss', 'Missing <small class="lg-dim">before / gap / after</small>', 'num', 200], ['w', 'Wanted', 'num', 100], ['tr', 'Trades', '', 250]], true);
     // Series picked for Remove series: a complete series by its own tick, any other when all its listed missing issues are selected.
     Object.keys(st.ssel).forEach(function (k) { if (M.complete.indexOf(+k) < 0) delete st.ssel[k]; });
     list.forEach(function (x) { if (!x.done && x.ids.every(function (i) { return st.sel[i]; })) st.ssel[x.s] = 1; });
@@ -325,7 +326,7 @@
     });
     var v = function (t) { return s.key === 'cov' ? CK.indexOf(t.coverage) : s.key === 'name' ? t.name.toLowerCase() : s.key === 'lacking' ? t.lacking.length : s.key === 'found' ? t.own / (t.found || 1) : s.key === 'tstatus' ? t.tstatus : t.collects; };
     f.sort(function (a, b) { return s.dir * cmp(v(a), v(b)) || cmp(a.name, b.name); });
-    head([['cov', 'Coverage'], ['name', 'Trade'], ['collects', 'Collects'], ['found', 'Singles owned', 'num'], ['lacking', 'Covers missing', 'num'], ['tstatus', 'Trade status']], true);
+    head([['cov', 'Coverage', '', 180], ['name', 'Trade'], ['collects', 'Collects'], ['found', 'Singles owned', 'num', 150], ['lacking', 'Covers missing', 'num', 160], ['tstatus', 'Trade status', '', 150]], true);
     var page = f.slice(0, st.limit);
     $('#lg-table tbody').html(page.length ? page.map(function (t) {
       var i = CK.indexOf(t.coverage), open = st.open[t.iid];

@@ -9,11 +9,13 @@
         CLS = {'Wanted': 'is-wanted', 'Snatched': 'is-snatched', 'Failed': 'is-failed', 'Downloaded': 'is-have',
                'Archived': 'is-have', 'Skipped': 'is-idle', 'Ignored': 'is-ignored'}
         def link(**kw):
-            base = {'status': status, 'q': q, 'page': 1}
+            base = {'status': status, 'q': q, 'page': 1, 'sort': sort if sort != 'series' else '', 'dir': dir if dir != 'asc' else ''}
             base.update(kw)
             return 'manageIssues?' + urlencode({k: v for k, v in base.items() if v not in ('', None)})
         first = (page - 1) * per_page + 1 if total else 0
         last = min(page * per_page, total)
+        def aria(key):
+            return ('descending' if dir == 'desc' else 'ascending') if key == sort else 'none'
     %>
     <div class="page manage-issues">
         <div class="page-head">
@@ -49,15 +51,15 @@
             </div>
 
             <div class="dt-wrap">
-                <table class="dt" id="mi-table">
+                <table class="dt" id="mi-table" data-sort="custom" data-sort-url="${link(sort='__sort__', dir='__dir__') | h}">
                     <thead>
                         <tr>
                             <th scope="col" class="check"><input type="checkbox" id="mi-all" aria-label="Select every issue on this page" /></th>
-                            <th scope="col">Series</th>
-                            <th scope="col">Issue</th>
-                            <th scope="col">Cover date</th>
-                            <th scope="col">Store date</th>
-                            <th scope="col">Status</th>
+                            <th scope="col" data-key="series" aria-sort="${aria('series')}">Series</th>
+                            <th scope="col" data-key="issue" aria-sort="${aria('issue')}">Issue</th>
+                            <th scope="col" data-key="cover" data-sort-first="desc" aria-sort="${aria('cover')}">Cover date</th>
+                            <th scope="col" data-key="store" data-sort-first="desc" aria-sort="${aria('store')}">Store date</th>
+                            <th scope="col" data-nosort>Status</th>
                         </tr>
                     </thead>
                     <tbody>
@@ -141,6 +143,10 @@
                     document.querySelectorAll('#mi-bulk button').forEach(function (b) { b.disabled = false; });
                     Issuarr.toast('That didn\'t work. Check the log.', false);
                 });
+        });
+        // The server sorts every issue with this status, so a header click loads page 1 in the new order.
+        document.getElementById('mi-table').addEventListener('issuarr:sort', function (e) {
+            location.href = this.getAttribute('data-sort-url').replace('__sort__', e.detail.key).replace('__dir__', e.detail.dir > 0 ? 'asc' : 'desc');
         });
         document.addEventListener('change', function (e) {
             if (e.target.id === 'mi-all') { boxes().forEach(function (b) { b.checked = e.target.checked; }); render(); }

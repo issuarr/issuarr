@@ -70,7 +70,102 @@
     if (w.state === 'gradual') return 'WebP tonight: ' + num(w.done) + ' of ' + num(w.quota) + (w.why ? ' (waiting while ' + w.why + ')' : '');
     return '';
   }
-  window.Issuarr = { esc: esc, toast: toast, relTime: relTime, clock: clock, webpText: webpText };
+
+  /* ---------- Sortable table headers ---------- */
+  // Click a column header in a .dt table to sort by it, click again to flip it. Tables that show their rows a
+  // page at a time set data-sort="custom" and sort their own data when they get the "issuarr:sort" event.
+  // Headers with class "check", data-nosort or no visible text stay plain.
+  var collate = new Intl.Collator(undefined, { numeric: true, sensitivity: 'base' });
+  function sortHeaders(table) {
+    var row = table.tHead && table.tHead.rows[0];
+    return row ? Array.prototype.filter.call(row.cells, function (th) { return th.classList.contains('sortable'); }) : [];
+  }
+  function cellValue(td) {
+    if (!td) return null;
+    var v = td.getAttribute('data-sort');
+    if (v == null) { var inp = td.querySelector('input:not([type=checkbox])'); v = inp ? inp.value : td.textContent; }
+    v = String(v).replace(/\s+/g, ' ').trim();
+    if (v === '' || v === '-' || v === '—') return null;
+    var n = /^#?\s*(-?\d[\d,]*(?:\.\d+)?)$/.exec(v);
+    return n ? parseFloat(n[1].replace(/,/g, '')) : v;
+  }
+  function compareValues(a, b) {
+    if (a === null || b === null) return a === b ? 0 : a === null ? 1 : -1;
+    if (typeof a === 'number' && typeof b === 'number') return a - b;
+    if (typeof a === 'number') return -1;
+    if (typeof b === 'number') return 1;
+    return collate.compare(a, b);
+  }
+  function sortRows(table) {
+    var th = sortHeaders(table).filter(function (h) { return h.getAttribute('aria-sort') !== 'none'; })[0];
+    var body = table.tBodies[0];
+    if (!th || !body) return;
+    var rows = Array.prototype.slice.call(body.rows);
+    if (rows.some(function (r) { return r.cells.length === 1 && r.cells[0].colSpan > 1; })) return;
+    var col = th.cellIndex, dir = th.getAttribute('aria-sort') === 'descending' ? -1 : 1;
+    var keyed = rows.map(function (r, i) { return { r: r, v: cellValue(r.cells[col]), i: i }; });
+    keyed.sort(function (a, b) {
+      // Empty cells stay at the bottom whichever way the column is sorted.
+      if (a.v === null || b.v === null) return compareValues(a.v, b.v) || a.i - b.i;
+      return dir * compareValues(a.v, b.v) || a.i - b.i;
+    });
+    keyed.forEach(function (k) { body.appendChild(k.r); });
+    if (table._sortWatch) table._sortWatch.takeRecords();
+  }
+  // Fix the column widths at their current size the first time a header is clicked, so they don't jump
+  // about when the order changes.
+  function freezeColumns(table) {
+    if (table.classList.contains('is-frozen')) return;
+    var row = table.tHead.rows[0];
+    var widths = Array.prototype.map.call(row.cells, function (th) { return th.getBoundingClientRect().width; });
+    Array.prototype.forEach.call(row.cells, function (th, i) { th.style.width = widths[i] + 'px'; });
+    table.classList.add('is-frozen');
+  }
+  function setupSortable(table) {
+    if (table.hasAttribute('data-sort-ready') || !table.tHead || !table.tHead.rows[0]) return;
+    table.setAttribute('data-sort-ready', '');
+    Array.prototype.forEach.call(table.tHead.rows[0].cells, function (th) {
+      var label = th.cloneNode(true);
+      Array.prototype.forEach.call(label.querySelectorAll('.sr-only, input'), function (n) { n.remove(); });
+      if (th.classList.contains('check') || th.hasAttribute('data-nosort') || !label.textContent.trim()) return;
+      th.classList.add('sortable');
+      th.tabIndex = 0;
+      if (!th.hasAttribute('aria-sort')) th.setAttribute('aria-sort', 'none');
+    });
+    if (table.getAttribute('data-sort') === 'custom' || !table.tBodies[0] || !window.MutationObserver) return;
+    // Pages that redraw their rows (live refresh, filters) keep the order the person picked.
+    table._sortWatch = new MutationObserver(function () { sortRows(table); });
+    table._sortWatch.observe(table.tBodies[0], { childList: true });
+  }
+  function sortBy(th) {
+    var table = th.closest('table');
+    var dir = th.getAttribute('aria-sort') === 'ascending' ? 'descending'
+      : th.getAttribute('aria-sort') === 'descending' ? 'ascending'
+      : th.getAttribute('data-sort-first') === 'desc' ? 'descending' : 'ascending';
+    freezeColumns(table);
+    sortHeaders(table).forEach(function (h) { h.setAttribute('aria-sort', h === th ? dir : 'none'); });
+    if (table.getAttribute('data-sort') === 'custom') {
+      table.dispatchEvent(new CustomEvent('issuarr:sort', { detail: { key: th.getAttribute('data-key') || String(th.cellIndex), dir: dir === 'ascending' ? 1 : -1 } }));
+    } else {
+      sortRows(table);
+    }
+  }
+  // For pages with their own sort menu: picking from the menu clears the header arrows.
+  function clearSort(table) { sortHeaders(table).forEach(function (h) { h.setAttribute('aria-sort', 'none'); }); }
+  function setupSortableTables() {
+    Array.prototype.forEach.call(doc.querySelectorAll('table.dt'), setupSortable);
+    doc.addEventListener('click', function (e) {
+      var th = e.target.closest && e.target.closest('table.dt th.sortable');
+      if (th) sortBy(th);
+    });
+    doc.addEventListener('keydown', function (e) {
+      if (e.key !== 'Enter' && e.key !== ' ') return;
+      var th = e.target.closest && e.target.closest('table.dt th.sortable');
+      if (th) { e.preventDefault(); sortBy(th); }
+    });
+  }
+
+  window.Issuarr = { esc: esc, toast: toast, relTime: relTime, clock: clock, webpText: webpText, clearSort: clearSort };
 
   /* ---------- Pages whose tab strip moved into the sidebar ---------- */
 
@@ -601,6 +696,7 @@
   }
 
   function start() {
+    setupSortableTables();
     setupMenus();
     setupTabbedPage();
     setupPageHead();

@@ -380,6 +380,14 @@ table.dt td { padding: 10px 14px; border-bottom: 1px solid var(--line-soft) !imp
 table.dt tbody tr:last-child td { border-bottom: 0 !important; }
 table.dt tbody tr:hover td { background: color-mix(in srgb, var(--raised) 60%, var(--surface)); }
 table.dt td.num, table.dt th.num { text-align: right; }
+table.dt th.sortable { cursor: pointer; user-select: none; }
+table.dt th.sortable:hover { color: var(--text); }
+table.dt th[aria-sort="ascending"]::after { content: " ↑"; color: var(--text); }
+table.dt th[aria-sort="descending"]::after { content: " ↓"; color: var(--text); }
+/* Columns keep their width once a header has been clicked (see issuarr.js), so long text wraps instead. */
+table.dt.is-frozen { table-layout: fixed; }
+table.dt.is-frozen th { box-sizing: border-box; }
+table.dt.is-frozen td { overflow-wrap: anywhere; }
 table.dt td.actions { text-align: right; white-space: nowrap; }
 table.dt td.actions .btn + .btn { margin-left: 6px; }
 /* Same width for every action button so they line up down the column. */

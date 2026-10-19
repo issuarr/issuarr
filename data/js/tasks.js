@@ -38,7 +38,8 @@
         '<button type="button" class="btn btn-sm btn-ghost" data-toggle="' + esc(j.jobname) + '" data-mode="' + (paused ? 'resume' : 'pause') + '">' + (paused ? 'Resume' : 'Pause') + '</button>';
       return '<tr><td><b>' + esc(j.jobname) + '</b></td>' +
         '<td><span class="status ' + statusClass(j.status, j.jobname) + '">' + esc(j.status || 'Unknown') + '</span></td>' +
-        '<td>' + every + '</td><td class="nowrap">' + next + '</td><td class="nowrap">' + last + '</td>' +
+        '<td>' + every + '</td><td class="nowrap"' + (paused || !j.next_ts ? '' : ' data-sort="' + esc(j.next_ts) + '"') + '>' + next + '</td>' +
+        '<td class="nowrap"' + (j.prev_ts ? ' data-sort="' + esc(j.prev_ts) + '"' : '') + '>' + last + '</td>' +
         '<td class="actions">' + actions + '</td></tr>';
     }).join('');
   }
