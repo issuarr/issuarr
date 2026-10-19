@@ -214,12 +214,127 @@
     body = document.getElementById('match-body');
     if (!dlg) return;
     document.querySelectorAll('details.menu[open]').forEach(function (m) { m.open = false; });
+    clearTimeout(wrongTimer);
     state = { comicid: comicid, issueid: issueid || null, q: '' };
     title.textContent = issueid ? 'Match a file' : 'Match files';
     intro.textContent = 'Reading the series folder…';
     body.innerHTML = '';
     if (!dlg.open) dlg.showModal();
     load();
+  }
+
+  /* Wrong series: the series was added as the wrong ComicVine series. Find the right one, add it,
+     move the files into its folder and match them, then remove the wrong one if you want. */
+  var wrongTimer = null;
+
+  function wrongOpen(comicid, name, year) {
+    dlg = document.getElementById('match-dialog');
+    title = document.getElementById('match-title');
+    intro = document.getElementById('match-intro');
+    body = document.getElementById('match-body');
+    if (!dlg) return;
+    document.querySelectorAll('details.menu[open]').forEach(function (m) { m.open = false; });
+    clearTimeout(wrongTimer);
+    state = { comicid: comicid, name: name, label: name + (year ? ' (' + year + ')' : ''), wrong: true };
+    title.textContent = 'Wrong series';
+    intro.textContent = 'Find the series these files belong to on ComicVine. The files move to it and are matched to its issues.';
+    body.innerHTML = '<form class="match-do" data-wrong-find><input type="search" class="match-search" aria-label="Series name" value="' + esc(name) + '" />' +
+      '<button type="submit" class="btn btn-sm btn-primary">Search ComicVine</button></form><div data-wrong-out></div>';
+    body.querySelector('[data-wrong-find]').addEventListener('submit', function (e) {
+      e.preventDefault();
+      wrongSearch(body.querySelector('.match-search').value);
+    });
+    if (!dlg.open) dlg.showModal();
+    wrongSearch(name);
+  }
+
+  function wrongOut(html) {
+    var out = body.querySelector('[data-wrong-out]');
+    out.innerHTML = html;
+    return out;
+  }
+
+  function wrongSearch(text) {
+    text = (text || '').trim();
+    if (!text) return;
+    clearTimeout(wrongTimer);
+    wrongOut('<p class="match-meta">Searching ComicVine for ' + esc(text) + '…</p>');
+    fetch('attention_find?' + q({ q: text }), { credentials: 'same-origin' })
+      .then(function (r) { if (!r.ok) throw new Error(r.status); return r.json(); })
+      .then(function (d) {
+        if (d.ok === false) { wrongOut('<p class="match-meta">' + esc(d.note) + '</p>'); return; }
+        if (!d.series.length) { wrongOut('<p class="match-meta">ComicVine has nothing called ' + esc(text) + '. Try fewer words.</p>'); return; }
+        var out = wrongOut('<ul class="match-list">' + d.series.map(function (s) {
+          var same = String(s.comicid) === String(state.comicid);
+          var meta = [s.publisher, s.issues != null ? s.issues + ' issues' : '', s.type, same ? 'this series' : s.watched ? 'on your watchlist' : '']
+            .filter(Boolean).map(esc).join(' · ');
+          var cover = s.thumb ? '<img src="' + esc(s.thumb) + '" alt="Cover of ' + esc(s.name) + '" loading="lazy" referrerpolicy="no-referrer" />'
+                              : '<span class="match-nocover">No cover</span>';
+          return '<li class="match-row"><div class="match-covers"><figure class="match-cover"><span class="match-cover-btn">' + cover + '</span></figure></div>' +
+            '<div class="match-file"><span>' + esc(s.name) + ' (' + esc(s.year) + ')' + (s.volume ? ' ' + esc(s.volume) : '') + '</span>' +
+            '<span class="match-meta">' + meta + '</span><div class="match-do">' +
+            (same ? '' : '<button type="button" class="btn btn-sm" data-wrong-pick="' + esc(s.comicid) + '" data-name="' + esc(s.name) + '" data-year="' + esc(s.year) + '">This one</button>') +
+            '</div></div></li>';
+        }).join('') + '</ul>');
+        out.querySelectorAll('[data-wrong-pick]').forEach(function (b) {
+          b.addEventListener('click', function () {
+            wrongPick(b.getAttribute('data-wrong-pick'), b.getAttribute('data-name'), b.getAttribute('data-year'));
+          });
+        });
+      })
+      .catch(function () { wrongOut('<p class="match-meta">Couldn\'t search ComicVine. Check the log.</p>'); });
+  }
+
+  function wrongPick(newid, cvName, year) {
+    var name = cvName + (year ? ' (' + year + ')' : '');
+    wrongOut('<p class="match-meta">Adding ' + esc(name) + ' and loading its issues…</p>');
+    post('attention_add_series', { comicid: newid, name: cvName, year: year }).then(function (d) {
+      if (d.ok === false) { wrongOut('<p class="match-meta">' + esc(d.note) + '</p>'); return; }
+      if (d.state === 'ready') return wrongReady(newid, name);
+      wrongWait(newid, name, 0);
+    }).catch(function () { wrongOut('<p class="match-meta">That didn\'t work. Check the log.</p>'); });
+  }
+
+  function wrongWait(newid, name, tries) {
+    fetch('attention_series_state?' + q({ comicid: newid }), { credentials: 'same-origin', cache: 'no-store' })
+      .then(function (r) { if (!r.ok) throw new Error(r.status); return r.json(); })
+      .then(function (d) {
+        if (!state.wrong || !dlg.open) return;
+        if (d.state === 'ready') return wrongReady(newid, name);
+        if (tries < 60) { wrongTimer = setTimeout(function () { wrongWait(newid, name, tries + 1); }, 3000); return; }
+        wrongOut('<p class="match-meta">' + esc(name) + ' is still being added. Open Wrong series again when it shows up in your library.</p>');
+      })
+      .catch(function () { wrongTimer = setTimeout(function () { wrongWait(newid, name, tries + 1); }, 10000); });
+  }
+
+  function wrongReady(newid, name) {
+    var out = wrongOut('<p class="match-meta">' + esc(name) + ' is on your watchlist. Move the files of ' + esc(state.label) + ' to it?</p>' +
+      '<div class="match-do"><button type="button" class="btn btn-sm btn-primary" data-wrong-move>Move the files</button></div>');
+    out.querySelector('[data-wrong-move]').addEventListener('click', function (e) {
+      e.target.disabled = true;
+      wrongOut('<p class="match-meta">Moving the files and matching them…</p>');
+      post('match_move', { comicid: state.comicid, newid: newid }).then(function (d) {
+        if (!d.ok) { wrongOut('<p class="match-meta">' + esc(d.note) + '</p>'); return; }
+        wrongDone(d);
+      }).catch(function () { wrongOut('<p class="match-meta">That didn\'t work. Check the log.</p>'); });
+    });
+  }
+
+  function wrongDone(d) {
+    var go = 'comicDetails?' + q({ ComicID: d.series.comicid });
+    var out = wrongOut('<p class="match-meta">' + esc(d.note) + '</p>' +
+      '<div class="match-do"><button type="button" class="btn btn-sm" data-wrong-remove>Remove ' + esc(state.label) + ' from your library</button>' +
+      '<a class="btn btn-sm btn-primary" href="' + esc(go) + '">Go to the right series</a></div>');
+    out.querySelector('[data-wrong-remove]').addEventListener('click', function (e) {
+      e.target.disabled = true;
+      fetch('deleteSeries?' + q({ ComicID: state.comicid, ajax: 1 }), { credentials: 'same-origin' })
+        .then(function (r) { if (!r.ok) throw new Error(r.status); return r.json(); })
+        .then(function (r) {
+          if (r.ok) location.href = go;
+          else { window.Issuarr.toast('Couldn\'t remove it. Check the log.', false); e.target.disabled = false; }
+        })
+        .catch(function () { window.Issuarr.toast('Couldn\'t remove it. Check the log.', false); e.target.disabled = false; });
+    });
   }
 
   document.addEventListener('click', function (e) {
@@ -251,5 +366,5 @@
     if (e.target.matches && e.target.matches('#match-dialog [data-cover-img]')) e.target.style.visibility = '';
   }, true);
 
-  window.IssuarrMatch = { open: open };
+  window.IssuarrMatch = { open: open, wrongSeries: wrongOpen };
 })();

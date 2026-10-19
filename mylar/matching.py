@@ -1,6 +1,7 @@
 """Matching the files in a series folder to its issues: matches made by hand on the series page,
 and files whose ComicInfo tags carry a ComicVine issue ID of the series."""
 import os
+import shutil
 import threading
 
 import mylar
@@ -129,7 +130,7 @@ def by_tags(comicid, files, pinned, taken):
 
 
 def _comic(comicid):
-    return db.DBConnection().selectone('SELECT ComicID, ComicName, ComicLocation FROM comics WHERE ComicID=?', [comicid]).fetchone()
+    return db.DBConnection().selectone('SELECT ComicID, ComicName, ComicYear, ComicLocation FROM comics WHERE ComicID=?', [comicid]).fetchone()
 
 
 def files(comicid):
@@ -222,3 +223,49 @@ def unmatch(comicid, issueid):
         logger.info('[MATCHING] Undid the match made by hand for issue %s.' % issueid)
         _rescan(comicid)
     return {'ok': True, 'note': '#%s is matched by file name again.' % issue['Issue_Number']}
+
+
+def move_to(comicid, newid):
+    """Wrong series: move the files of a series added as the wrong ComicVine series into the right
+    one's folder, then recheck both so the files match the right series' issues. The wrong series
+    stays on the watchlist until it is removed."""
+    from mylar import attention
+    old, new = _comic(comicid), _comic(newid)
+    if old is None:
+        return {'ok': False, 'note': 'That series isn\'t on your watchlist.'}
+    if new is None or str(newid) == str(comicid):
+        return {'ok': False, 'note': 'Pick a different series to move the files to.'}
+    if attention.series_state(newid)['state'] != 'ready':
+        return {'ok': False, 'note': '%s is still being added. Try again when its issues have loaded.' % new['ComicName']}
+    if not new['ComicLocation']:
+        return {'ok': False, 'note': '%s has no series folder.' % new['ComicName']}
+    moved, kept = 0, []
+    for top in series_dirs(old):
+        if os.path.normpath(top) == os.path.normpath(new['ComicLocation']):
+            continue
+        for f in walk([top]):
+            if f['path'].startswith(os.path.join(new['ComicLocation'], '')):
+                continue   # already in the right series' folder (it sits inside this one)
+            dest_dir = os.path.join(new['ComicLocation'], f['sub']) if f['sub'] else new['ComicLocation']
+            dest = os.path.join(dest_dir, f['name'])
+            if os.path.exists(dest):
+                kept.append(f['name'])
+                continue
+            try:
+                os.makedirs(dest_dir, exist_ok=True)
+                shutil.move(f['path'], dest)
+                moved += 1
+            except OSError as e:
+                logger.warn('[MATCHING] Could not move %s to %s: %s' % (f['path'], dest_dir, e))
+                kept.append(f['name'])
+    logger.info('[MATCHING] Moved %s file(s) from %s [%s] to %s [%s].' % (moved, old['ComicName'], comicid, new['ComicName'], newid))
+    _rescan(comicid)
+    _rescan(newid)
+    have = db.DBConnection().selectone("SELECT COUNT(*) AS n FROM issues WHERE ComicID=? AND Status='Downloaded'", [newid]).fetchone()['n']
+    label = '%s (%s)' % (new['ComicName'], new['ComicYear']) if new['ComicYear'] else new['ComicName']
+    note = 'Moved %s file%s to %s. %s of its issues have a file now.' % (moved, '' if moved == 1 else 's', label, have)
+    if kept:
+        note += ' %s file%s stayed where %s, because a file with the same name is already there or it couldn\'t be moved.' % (
+            len(kept), '' if len(kept) == 1 else 's', 'it was' if len(kept) == 1 else 'they were')
+    return {'ok': True, 'moved': moved, 'kept': kept, 'have': have, 'note': note,
+            'series': {'comicid': str(newid), 'name': new['ComicName']}}

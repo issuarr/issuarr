@@ -423,6 +423,7 @@ def find_series(text, limit=20):
     watched = {str(r['ComicID']) for r in db.DBConnection().select('SELECT ComicID FROM comics')}
     return {'ok': True, 'series': [{'comicid': str(x['comicid']), 'name': x['name'], 'year': x.get('comicyear'),
                                     'publisher': x.get('publisher'), 'issues': x.get('issues'), 'volume': x.get('volume'),
+                                    'thumb': x.get('comicthumb'), 'type': x.get('type'),
                                     'watched': str(x['comicid']) in watched} for x in found]}
 
 
