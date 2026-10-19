@@ -151,7 +151,8 @@
         year: function (s) { return num(s.year); },
         latest: function (s) { return num(s.latest); },
         status: function (s) { return statusOf(s)[0]; },
-        missing: function (s) { return (s.total || 0) - (s.have || 0); }
+        // Issues you have, then the series' length, the same as the have/total it shows.
+        have: function (s) { return (s.have || 0) * 1e6 + (s.total || 0); }
       }[col.key] || function (s) { return String(s.sort || s.name); };
       return list.sort(function (a, b) {
         var x = val(a), y = val(b);

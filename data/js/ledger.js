@@ -21,6 +21,8 @@
   var esc = function (s) { return String(s == null ? '' : s).replace(/[&<>"]/g, function (c) { return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]; }); };
   var isOwned = function (t) { return t.tstatus === 'Downloaded' || t.tstatus === 'Archived'; };
   var cmp = function (a, b) { return a < b ? -1 : a > b ? 1 : 0; };
+  // Sorts one column by dir, keeping blank values at the bottom whichever way it goes.
+  var byCol = function (x, y, dir) { var bx = x === '' || x == null, by = y === '' || y == null; return bx || by ? bx - by : dir * cmp(x, y); };
 
   function load(view, cb) {
     $id('lg-count').textContent = 'Loading…';
@@ -254,8 +256,8 @@
     var sf = statusFilter(missingRows()), f = sf.rows, s = st.sort || { key: 'k', dir: 1 };
     head([['k', 'Kind', '', 190], ['series', 'Series'], ['n', '#', 'num', 80], ['t', 'Title'], ['d', 'Released', '', 130], ['st', 'Status', '', 140], ['tr', 'Trades', '', 250], ['own', 'Series owned', 'num', 140]], true);
     var tv = function (r) { var l = r[8] || []; return l.some(function (i) { return M.trades[i][4]; }) ? 2 : l.length ? 1 : 0; };
-    var v = function (r) { var S = M.series[r[1]]; return s.key === 'series' ? S[0].toLowerCase() : s.key === 'own' ? S[2] * 1e6 + S[3] : s.key === 'k' ? r[0] : s.key === 'n' ? r[3] : s.key === 't' ? r[4] : s.key === 'd' ? r[5] : s.key === 'tr' ? -tv(r) : r[7]; };
-    f.sort(function (a, b) { return s.dir * cmp(v(a), v(b)) || cmp(M.series[a[1]][0], M.series[b[1]][0]) || cmp(a[3], b[3]); });
+    var v = function (r) { var S = M.series[r[1]]; return s.key === 'series' ? S[0].toLowerCase() : s.key === 'own' ? S[2] * 1e6 + S[3] : s.key === 'k' ? r[0] : s.key === 'n' ? r[3] : s.key === 't' ? r[4].toLowerCase() : s.key === 'd' ? r[5] : s.key === 'tr' ? -tv(r) : r[7]; };
+    f.sort(function (a, b) { return byCol(v(a), v(b), s.dir) || cmp(M.series[a[1]][0].toLowerCase(), M.series[b[1]][0].toLowerCase()) || cmp(M.series[a[1]][1], M.series[b[1]][1]) || cmp(a[3], b[3]); });
     var page = f.slice(0, st.limit);
     $('#lg-table tbody').html(page.length ? page.map(function (r) {
       var S = M.series[r[1]];
@@ -286,7 +288,7 @@
     });
     // Owned sorts by how many issues are owned, then by the series' length (not by the share owned).
     var list = Object.keys(g).map(function (k) { var x = g[k], S = M.series[x.s]; x.series = S[0].toLowerCase(); x.pub = M.pubs[S[4]]; x.own = S[2] * 1e6 + S[3]; x.total = x.p[0] + x.p[1] + x.p[2] + x.none; x.miss = x.total * 1e6 + x.p[1]; x.tr = -(S[6] || []).length; return x; });
-    list.sort(function (a, b) { return s.dir * cmp(a[s.key], b[s.key]) || cmp(a.series, b.series); });
+    list.sort(function (a, b) { return s.dir * cmp(a[s.key], b[s.key]) || cmp(a.series, b.series) || cmp(M.series[a.s][1], M.series[b.s][1]); });
     head([['series', 'Series'], ['mix', 'Collection'], ['own', 'Owned', 'num', 120], ['miss', 'Missing <small class="lg-dim">before / gap / after</small>', 'num', 200], ['w', 'Wanted', 'num', 100], ['tr', 'Trades', '', 250]], true);
     // Series picked for Remove series: a complete series by its own tick, any other when all its listed missing issues are selected.
     Object.keys(st.ssel).forEach(function (k) { if (M.complete.indexOf(+k) < 0) delete st.ssel[k]; });
@@ -325,8 +327,8 @@
       if (st.q && (t.name + ' ' + t.collects).toLowerCase().indexOf(st.q) < 0) return false;
       return true;
     });
-    var v = function (t) { return s.key === 'cov' ? CK.indexOf(t.coverage) : s.key === 'name' ? t.name.toLowerCase() : s.key === 'lacking' ? t.lacking.length : s.key === 'found' ? t.own / (t.found || 1) : s.key === 'tstatus' ? t.tstatus : t.collects; };
-    f.sort(function (a, b) { return s.dir * cmp(v(a), v(b)) || cmp(a.name, b.name); });
+    var v = function (t) { return s.key === 'cov' ? CK.indexOf(t.coverage) : s.key === 'name' ? t.name.toLowerCase() : s.key === 'lacking' ? t.lacking.length : s.key === 'found' ? t.own * 1e6 + t.found : s.key === 'tstatus' ? t.tstatus : t.collects.toLowerCase(); };
+    f.sort(function (a, b) { return byCol(v(a), v(b), s.dir) || cmp(a.name.toLowerCase(), b.name.toLowerCase()) || cmp(a.year, b.year) || cmp(a.num, b.num); });
     head([['cov', 'Coverage', '', 180], ['name', 'Trade'], ['collects', 'Collects'], ['found', 'Singles owned', 'num', 150], ['lacking', 'Covers missing', 'num', 160], ['tstatus', 'Trade status', '', 150]], true);
     var page = f.slice(0, st.limit);
     $('#lg-table tbody').html(page.length ? page.map(function (t) {
