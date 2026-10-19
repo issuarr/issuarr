@@ -2,16 +2,22 @@
 # Modified, so Mylar just can pass in relevant information instead of querying CV for it to do it's magic.
 
 
+import datetime
 import json
 import os
+import pathlib
 import sys
 import re
 import shutil
+import sqlite3
+import threading
+import time
 import zipfile
 import subprocess
+from collections import deque
 import mylar
 
-from mylar import logger, notifiers, comicinfo
+from mylar import logger, notifiers, comicinfo, importstatus
 
 
 def run(dirName, nzbName=None, issueid=None, comversion=None, manual=None, filename=None, module=None, manualmeta=False, readingorder=None, agerating=None):
@@ -125,8 +131,25 @@ def run(dirName, nzbName=None, issueid=None, comversion=None, manual=None, filen
         logger.fdebug(module + ' Will overwrite existing tags with ComicVine data.')
 
     logger.info(module + ' ComicRack tagging meta-tagging processing started.')
-    res, out = run_comictagger(tag_args(filepath, issueid, comversion, agerating, tag_mode), module)
-    status = res.get('status') if res else None
+    from mylar import cv
+    publisher, imprint = series_publisher(issueid)
+    attempt = 0
+    while True:
+        if not pace(issueid, module):
+            tidyup(og_filepath, new_filepath, new_folder, manualmeta)
+            return 'fail'
+        res, out = run_comictagger(tag_args(filepath, issueid, comversion, agerating, tag_mode, imprint), module)
+        status = res.get('status') if res else None
+        if status != 'fetch_data_failure' or not RATE_LIMITED.search(out or '') or attempt >= len(cv.RATELIMIT_WAITS):
+            break
+        # ComicTagger already waited 10 seconds three times, so this backs off the way
+        # Issuarr's own ComicVine calls do and tags the file again afterwards.
+        wait = cv.RATELIMIT_WAITS[attempt]
+        attempt += 1
+        importstatus.set_ratelimit('Rate limit exceeded', 'issue', wait, attempt)
+        logger.warn('%s[COMIC-TAGGER] ComicVine rate limit hit while tagging %s. Waiting %s minutes before trying again (attempt %s).' % (module, filename, round(wait / 60, 1), attempt))
+    if attempt and status in ('success', 'existing_tags'):
+        importstatus.clear_ratelimit()
     if status == 'existing_tags':
         logger.info('%s[COMIC-TAGGER] %s already has tags - leaving them alone.' % (module, filename))
         return filepath
@@ -146,9 +169,13 @@ def run(dirName, nzbName=None, issueid=None, comversion=None, manual=None, filen
     # ComicTagger rewrites the archive, which resets the file's permissions, so this restores them
     os.chmod(filepath, original_perms)
 
-    arcs = arc_fields(readingorder)
-    if arcs or mylar.CONFIG.CT_NOTES_FORMAT == 'CVDB':
-        comicinfo.adjust(filepath, arcs, notes_format=mylar.CONFIG.CT_NOTES_FORMAT)
+    fields = arc_fields(readingorder) or {}
+    if imprint:
+        # ComicVine's publisher replaces anything passed in, so the parent publisher
+        # goes in afterwards, next to the imprint ComicTagger wrote.
+        fields['Publisher'] = publisher
+    if fields or mylar.CONFIG.CT_NOTES_FORMAT == 'CVDB':
+        comicinfo.adjust(filepath, fields, notes_format=mylar.CONFIG.CT_NOTES_FORMAT)
 
     if not comicinfo.keep_existing(original_cix, filepath, tag_mode):
         logger.warn('%s Unable to merge the new tags with the existing ones - filing the file without tagging.' % module)
@@ -171,6 +198,90 @@ FAILURES = {
     'write_failure': 'ComicTagger could not write the tags into the file',
     'write_permission_failure': 'ComicTagger could not write to the file - check its permissions',
 }
+
+
+# ComicVine allows about 200 calls an hour on each resource, and each tag fetches its
+# issue unless ComicTagger has it cached. Every file gets a new ComicTagger process whose
+# limiter starts fresh, so the hourly pace is kept here, with some room left for
+# Issuarr's own calls. ComicTagger's shared key is only allowed 100 an hour.
+HOURLY_TAGS = 180
+HOURLY_TAGS_DEFAULT_KEY = 90
+
+RATE_LIMITED = re.compile(r'rate limit|slow down|abnormal traffic|did not provide json|\b(?:107|420|429): ', re.I)
+
+_fetches = deque()
+_pace_lock = threading.Lock()
+
+
+def personal_key():
+    return mylar.CONFIG.COMICVINE_API not in (None, '', 'None')
+
+
+def cached(issueid):
+    """True when ComicTagger's cache already holds the issue, so tagging it makes no call."""
+    if issueid is None or not mylar.CONFIG.CT_SETTINGSPATH:
+        return False
+    db = pathlib.Path(mylar.CONFIG.CT_SETTINGSPATH, 'cache', 'comic_cache.db')
+    if not db.is_file():
+        return False
+    # ComicTagger drops cached issues after a year
+    fresh = str(datetime.datetime.today() - datetime.timedelta(days=365))
+    try:
+        con = sqlite3.connect(db.absolute().as_uri() + '?mode=ro', uri=True, timeout=5)
+        try:
+            row = con.execute("SELECT complete FROM Issues WHERE id=? AND source='comicvine' AND timestamp >= ?", [str(issueid), fresh]).fetchone()
+        finally:
+            con.close()
+    except sqlite3.Error:
+        return False
+    return bool(row and row[0])
+
+
+def pace(issueid, module):
+    """Wait out a ComicVine back-off Issuarr already knows about, then hold the tag until
+    it fits in the hourly limit. False when Issuarr is shutting down meanwhile."""
+    from mylar import cv
+    remaining = importstatus.ratelimit_remaining()
+    if remaining > 0:
+        logger.info('%s[COMIC-TAGGER] Waiting %s minutes for the ComicVine rate limit to clear before tagging.' % (module, round(remaining / 60, 1)))
+        if not cv._cv_wait(remaining):
+            return False
+    if cached(issueid):
+        return True
+    limit = HOURLY_TAGS if personal_key() else HOURLY_TAGS_DEFAULT_KEY
+    with _pace_lock:
+        while True:
+            now = time.time()
+            while _fetches and now - _fetches[0] >= 3600:
+                _fetches.popleft()
+            if len(_fetches) < limit:
+                break
+            wait = _fetches[0] + 3600 - now
+            logger.info('%s[COMIC-TAGGER] %s issues were tagged from ComicVine in the last hour. Waiting %s minutes to stay under its limit.' % (module, len(_fetches), round(wait / 60, 1)))
+            if not cv._cv_wait(wait):
+                return False
+        _fetches.append(time.time())
+    return True
+
+
+def series_publisher(issueid):
+    """The series' publisher and imprint when Issuarr's imprint listing (data/imprints.json)
+    found one, such as DC Comics and Vertigo. ComicVine often lists the imprint as the
+    publisher and has no imprint field."""
+    if issueid is None:
+        return None, None
+    from mylar import db
+    myDB = db.DBConnection()
+    for table in ('issues', 'annuals'):
+        row = myDB.selectone('SELECT c.ComicPublisher, c.PublisherImprint FROM %s i JOIN comics c ON c.ComicID = i.ComicID WHERE i.IssueID=?' % table, [str(issueid)]).fetchone()
+        if row:
+            break
+    else:
+        return None, None
+    publisher, imprint = row['ComicPublisher'], row['PublisherImprint']
+    if publisher in (None, '', 'None') or imprint in (None, '', 'None'):
+        return None, None
+    return publisher, imprint
 
 
 def tag_types():
@@ -199,8 +310,10 @@ def volume_number(comversion):
     return int(digits) if digits else None
 
 
-def metadata_arg(comversion, agerating):
+def metadata_arg(comversion, agerating, imprint=None):
     md = {}
+    if imprint:
+        md['imprint'] = imprint
     volume = volume_number(comversion)
     if volume is not None:
         md['volume'] = volume
@@ -209,15 +322,15 @@ def metadata_arg(comversion, agerating):
     return json.dumps(md) if md else None
 
 
-def tag_args(filepath, issueid, comversion, agerating, tag_mode):
+def tag_args(filepath, issueid, comversion, agerating, tag_mode, imprint=None):
     args = ['-s', '-o', '--tags-write', CT_TAGS, '--config', mylar.CONFIG.CT_SETTINGSPATH, '--json']
-    if all([mylar.CONFIG.COMICVINE_API is not None, mylar.CONFIG.COMICVINE_API != 'None', mylar.CONFIG.COMICVINE_API != '']):
+    if personal_key():
         args += ['--comicvine-key', mylar.CONFIG.COMICVINE_API]
     else:
         logger.fdebug('[META-TAGGER] No personal ComicVine API key supplied - ComicTagger will use its own. Take your chances.')
     cv_api_url = (getattr(mylar.CONFIG, 'COMICVINE_URL', None) or '').strip().rstrip('/')
     args += ['--comicvine-url', cv_api_url or 'https://comicvine.gamespot.com/api']
-    md = metadata_arg(comversion, agerating)
+    md = metadata_arg(comversion, agerating, imprint)
     if md:
         args += ['-m', md]
     if tag_mode == 'skip':

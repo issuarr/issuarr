@@ -61,6 +61,9 @@ def config(tmp_path, monkeypatch):
     monkeypatch.setattr(mylar, 'CONFIG', c, raising=False)
     monkeypatch.setattr(mylar, 'CMTAGGER_PATH', ROOT, raising=False)
     monkeypatch.setattr(mylar, 'PROG_DIR', ROOT, raising=False)
+    monkeypatch.setattr(mylar, 'LOG_LEVEL', 0, raising=False)
+    monkeypatch.setattr(cmtagmylar, 'series_publisher', lambda issueid: (None, None))
+    monkeypatch.setattr(cmtagmylar, '_fetches', cmtagmylar.deque())
     return c
 
 
@@ -301,3 +304,20 @@ def test_not_a_comic(tmp_path, config, comicvine):
     src = tmp_path / 'a.cbr'
     src.write_bytes(b'not an archive')
     assert run(config, comicvine, str(src)) == 'file not found||a.cbr'
+
+
+@pytest.mark.integration
+@needs_ct
+def test_imprint_series_get_the_parent_publisher_and_imprint(tmp_path, config, comicvine, monkeypatch):
+    # ComicVine lists the series under its own publisher; Issuarr's imprint listing knows better
+    monkeypatch.setattr(cmtagmylar, 'series_publisher', lambda issueid: ('DC Comics', 'Vertigo'))
+    root = cix_of(run(config, comicvine, make_cbz(tmp_path / 'a.cbz')))
+    assert root.findtext('Publisher') == 'DC Comics' and root.findtext('Imprint') == 'Vertigo'
+    assert root.findtext('Title') == 'The Title'
+
+
+@pytest.mark.integration
+@needs_ct
+def test_series_without_an_imprint_keep_the_comicvine_publisher(tmp_path, config, comicvine):
+    root = cix_of(run(config, comicvine, make_cbz(tmp_path / 'a.cbz')))
+    assert root.findtext('Publisher') == 'Test Comics' and root.findtext('Imprint') is None
