@@ -254,7 +254,7 @@
     var sf = statusFilter(missingRows()), f = sf.rows, s = st.sort || { key: 'k', dir: 1 };
     head([['k', 'Kind', '', 190], ['series', 'Series'], ['n', '#', 'num', 80], ['t', 'Title'], ['d', 'Released', '', 130], ['st', 'Status', '', 140], ['tr', 'Trades', '', 250], ['own', 'Series owned', 'num', 140]], true);
     var tv = function (r) { var l = r[8] || []; return l.some(function (i) { return M.trades[i][4]; }) ? 2 : l.length ? 1 : 0; };
-    var v = function (r) { var S = M.series[r[1]]; return s.key === 'series' ? S[0].toLowerCase() : s.key === 'own' ? S[2] / (S[3] || 1) : s.key === 'k' ? r[0] : s.key === 'n' ? r[3] : s.key === 't' ? r[4] : s.key === 'd' ? r[5] : s.key === 'tr' ? -tv(r) : r[7]; };
+    var v = function (r) { var S = M.series[r[1]]; return s.key === 'series' ? S[0].toLowerCase() : s.key === 'own' ? S[2] * 1e6 + S[3] : s.key === 'k' ? r[0] : s.key === 'n' ? r[3] : s.key === 't' ? r[4] : s.key === 'd' ? r[5] : s.key === 'tr' ? -tv(r) : r[7]; };
     f.sort(function (a, b) { return s.dir * cmp(v(a), v(b)) || cmp(M.series[a[1]][0], M.series[b[1]][0]) || cmp(a[3], b[3]); });
     var page = f.slice(0, st.limit);
     $('#lg-table tbody').html(page.length ? page.map(function (r) {
@@ -284,7 +284,8 @@
       if (g[si] || (st.pub && M.pubs[S[4]] !== st.pub) || (st.q && S[0].toLowerCase().indexOf(st.q) < 0)) return;
       g[si] = { s: si, p: [0, 0, 0], none: 0, ids: [], w: 0, done: true };
     });
-    var list = Object.keys(g).map(function (k) { var x = g[k], S = M.series[x.s]; x.series = S[0].toLowerCase(); x.pub = M.pubs[S[4]]; x.own = S[2] / (S[3] || 1); x.total = x.p[0] + x.p[1] + x.p[2] + x.none; x.miss = x.total * 1e6 + x.p[1]; x.tr = -(S[6] || []).length; return x; });
+    // Owned sorts by how many issues are owned, then by the series' length (not by the share owned).
+    var list = Object.keys(g).map(function (k) { var x = g[k], S = M.series[x.s]; x.series = S[0].toLowerCase(); x.pub = M.pubs[S[4]]; x.own = S[2] * 1e6 + S[3]; x.total = x.p[0] + x.p[1] + x.p[2] + x.none; x.miss = x.total * 1e6 + x.p[1]; x.tr = -(S[6] || []).length; return x; });
     list.sort(function (a, b) { return s.dir * cmp(a[s.key], b[s.key]) || cmp(a.series, b.series); });
     head([['series', 'Series'], ['mix', 'Collection'], ['own', 'Owned', 'num', 120], ['miss', 'Missing <small class="lg-dim">before / gap / after</small>', 'num', 200], ['w', 'Wanted', 'num', 100], ['tr', 'Trades', '', 250]], true);
     // Series picked for Remove series: a complete series by its own tick, any other when all its listed missing issues are selected.
