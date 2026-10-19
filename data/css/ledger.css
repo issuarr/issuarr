@@ -124,7 +124,6 @@
 .lg-miss .lg-strong { color: var(--text); font-weight: 700; }
 th small.lg-dim { display: block; font-weight: 500; font-size: 11px; }
 
-/* Remove series (By series view) */
-.lg-table td.lg-del { width: 1%; text-align: right; white-space: nowrap; }
+/* Remove series (selection bar) */
 .lg-del-files { display: inline-flex !important; align-items: center; gap: 6px; float: none !important; width: auto !important; margin: 8px 0 0 !important; font-weight: 600; }
 .lg-del-files input { width: 16px; height: 16px; margin: 0; }
