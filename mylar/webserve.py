@@ -916,15 +916,17 @@ class WebInterface(object):
             filters = []
 
         myDB = db.DBConnection()
+        # The direction goes into the SQL, so only asc or desc gets through.
+        sSortDir_0 = 'asc' if str(sSortDir_0).lower() == 'asc' else 'desc'
         sortcolumn = 'b.Int_IssueNumber %s' % sSortDir_0
         if iSortCol_0 == '1':
             sortcolumn = 'b.Int_IssueNumber %s' % sSortDir_0
         elif iSortCol_0 == '2':
-            sortcolumn = 'b.IssueName %s' % sSortDir_0
+            sortcolumn = 'b.IssueName COLLATE NOCASE %s, b.Int_IssueNumber' % sSortDir_0
         elif iSortCol_0 == '3':
-            sortcolumn = 'b.ReleaseDate %s' % sSortDir_0
+            sortcolumn = 'b.ReleaseDate %s, b.Int_IssueNumber' % sSortDir_0
         elif iSortCol_0 == '4':
-            sortcolumn = 'b.Status %s' % sSortDir_0
+            sortcolumn = 'b.Status %s, b.Int_IssueNumber' % sSortDir_0
 
         #logger.info('sortcolumn: %s' % sortcolumn)
         queryline = 'SELECT a.ComicLocation as ComicLocation, b.* FROM comics a LEFT JOIN issues b ON a.ComicID = b.ComicID WHERE a.ComicID=? ORDER BY %s' % sortcolumn
@@ -1239,10 +1241,18 @@ class WebInterface(object):
         elif iSortCol_0 == '4':
             sortcolumn = 'issues'
 
-        if sortcolumn == 'issues':
-            filtered.sort(key=lambda x: (x[sortcolumn] is None, x[sortcolumn] == '', x[sortcolumn]), reverse=sSortDir_0 == "desc")
-        else:
-            filtered.sort(key=lambda x: (x[sortcolumn] is None, x[sortcolumn] == '', x[sortcolumn]), reverse=sSortDir_0 == "desc")
+        def sortvalue(v):
+            # Issue counts and years sort as numbers (9 before 10), names ignore case.
+            if sortcolumn in ('issues', 'comicyear'):
+                try:
+                    return (0, int(v), '')
+                except (TypeError, ValueError):
+                    return (1, 0, str(v).lower())
+            return (0, 0, str(v).lower())
+        # Results with nothing in the column stay at the bottom whichever way it's sorted.
+        blank = [x for x in filtered if x.get(sortcolumn) in (None, '', 'None')]
+        filtered = sorted((x for x in filtered if x.get(sortcolumn) not in (None, '', 'None')),
+                          key=lambda x: sortvalue(x[sortcolumn]), reverse=sSortDir_0 == "desc") + blank
 
         logger.info('# of results: %s' % len(filtered))
         total_display_records = len(filtered)
@@ -4516,8 +4526,9 @@ class WebInterface(object):
         # Column headers sort the whole list, not just the page shown.
         ORDERS = {'series': 'ComicName COLLATE NOCASE {d}, Int_IssueNumber',
                   'issue': 'Int_IssueNumber {d}, ComicName COLLATE NOCASE',
-                  'cover': 'IssueDate {d}, ComicName COLLATE NOCASE, Int_IssueNumber',
-                  'store': 'ReleaseDate {d}, ComicName COLLATE NOCASE, Int_IssueNumber'}
+                  # Missing dates (blank or 0000-00-00) go last either way.
+                  'cover': "(IFNULL(IssueDate, '') IN ('', '0000-00-00')), IssueDate {d}, ComicName COLLATE NOCASE, Int_IssueNumber",
+                  'store': "(IFNULL(ReleaseDate, '') IN ('', '0000-00-00')), ReleaseDate {d}, ComicName COLLATE NOCASE, Int_IssueNumber"}
         if sort not in ORDERS:
             sort = 'series'
         dir = 'desc' if dir == 'desc' else 'asc'
@@ -5162,7 +5173,9 @@ class WebInterface(object):
                 except (TypeError, ValueError):
                     return (1, 0, str(v).lower())
             return (0, 0, str(v).lower() if sortcolumn != 'DateAdded' else str(v))
-        filtered.sort(key=lambda x: (x[sortcolumn] is None, x[sortcolumn] == '', sortvalue(x[sortcolumn])), reverse=sSortDir_0 == "desc")
+        # Rows with nothing in the column stay at the bottom whichever way it's sorted.
+        blank = [x for x in filtered if x[sortcolumn] in (None, '')]
+        filtered = sorted((x for x in filtered if x[sortcolumn] not in (None, '')), key=lambda x: sortvalue(x[sortcolumn]), reverse=sSortDir_0 == "desc") + blank
         if iDisplayLength != -1:
             trows = filtered[iDisplayStart:(iDisplayStart + iDisplayLength)]
         else:

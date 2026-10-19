@@ -19,7 +19,7 @@
                'Waiting to file': 'Downloaded. Waiting for post-processing to file it into your library.',
                Filing: 'Downloaded. Post-processing is filing it into your library now.',
                'Not filed': 'Downloaded, but post-processing didn\'t file it.' };
-  var st = { tab: 'active', q: '', start: 0, len: 50, items: [], stalled: 0, loaded: false };
+  var st = { tab: 'active', q: '', col: null, start: 0, len: 50, items: [], stalled: 0, loaded: false };
 
   function $id(id) { return document.getElementById(id); }
   function I() { return window.Issuarr; }
@@ -114,6 +114,18 @@
     var tb = $id('q-table').tBodies[0];
     var q = st.q.toLowerCase();
     var rows = st.items.filter(function (it) { return inTab(it, st.tab) && (!q || String(it.title || '').toLowerCase().indexOf(q) > -1); });
+    if (st.col) {
+      // A column header was clicked: the whole queue is sorted, not just this page. Blanks stay at the bottom.
+      var col = st.col, val = function (it) {
+        var v = col.key === 'status' ? LABEL[it.status] || it.status : col.key === 'percent' ? (it.percent == null ? null : +it.percent) : it[col.key];
+        return v === '' || v == null ? null : v;
+      };
+      rows.sort(function (a, b) {
+        var x = val(a), y = val(b);
+        if (x === null || y === null) return x === y ? 0 : x === null ? 1 : -1;
+        return col.dir * (typeof x === 'number' ? x - y : String(x).localeCompare(String(y), undefined, { sensitivity: 'base', numeric: true }));
+      });
+    }
     st.total = rows.length;
     if (st.start >= rows.length) st.start = Math.max(0, Math.floor((rows.length - 1) / st.len) * st.len);
     renderRange();
@@ -240,6 +252,7 @@
   $id('q-prev').addEventListener('click', function () { st.start = Math.max(0, st.start - st.len); renderRows(); });
   $id('q-next').addEventListener('click', function () { st.start += st.len; renderRows(); });
   var searchTimer = null;
+  $id('q-table').addEventListener('issuarr:sort', function (e) { st.col = e.detail; st.start = 0; renderRows(); });
   $id('q-search').addEventListener('input', function (e) {
     clearTimeout(searchTimer);
     searchTimer = setTimeout(function () { st.q = e.target.value.trim(); st.start = 0; renderRows(); }, 200);

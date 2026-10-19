@@ -87,14 +87,13 @@
     v = String(v).replace(/\s+/g, ' ').trim();
     if (v === '' || v === '-' || v === '—') return null;
     var n = /^#?\s*(-?\d[\d,]*(?:\.\d+)?)$/.exec(v);
-    return n ? parseFloat(n[1].replace(/,/g, '')) : v;
+    return { text: v, num: n ? parseFloat(n[1].replace(/,/g, '')) : null };
   }
   function compareValues(a, b) {
     if (a === null || b === null) return a === b ? 0 : a === null ? 1 : -1;
-    if (typeof a === 'number' && typeof b === 'number') return a - b;
-    if (typeof a === 'number') return -1;
-    if (typeof b === 'number') return 1;
-    return collate.compare(a, b);
+    if (a.num !== null && b.num !== null) return a.num - b.num;
+    // Text, or a number next to text such as #12 and #12A: compare as text with numbers in order (2 before 10).
+    return collate.compare(a.text.replace(/^#\s*/, ''), b.text.replace(/^#\s*/, ''));
   }
   function sortRows(table) {
     var th = sortHeaders(table).filter(function (h) { return h.getAttribute('aria-sort') !== 'none'; })[0];

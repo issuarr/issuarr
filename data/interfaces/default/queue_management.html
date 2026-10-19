@@ -35,14 +35,14 @@
                 </label>
             </div>
             <div class="dt-wrap">
-                <table class="dt" id="q-table">
+                <table class="dt" id="q-table" data-sort="custom">
                     <thead>
                         <tr>
-                            <th scope="col">Download</th>
-                            <th scope="col">Progress</th>
-                            <th scope="col">From</th>
-                            <th scope="col">Status</th>
-                            <th scope="col">Updated</th>
+                            <th scope="col" data-key="title">Download</th>
+                            <th scope="col" data-key="percent" data-sort-first="desc">Progress</th>
+                            <th scope="col" data-key="source">From</th>
+                            <th scope="col" data-key="status">Status</th>
+                            <th scope="col" data-key="updated" data-sort-first="desc">Updated</th>
                             <th scope="col"><span class="sr-only">Actions</span></th>
                         </tr>
                     </thead>
