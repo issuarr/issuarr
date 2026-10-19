@@ -4499,7 +4499,7 @@ class WebInterface(object):
         raise cherrypy.HTTPRedirect("home?select=1")
     manageComics.exposed = True
 
-    def manageIssues(self, status='Skipped', q='', page=1, **kwargs):
+    def manageIssues(self, status='Skipped', q='', page=1, sort='series', dir='asc', **kwargs):
         """Issues with one status, a page at a time: a library can hold tens of thousands.
         Wanted issues have their own page (tiers, searching), so this covers every other status."""
         if status == 'Wanted':
@@ -4513,6 +4513,14 @@ class WebInterface(object):
             page = 1
         per_page = 100
         q = (q or '').strip()
+        # Column headers sort the whole list, not just the page shown.
+        ORDERS = {'series': 'ComicName COLLATE NOCASE {d}, Int_IssueNumber',
+                  'issue': 'Int_IssueNumber {d}, ComicName COLLATE NOCASE',
+                  'cover': 'IssueDate {d}, ComicName COLLATE NOCASE, Int_IssueNumber',
+                  'store': 'ReleaseDate {d}, ComicName COLLATE NOCASE, Int_IssueNumber'}
+        if sort not in ORDERS:
+            sort = 'series'
+        dir = 'desc' if dir == 'desc' else 'asc'
         myDB = db.DBConnection()
 
         counts = {x: 0 for x in STATUSES}
@@ -4537,10 +4545,10 @@ class WebInterface(object):
         total = myDB.selectone('SELECT COUNT(*) FROM (%s)' % union, params).fetchone()[0]
         pages = max((total + per_page - 1) // per_page, 1)
         page = min(page, pages)
-        issues = myDB.select('SELECT * FROM (%s) ORDER BY ComicName COLLATE NOCASE, Int_IssueNumber LIMIT ? OFFSET ?' % union,
+        issues = myDB.select('SELECT * FROM (%s) ORDER BY %s LIMIT ? OFFSET ?' % (union, ORDERS[sort].format(d=dir.upper())),
                              params + [per_page, (page - 1) * per_page])
         return serve_template(templatename="manageissues.html", title="Manage issues", issues=issues, status=status, statuses=STATUSES,
-                              counts=counts, q=q, page=page, pages=pages, total=total, per_page=per_page)
+                              counts=counts, q=q, page=page, pages=pages, total=total, per_page=per_page, sort=sort, dir=dir)
     manageIssues.exposed = True
 
     def manageFailed(self):
@@ -5146,7 +5154,15 @@ class WebInterface(object):
         #below sort is for multi-sort columns, maybe make them user configurable - not sure how to pass mutli-sort thru otherwise
         #filtered.sort(key= itemgetter(sortcolumn2, sortcolumn), reverse=sSortDir_0 == "desc")
 
-        filtered.sort(key=lambda x: (x[sortcolumn] is None, x[sortcolumn] == '', x[sortcolumn]), reverse=sSortDir_0 == "asc")
+        def sortvalue(v):
+            # Issue numbers sort as numbers (2 before 10); anything that isn't a number sorts after them.
+            if sortcolumn == 'Issue_Number':
+                try:
+                    return (0, float(v), '')
+                except (TypeError, ValueError):
+                    return (1, 0, str(v).lower())
+            return (0, 0, str(v).lower() if sortcolumn != 'DateAdded' else str(v))
+        filtered.sort(key=lambda x: (x[sortcolumn] is None, x[sortcolumn] == '', sortvalue(x[sortcolumn])), reverse=sSortDir_0 == "desc")
         if iDisplayLength != -1:
             trows = filtered[iDisplayStart:(iDisplayStart + iDisplayLength)]
         else:

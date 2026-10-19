@@ -18,7 +18,7 @@
                Archived: 'Marked {n} as archived', OppositeTier: 'Switched the tier of {n}' };
   var STATUS = { Wanted: 'is-wanted', Snatched: 'is-snatched', Failed: 'is-failed' };
 
-  var st = { rows: [], tab: 'all', q: '', sort: 'release-desc', limit: CHUNK, sel: {}, loaded: false,
+  var st = { rows: [], tab: 'all', q: '', sort: 'release-desc', col: null, limit: CHUNK, sel: {}, loaded: false,
              flow: {}, current: null };
 
   function $id(id) { return document.getElementById(id); }
@@ -103,6 +103,23 @@
       'added-desc': function (a, b) { return b.added.localeCompare(a.added) || b.release.localeCompare(a.release); },
       series: bySeries
     };
+    if (st.col) {
+      // A column header was clicked. Empty values stay at the bottom; series and issue break ties.
+      var col = st.col;
+      var val = {
+        series: function (r) { return r.name; },
+        issue: function (r) { return r.num; },
+        release: function (r) { return r.release || null; },
+        status: function (r) { return r.status || null; },
+        tier: function (r) { return r.tier === 1 ? 1 : r.tier === 2 ? 2 : r.tier === 'soon' ? 3 : null; }
+      }[col.key] || function (r) { return r.name; };
+      return list.sort(function (a, b) {
+        var x = val(a), y = val(b);
+        if (x === null || y === null) return (x === y ? 0 : x === null ? 1 : -1) || bySeries(a, b);
+        var c = typeof x === 'number' ? x - y : String(x).localeCompare(String(y), undefined, { sensitivity: 'base', numeric: true });
+        return col.dir * c || bySeries(a, b);
+      });
+    }
     return list.sort(sorts[st.sort] || sorts['release-desc']);
   }
 
@@ -299,7 +316,8 @@
     clearTimeout(qTimer);
     qTimer = setTimeout(function () { st.q = e.target.value.trim(); st.limit = CHUNK; render(); }, 120);
   });
-  $id('w-sort').addEventListener('change', function (e) { st.sort = e.target.value; render(); });
+  $id('w-sort').addEventListener('change', function (e) { st.sort = e.target.value; st.col = null; I().clearSort($id('w-table')); render(); });
+  $id('w-table').addEventListener('issuarr:sort', function (e) { st.col = e.detail; render(); });
   $id('w-more-rows').addEventListener('click', function () { st.limit += CHUNK; render(); });
   var refreshTimer = null;
   document.addEventListener('issuarr:refresh', function () { clearTimeout(refreshTimer); refreshTimer = setTimeout(load, 800); });

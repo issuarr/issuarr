@@ -59,15 +59,15 @@
             </div>
 
             <div class="dt-wrap">
-                <table class="dt" id="w-table" data-tier-days="${tier_cutoff}">
+                <table class="dt" id="w-table" data-sort="custom" data-tier-days="${tier_cutoff}">
                     <thead>
                         <tr>
                             <th scope="col" class="check"><input type="checkbox" id="w-all" aria-label="Select all shown" /></th>
-                            <th scope="col">Series</th>
-                            <th scope="col">Issue</th>
-                            <th scope="col">Release date</th>
-                            <th scope="col">Status</th>
-                            <th scope="col">Tier</th>
+                            <th scope="col" data-key="series">Series</th>
+                            <th scope="col" data-key="issue">Issue</th>
+                            <th scope="col" data-key="release" data-sort-first="desc">Release date</th>
+                            <th scope="col" data-key="status">Status</th>
+                            <th scope="col" data-key="tier">Tier</th>
                             <th scope="col"><span class="sr-only">Actions</span></th>
                         </tr>
                     </thead>

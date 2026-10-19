@@ -5,7 +5,7 @@
   // Row: [DateAdded, ComicName, Issue_Number, Status, IssueID, ComicID, Provider, StoryArc, IssueArcID, StoryArcID, Oneoff]
   var CLASS = { Snatched: 'is-snatched', 'Post-Processed': 'is-have', Processed: 'is-have', Downloaded: 'is-have',
                 Archived: 'is-have', Failed: 'is-failed', Unprocessed: 'is-idle' };
-  var st = { status: '', q: '', start: 0, len: 50, total: 0, counts: {}, rows: [], sel: {} };
+  var st = { status: '', q: '', sort: ['1', -1], start: 0, len: 50, total: 0, counts: {}, rows: [], sel: {} };
 
   function $id(id) { return document.getElementById(id); }
   function I() { return window.Issuarr; }
@@ -76,7 +76,7 @@
   }
 
   function load() {
-    var p = new URLSearchParams({ iDisplayStart: st.start, iDisplayLength: st.len, iSortCol_0: '1', sSortDir_0: 'asc', sSearch: st.q });
+    var p = new URLSearchParams({ iDisplayStart: st.start, iDisplayLength: st.len, iSortCol_0: st.sort[0], sSortDir_0: st.sort[1] > 0 ? 'asc' : 'desc', sSearch: st.q });
     if (st.status) p.set('status', st.status);
     return fetch('loadhistory?' + p.toString(), { credentials: 'same-origin', cache: 'no-store' })
       .then(function (r) { if (!r.ok) throw new Error(r.status); return r.json(); })
@@ -96,6 +96,9 @@
   }
 
   /* ---- events ---- */
+  // The server sorts the whole history; the header's column number is what loadhistory expects.
+  $id('h-table').addEventListener('issuarr:sort', function (e) { st.sort = [e.detail.key, e.detail.dir]; st.start = 0; load(); });
+
   document.addEventListener('click', function (e) {
     var tab = e.target.closest('#h-tabs [data-status]');
     if (tab) { st.status = tab.getAttribute('data-status'); st.start = 0; load(); return; }
