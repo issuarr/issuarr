@@ -11,7 +11,7 @@
 
   var st = {
     tab: 'missing', by: 'issue', kinds: { missing: [0], collected: [0, 1] }, q: '', pub: '', dec: '',
-    sort: null, limit: 300, sel: {}, open: {}, status: '', del: null
+    sort: null, limit: 300, sel: {}, open: {}, status: '', ssel: {}
   };
   try { var saved = JSON.parse(localStorage.getItem('mylar-ledger') || 'null'); if (saved) { st.tab = saved.tab || st.tab; st.kinds = saved.kinds || st.kinds; st.by = saved.by || st.by; } } catch (e) {}
   function save() { try { localStorage.setItem('mylar-ledger', JSON.stringify({ tab: st.tab, kinds: st.kinds, by: st.by })); } catch (e) {} }
@@ -145,7 +145,7 @@
   // The sidebar opens this page as Ledger (no hash) or Library > Trades (#trades).
   function tabFromHash() { return location.hash === '#trades' ? 'collected' : 'missing'; }
   function setTab(t) {
-    st.tab = t; st.sel = {}; st.del = null; st.limit = 300; st.sort = null; save();
+    st.tab = t; st.sel = {}; st.ssel = {}; st.limit = 300; st.sort = null; save();
     $id('lg-tab-missing').setAttribute('aria-selected', t === 'missing');
     $id('lg-tab-collected').setAttribute('aria-selected', t === 'collected');
     if (tabFromHash() !== t) history.replaceState(null, '', t === 'collected' ? '#trades' : location.pathname + location.search);
@@ -162,7 +162,7 @@
   }
   $('#lg-tab-missing').on('click', function () { setTab('missing'); });
   $('#lg-tab-collected').on('click', function () { setTab('collected'); });
-  function setBy(b) { st.by = b; st.del = null; st.sort = null; st.limit = 300; save(); $id('lg-by-issue').setAttribute('aria-pressed', b === 'issue'); $id('lg-by-series').setAttribute('aria-pressed', b === 'series'); render(); }
+  function setBy(b) { st.by = b; st.ssel = {}; st.sort = null; st.limit = 300; save(); $id('lg-by-issue').setAttribute('aria-pressed', b === 'issue'); $id('lg-by-series').setAttribute('aria-pressed', b === 'series'); render(); }
   $('#lg-by-issue').on('click', function () { setBy('issue'); });
   $('#lg-by-series').on('click', function () { setBy('series'); });
 
@@ -173,7 +173,7 @@
     }).join('') + '</tr>');
   }
   $('#lg-table').on('click', 'th[data-key]', function () {
-    var k = this.getAttribute('data-key'); if (k === 'mix' || k === 'lack' || k === 'del') return;
+    var k = this.getAttribute('data-key'); if (k === 'mix' || k === 'lack') return;
     st.sort = st.sort && st.sort.key === k ? { key: k, dir: -st.sort.dir } : { key: k, dir: ['miss', 'own', 'w', 'found', 'lacking'].indexOf(k) >= 0 ? -1 : 1 };
     render();
   });
@@ -279,41 +279,24 @@
     });
     var list = Object.keys(g).map(function (k) { var x = g[k], S = M.series[x.s]; x.series = S[0].toLowerCase(); x.pub = M.pubs[S[4]]; x.own = S[2] / (S[3] || 1); x.total = x.p[0] + x.p[1] + x.p[2] + x.none; x.miss = x.total * 1e6 + x.p[1]; x.tr = -(S[6] || []).length; return x; });
     list.sort(function (a, b) { return s.dir * cmp(a[s.key], b[s.key]) || cmp(a.series, b.series); });
-    head([['series', 'Series'], ['mix', 'Collection'], ['own', 'Owned', 'num'], ['miss', 'Missing <small class="lg-dim">before / gap / after</small>', 'num'], ['w', 'Wanted', 'num'], ['tr', 'Trades'], ['del', '<span class="sr-only">Remove</span>', 'lg-del']], true);
+    head([['series', 'Series'], ['mix', 'Collection'], ['own', 'Owned', 'num'], ['miss', 'Missing <small class="lg-dim">before / gap / after</small>', 'num'], ['w', 'Wanted', 'num'], ['tr', 'Trades']], true);
+    // Series picked for Remove series: a complete series by its own tick, any other when all its listed missing issues are selected.
+    Object.keys(st.ssel).forEach(function (k) { if (M.complete.indexOf(+k) < 0) delete st.ssel[k]; });
+    list.forEach(function (x) { if (!x.done && x.ids.every(function (i) { return st.sel[i]; })) st.ssel[x.s] = 1; });
     var page = list.slice(0, st.limit);
     $('#lg-table tbody').html(page.length ? page.map(function (x) {
-      var S = M.series[x.s], all = x.ids.every(function (i) { return st.sel[i]; });
-      if (x.done) all = false;
-      return '<tr class="' + (all ? 'lg-on' : '') + (x.done ? ' lg-complete' : '') + '"><td class="lg-chk">' + (x.done ? '' : '<input type="checkbox" data-ids="' + x.ids.join(',') + '"' + (all ? ' checked' : '') + ' aria-label="Select all missing issues in this series">') + '</td>' +
+      var S = M.series[x.s], all = !!st.ssel[x.s];
+      return '<tr class="' + (all ? 'lg-on' : '') + (x.done ? ' lg-complete' : '') + '"><td class="lg-chk"><input type="checkbox" data-s="' + x.s + '" data-ids="' + x.ids.join(',') + '"' + (all ? ' checked' : '') + ' aria-label="' + (x.done ? 'Select this series' : 'Select all missing issues in this series') + '"></td>' +
         '<td><a href="comicDetails?ComicID=' + S[5] + '">' + esc(S[0]) + '</a> <span class="lg-dim">(' + esc(S[1]) + ')</span><br><small class="lg-dim">' + esc(M.pubs[S[4]]) + '</small></td>' +
         '<td class="lg-cbar-cell">' + runsBar(S[7]) + '</td>' +
         '<td class="num lg-mono">' + S[2] + ' / ' + S[3] + '</td><td class="num lg-mono">' + missCell(x) + '</td>' +
         '<td class="num lg-mono is-wanted">' + (x.w || '') + '</td>' +
-        '<td class="lg-trades">' + seriesTrades(S[6]) + '</td>' +
-        '<td class="lg-del"><button type="button" class="btn btn-sm btn-ghost" data-del="' + x.s + '" aria-expanded="' + (st.del === String(x.s)) + '" title="Remove this series from Issuarr">Remove…</button></td></tr>' +
-        (st.del === String(x.s) ? delRow(S) : '');
+        '<td class="lg-trades">' + seriesTrades(S[6]) + '</td></tr>';
     }).join('') : '<tr><td class="lg-empty" colspan="9">No series match these filters.</td></tr>');
     countLine(Math.min(st.limit, list.length), list.length, 'series', sf.wanted);
     $id('lg-more').hidden = list.length <= st.limit;
-    $id('lg-note').textContent = KEYS + ' Selecting a series selects all of its missing issues that match the filters. Remove… takes a series out of Issuarr, the same as Remove series on its page.';
+    $id('lg-note').textContent = KEYS + ' Selecting a series selects all of its missing issues that match the filters. Remove series… in the selection bar takes the selected series out of Issuarr, the same as Remove series on its page.';
   }
-
-  // Same choices as the series page's Remove series dialog; the files box starts from the Delete directory setting.
-  function delRow(S) {
-    return '<tr class="lg-sub-row"><td></td><td colspan="7"><div class="lg-confirm">Remove <b>' + esc(S[0]) + ' (' + esc(S[1]) + ')</b> and its issue list from Issuarr? ' +
-      '<label class="lg-del-files"><input type="checkbox" id="lg-del-files"' + (M.delete_dir ? ' checked' : '') + '> Also delete the series folder and its files</label><br>' +
-      '<button type="button" class="btn btn-sm btn-danger" data-delgo="' + S[5] + '">Remove series</button><button type="button" class="btn btn-sm btn-ghost" data-delcancel>Cancel</button></div></td></tr>';
-  }
-  $('#lg-table').on('click', '[data-del]', function () { var k = this.getAttribute('data-del'); st.del = st.del === k ? null : k; render(); });
-  $('#lg-table').on('click', '[data-delcancel]', function () { st.del = null; render(); });
-  $('#lg-table').on('click', '[data-delgo]', function () {
-    var box = $(this).closest('.lg-confirm');
-    box.find('button, input').prop('disabled', true);
-    $.post('deleteSeries', { ComicID: this.getAttribute('data-delgo'), delete_dir: $id('lg-del-files').checked ? 1 : '', ajax: 1 }, function (r) {
-      if (!r.ok) { box.find('button, input').prop('disabled', false); box.append('<br><small>Issuarr couldn\'t remove this series. Check the log.</small>'); return; }
-      st.del = null; reload();
-    }, 'json').fail(function () { box.find('button, input').prop('disabled', false); box.append('<br><small>Issuarr couldn\'t remove this series. Check the log.</small>'); });
-  });
 
   function missCell(x) {
     if (x.done) return '<span class="lg-pill" style="--c:var(--lg-done)">Complete</span>';
@@ -357,14 +340,13 @@
 
   $('#lg-table').on('click', '[data-open]', function () { var k = this.getAttribute('data-open'); st.open[k] = !st.open[k]; render(); });
   $('#lg-table').on('change', 'input[type=checkbox]', function () {
-    if (this.id === 'lg-del-files') return;
     if (this.id === 'lg-all') {
       var on = this.checked;
-      $('#lg-table tbody input[type=checkbox]').each(function () { ids(this).forEach(function (i) { if (on) st.sel[i] = 1; else delete st.sel[i]; }); });
+      $('#lg-table tbody input[type=checkbox]').each(function () { pick(this, on); });
       render(); return;
     }
     st.confirm = null;
-    var on2 = this.checked; ids(this).forEach(function (i) { if (on2) st.sel[i] = 1; else delete st.sel[i]; });
+    var on2 = this.checked; pick(this, on2);
     $(this).closest('tr').toggleClass('lg-on', on2); selBar(); syncAll();
   });
   var KEYS = 'Keys: ↑/↓ move through the list, Space ticks a row, Shift+↑/↓ ticks as you go.';
@@ -383,23 +365,30 @@
     box.focus({ preventScroll: true });
     rows[j].scrollIntoView({ block: 'nearest' });
   });
-  function ids(el) { var a = el.getAttribute('data-ids'); return a ? a.split(',') : [el.getAttribute('data-id')]; }
+  function ids(el) { var a = el.getAttribute('data-ids'); return a ? a.split(',') : a === '' ? [] : [el.getAttribute('data-id')]; }
+  function pick(el, on) {
+    ids(el).forEach(function (i) { if (on) st.sel[i] = 1; else delete st.sel[i]; });
+    var si = el.getAttribute('data-s');
+    if (si !== null) { if (on) st.ssel[si] = 1; else delete st.ssel[si]; }
+  }
 
   function btn(id, label, n, why) {
     return '<button type="button" class="btn btn-sm" data-do="' + id + '"' + (n ? '' : ' disabled title="' + esc(why) + '"') + '>' + label + (n ? ' <span class="lg-n">' + fmt(n) + '</span>' : '') + '</button>';
   }
+  function selSeries() { return st.tab === 'missing' && st.by === 'series' && M ? Object.keys(st.ssel).filter(function (k) { return M.series[k]; }) : []; }
   function selTrades() { return C ? C.trades.filter(function (t) { return st.sel[t.iid]; }) : []; }
   function lackingIds(list) { var o = {}; list.forEach(function (t) { t.lacking.forEach(function (l) { o[l[0]] = 1; }); }); return Object.keys(o); }
 
   function selBar() {
-    var n = Object.keys(st.sel).length, bar = $id('lg-actions');
-    bar.hidden = n === 0;
-    if (!n) { st.confirm = null; return; }
+    var n = Object.keys(st.sel).length, ns = selSeries().length, bar = $id('lg-actions');
+    bar.hidden = n === 0 && ns === 0;
+    if (bar.hidden) { st.confirm = null; return; }
     var html;
     if (st.tab === 'missing') {
       var already = M.rows.reduce(function (a, r) { return a + (st.sel[r[6]] && r[7] === 'Wanted' ? 1 : 0); }, 0);
-      html = '<span id="lg-selcount">' + fmt(n) + ' missing issues selected' + (already ? ' <small class="lg-dim">(' + fmt(already) + ' already Wanted)</small>' : '') + '</span>' +
-        btn('issues:Wanted', 'Mark Wanted', n) + btn('issues:Skipped', 'Mark Skipped', n) + btn('issues:Ignored', 'Mark Ignored', n);
+      html = '<span id="lg-selcount">' + (ns ? fmt(ns) + ' series selected · ' : '') + fmt(n) + ' missing issues selected' + (already ? ' <small class="lg-dim">(' + fmt(already) + ' already Wanted)</small>' : '') + '</span>' +
+        btn('issues:Wanted', 'Mark Wanted', n, 'No missing issues selected') + btn('issues:Skipped', 'Mark Skipped', n, 'No missing issues selected') + btn('issues:Ignored', 'Mark Ignored', n, 'No missing issues selected');
+      if (st.by === 'series') html += '<span class="lg-grp">' + btn('series:remove', 'Remove series…', ns, 'No series selected') + '</span>';
     } else {
       var sel = selTrades(), notOwned = sel.filter(function (t) { return !isOwned(t); }), owned = sel.filter(isOwned);
       var lack = lackingIds(sel), dupes = owned.reduce(function (a, t) { return a + (t.ondisk || 0); }, 0);
@@ -426,19 +415,29 @@
       .done(function () { done(); })
       .fail(function () { $('.lg-actions button').prop('disabled', false); $id('lg-selcount').textContent = 'Mylar didn\'t accept the change. Check the log.'; });
   }
-  function reload() {
-    st.sel = {}; st.confirm = null;
-    if (st.tab === 'missing') load('missing', function (d) { M = d; tiles(); render(); });
+  function reload(then) {
+    st.sel = {}; st.ssel = {}; st.confirm = null;
+    if (st.tab === 'missing') load('missing', function (d) { M = d; tiles(); render(); if (then) then(); });
     else load('collected', function (d) { C = d; M = null; tiles(); render(); });
   }
   function size(b) { return b > 1e9 ? (b / 1e9).toFixed(1) + ' GB' : Math.round(b / 1e6) + ' MB'; }
   $('#lg-actions').on('click', '[data-do]', function () {
     var d = this.getAttribute('data-do'), p = d.split(':');
-    if (d === 'clear') { st.sel = {}; st.confirm = null; render(); return; }
+    if (d === 'clear') { st.sel = {}; st.ssel = {}; st.confirm = null; render(); return; }
     if (p[0] === 'issues') return mark(p[1], Object.keys(st.sel), reload);
     if (p[0] === 'trade') return mark(p[1], selTrades().filter(function (t) { return !isOwned(t); }).map(function (t) { return t.iid; }), reload);
     if (p[0] === 'lack') return mark(p[1], lackingIds(selTrades()), reload);
     if (d === 'cancel') { st.confirm = null; selBar(); return; }
+    if (d === 'series:remove') {
+      // Same choices as the series page's Remove series dialog; the files box starts from the Delete directory setting.
+      var names = selSeries().map(function (k) { return M.series[k][0] + ' (' + M.series[k][1] + ')'; });
+      st.confirm = 'Remove <b>' + (names.length === 1 ? esc(names[0]) : fmt(names.length) + ' series') + '</b> and ' + (names.length === 1 ? 'its issue list' : 'their issue lists') + ' from Issuarr?' +
+        (names.length > 1 ? '<br><small>' + esc(names.slice(0, 20).join(', ')) + (names.length > 20 ? ' and ' + fmt(names.length - 20) + ' more' : '') + '</small>' : '') +
+        '<br><label class="lg-del-files"><input type="checkbox" id="lg-del-files"' + (M.delete_dir ? ' checked' : '') + '> Also delete the series folder' + (names.length === 1 ? '' : 's') + ' and ' + (names.length === 1 ? 'its' : 'their') + ' files</label><br>' +
+        '<button type="button" class="btn btn-sm btn-danger" data-do="series:go">Remove ' + (names.length === 1 ? 'series' : fmt(names.length) + ' series') + '</button><button type="button" class="btn btn-sm btn-ghost" data-do="cancel">Cancel</button>';
+      selBar(); return;
+    }
+    if (d === 'series:go') return removeSeries(selSeries().map(function (k) { return M.series[k][5]; }), $id('lg-del-files').checked);
     var ids = selTrades().filter(isOwned).map(function (t) { return t.iid; }).join(',');
     if (d === 'remove') {
       $('.lg-actions button').prop('disabled', true);
@@ -461,6 +460,23 @@
       }, 'json');
     }
   });
+
+  // One series at a time, so a big selection doesn't pile requests onto the server.
+  function removeSeries(cids, files) {
+    var failed = 0, total = cids.length;
+    $('.lg-actions button, .lg-actions input').prop('disabled', true);
+    (function next() {
+      if (!cids.length) {
+        reload(function () {
+          $id('lg-note').textContent = 'Removed ' + fmt(total - failed) + ' series' + (failed ? '. ' + fmt(failed) + ' couldn\'t be removed; check the log.' : '.');
+        });
+        return;
+      }
+      $id('lg-selcount').textContent = 'Removing series ' + fmt(total - cids.length + 1) + ' of ' + fmt(total) + '…';
+      $.post('deleteSeries', { ComicID: cids.shift(), delete_dir: files ? 1 : '', ajax: 1 }, function (r) { if (!r.ok) failed++; }, 'json')
+        .fail(function () { failed++; }).always(next);
+    })();
+  }
 
   var poll = null;
   function buildBar(s) {
