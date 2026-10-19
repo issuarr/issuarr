@@ -24,7 +24,7 @@ import sys
 import calendar
 
 import mylar
-from mylar import db, logger, helpers, filechecker, matching
+from mylar import db, logger, helpers, filechecker, matching, editions
 
 def addvialist(queue):
     while True:
@@ -1216,6 +1216,13 @@ def forceRescan(ComicID, archive=None, module=None, recheck=False):
                 cla = ca['comiclist'][i]
             except (IndexError, KeyError) as e:
                 break
+
+            if booktype == 'Print' and editions.collected(cla['ComicFilename'], rescan['ComicName']):
+                # its volume number isn't an issue number of a series of single issues
+                logger.fdebug('%s %s is a collected edition - not matching it to a single issue.' % (module, cla['ComicFilename']))
+                comiccnt -= 1
+                i += 1
+                continue
 
             try:
                 if all([booktype == 'TPB', iscnt > 1]) or all([booktype == 'GN', iscnt > 1]) or all([booktype =='HC', iscnt > 1]) or all([booktype == 'One-Shot', iscnt == 1, cla['JusttheDigits'] is None]):

@@ -1341,7 +1341,7 @@ a.w-where:hover { color: var(--text); text-decoration-color: currentColor; }
 .att-path .mono { overflow-wrap: anywhere; user-select: all; }
 .att-why { margin: 6px 0 12px; color: var(--text-2); max-width: 75ch; }
 .att-why b { color: var(--text); font-weight: 600; }
-.att-read { display: grid; grid-template-columns: max-content repeat(4, minmax(0, max-content)); gap: 0 28px;
+.att-read { display: grid; grid-template-columns: max-content repeat(5, minmax(0, max-content)); gap: 0 28px;
   margin: 0 0 14px; overflow-x: auto; }
 .att-col { display: grid; grid-template-rows: auto auto auto; row-gap: 3px; padding-top: 7px; border-top: 2px solid var(--line); min-width: 0; }
 .att-col.is-agree { border-top-color: var(--have); }

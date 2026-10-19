@@ -90,6 +90,7 @@
                 cell('Issue', p.issue && '#' + p.issue, m && m.number && '#' + m.number, m ? a.issue : null, m ? 'not on this series' : '') +
                 cell('Year', p.year, m && m.issue_year, m ? a.year : null) +
                 cell('Volume', p.volume, m && m.volume, m ? a.volume : null) +
+                cell('Format', p.collected ? 'Collected edition' : 'Single issue', m && m.format, m ? a.format : null, m ? 'not known' : '') +
                 '</div>';
         }
 

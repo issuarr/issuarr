@@ -29,7 +29,7 @@ import pathlib
 from xml.dom.minidom import parseString
 import mylar
 
-from mylar import logger, db, helpers, updater, notifiers, filechecker, weeklypull, getimage, archives, autoadd, webp, attention
+from mylar import logger, db, helpers, updater, notifiers, filechecker, weeklypull, getimage, archives, autoadd, webp, attention, editions
 
 PP_LOCK = threading.RLock()
 
@@ -1224,6 +1224,11 @@ class PostProcessor(object):
                         watchmatch = wm.matchIT(fl)
                         
                         if watchmatch['process_status'] == 'fail':
+                            nm+=1
+                            continue
+                        elif editions.singles(cs['WatchValues']['Type']) and editions.collected(fl['comicfilename'], cs['ComicName']):
+                            logger.fdebug('%s %s is a collected edition - not filing it as an issue of %s.' % (module, fl['comicfilename'], cs['ComicName']))
+                            self._att_why('series', 'The name says it is a collected edition (such as a TPB or HC), and %s (%s) is a series of single issues.' % (cs['ComicName'], cs['WatchValues']['SeriesYear']))
                             nm+=1
                             continue
                         else:
