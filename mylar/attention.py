@@ -37,7 +37,7 @@ import threading
 import time
 
 import mylar
-from mylar import db, logger
+from mylar import db, logger, editions
 
 COMIC_EXT = ('.cbz', '.cbr', '.cb7', '.pdf')
 # Most telling first: a file that failed on volume for one series and on name for the rest
@@ -220,7 +220,7 @@ def _norm(name):
 def _watchlist():
     if time.time() - _COMICS[0] < 300 and _COMICS[1]:
         return _COMICS[1]
-    rows = db.DBConnection().select('SELECT ComicID, ComicName, ComicYear, ComicVersion, Total FROM comics WHERE ComicName IS NOT NULL')
+    rows = db.DBConnection().select('SELECT ComicID, ComicName, ComicYear, ComicVersion, Total, Type, Corrected_Type FROM comics WHERE ComicName IS NOT NULL')
     rows = [dict(r, norm=_norm(r['ComicName'])) for r in rows]
     for r in rows:
         r['chars'] = collections.Counter(r['norm'])
@@ -233,7 +233,7 @@ def parse(path):
     """What the file name says: series, issue, year and volume, as filing reads them."""
     from mylar import filechecker
     name = os.path.basename(path)
-    out = {'series': None, 'issue': None, 'year': None, 'volume': None}
+    out = {'series': None, 'issue': None, 'year': None, 'volume': None, 'name': name, 'collected': editions.collected(name)}
     try:
         p = filechecker.FileChecker(file=name).listFiles()
     except Exception as e:
@@ -299,10 +299,18 @@ def suggest(parsed, limit=3, comicid=None):
         return []
     named = _named(want, comicid)
     myDB = db.DBConnection()
-    target = _num(parsed.get('issue')) if parsed.get('issue') else None
     fyear = str(parsed.get('year') or '')
     out = []
     for s, c in named[:10]:
+        # A collected edition is numbered by its volume ("Vol 2" is #2 of a TPB series). It isn't
+        # offered as an issue of a series of single issues; picking one by hand still can.
+        is_collected = editions.collected(parsed['name'], c['ComicName']) if parsed.get('name') else bool(parsed.get('collected'))
+        stype = editions.series_type(c.get('Type'), c.get('Corrected_Type'))
+        singles, collection = editions.singles(stype), stype in editions.COLLECTED_TYPES
+        number = parsed.get('issue')
+        if is_collected and collection and _vol(parsed.get('volume')) is not None:
+            number = str(_vol(parsed.get('volume')))
+        target = _num(number) if number and not (is_collected and singles) else None
         issue = None
         if target is not None:
             for r in myDB.select('SELECT IssueID, Issue_Number, Status, IssueDate, ReleaseDate FROM issues WHERE ComicID=?', [c['ComicID']]):
@@ -315,13 +323,16 @@ def suggest(parsed, limit=3, comicid=None):
             'series': s >= 0.92,
             'issue': issue is not None,
             'year': fyear == iyear if fyear.isdigit() and iyear.isdigit() else None,
-            'volume': None if fvol is None else (fvol == svol or (svol is None and fvol == 1)),
+            # a collected edition's volume is its number, not the series' volume
+            'volume': None if fvol is None or (is_collected and collection) else (fvol == svol or (svol is None and fvol == 1)),
+            'format': True if (collection if is_collected else singles) else False if (singles or collection) else None,
         }
         near = fyear.isdigit() and iyear.isdigit() and abs(int(fyear) - int(iyear)) <= 1   # cover dates run ahead
         rank = s + (0.3 if agree['issue'] else 0) + (0.2 if agree['year'] else 0.1 if near else -0.2 if agree['year'] is False else 0) + \
-            {True: 0.1, False: -0.1, None: 0}[agree['volume']]
+            {True: 0.1, False: -0.1, None: 0}[agree['volume']] + {True: 0, None: 0, False: -0.5 if is_collected else -0.2}[agree['format']]
         out.append({'comicid': c['ComicID'], 'name': c['ComicName'], 'year': c['ComicYear'], 'volume': c['ComicVersion'],
                      'total': c['Total'], 'score': round(s, 2), 'rank': round(rank, 2), 'agree': agree,
+                     'format': 'Single issues' if singles else stype,
                      'issueid': (issue or {}).get('IssueID'), 'number': (issue or {}).get('Issue_Number'),
                      'status': (issue or {}).get('Status'), 'issue_year': iyear or None})
     out.sort(key=lambda m: -m['rank'])

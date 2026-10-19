@@ -69,6 +69,7 @@ from mylar import (
     importstatus,
     ddlsources,
     downloadqueue,
+    editions,
     ledger,
     librarysync,
     logger,
@@ -7210,11 +7211,14 @@ class WebInterface(object):
                                            'description':   results['description'],
                                            'comicimage':    results['comicimage'],
                                            'issues':        results['issues'],
+                                           'type':          results.get('type'),
                                            'ogcname':       ogcname,
                                            'comicyear':     results['comicyear']})
 
-        if len(search_matches) == 1:
-            sr = search_matches[0]
+        # Collected editions (TPB, HC, Omnibus) are only picked automatically for a TPB, HC or GN series.
+        files_collected = sum(editions.collected(p, ComicName) for p in comicstoIMP) * 2 > len(comicstoIMP)
+        sr = editions.auto_pick(search_matches, files_collected)
+        if sr is not None:
             logger.info('[IMPORT] There is only one result...automagik-mode enabled for %s :: %s' % (sr['series'], sr['comicid']))
             resultset = 1
         else:
@@ -7250,11 +7254,12 @@ class WebInterface(object):
                                                    'description':   results['description'],
                                                    'comicimage':    results['comicimage'],
                                                    'issues':        results['issues'],
+                                                   'type':          results.get('type'),
                                                    'ogcname':       ogcname,
                                                    'comicyear':     results['comicyear']})
 
-                if len(search_matches) == 1:
-                    sr = search_matches[0]
+                sr = editions.auto_pick(search_matches, files_collected)
+                if sr is not None:
                     logger.info('[IMPORT] There is only one result...automagik-mode enabled for %s :: %s' % (sr['series'], sr['comicid']))
                     resultset = 1
                 else:

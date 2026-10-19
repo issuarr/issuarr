@@ -34,7 +34,7 @@ import subprocess
 from subprocess import CalledProcessError, check_output
 
 import mylar
-from mylar import logger, helpers
+from mylar import logger, helpers, editions
 
 
 if 'windows' not in platform.system().lower():
@@ -1305,6 +1305,7 @@ class FileChecker(object):
         if issue_volume is not None and series_name.lower().endswith(' ' + issue_volume.lower()) and not (
                 self.watchcomic is not None and self.watchcomic.strip().lower().endswith(issue_volume.lower())):
             series_name = series_name[:-len(issue_volume)].strip()
+        series_name = editions.strip_format(series_name, self.watchcomic)
 
         logger.fdebug('series title possibly: %s' % series_name)
         if splitvalue is not None:
