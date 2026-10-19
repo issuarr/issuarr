@@ -72,15 +72,21 @@
     var box = $id('lg-sum');
     box.hidden = st.tab !== 'missing' || !M;
     if (box.hidden) return;
+    // The series the current tiles and filters show, complete ones included when the Complete tile is on.
     var seen = {}, t = { have: 0, w: 0, s: 0, f: 0, m: 0, rest: 0 }, tracked = 0;
-    M.rows.forEach(function (r) { seen[r[1]] = 1; });
-    var ids = Object.keys(seen);
+    missingRows().forEach(function (r) { if (!st.status || r[7] === st.status) seen[r[1]] = 1; });
+    if (st.kinds.missing.indexOf(COMPLETE) >= 0 && !st.status) M.complete.forEach(function (si) {
+      var S = M.series[si];
+      if ((st.pub && M.pubs[S[4]] !== st.pub) || (st.q && S[0].toLowerCase().indexOf(st.q) < 0)) return;
+      seen[si] = 1;
+    });
+    var ids = Object.keys(seen), done = ids.filter(function (si) { return M.complete.indexOf(+si) >= 0; }).length;
     ids.forEach(function (si) { var c = counts(si); Object.keys(t).forEach(function (k) { t[k] += c[k]; }); tracked += M.series[si][3] || 0; });
     var missing = t.w + t.s + t.f + t.m;
     var lib = M.library;
     box.innerHTML = (lib ? '<div class="lg-sum-line lg-dim"><span>Whole library: <b>' + fmt(lib.series) + '</b> series · <b>' + fmt(lib.have) + '</b> issues on disk of <b>' +
         fmt(lib.tracked) + '</b> tracked · <b>' + fmt(lib.complete) + '</b> series complete</span></div>' : '') +
-      '<div class="lg-sum-line"><span><b>' + fmt(ids.length) + '</b> series with missing issues · <b>' + fmt(missing) + '</b> missing of <b>' + fmt(tracked) + '</b> tracked in them</span>' +
+      '<div class="lg-sum-line"><span><b>' + fmt(ids.length) + '</b> series shown' + (done ? ' (' + fmt(done) + ' complete)' : '') + ' · <b>' + fmt(missing) + '</b> missing of <b>' + fmt(tracked) + '</b> tracked in them</span>' +
       '<span class="is-wanted"><b>' + fmt(t.w) + '</b> wanted</span></div>' + bar(t) +
       '<div class="legend">' + SEGS.map(function (x) { return '<span title="' + esc(x[3]) + '"><i class="' + x[1].replace('seg-', 'is-') + '"></i>' + x[2] + ' <b>' + fmt(t[x[0]]) + '</b></span>'; }).join('') + '</div>';
   }
