@@ -1333,6 +1333,11 @@ a.w-where:hover { color: var(--text); text-decoration-color: currentColor; }
 /* With the menu open the count sits on Needs attention itself, so it's clear what it counts. */
 .nav-item.is-open > .nav-link .nav-badge.is-attention { display: none; }
 .nav-child .nav-badge { margin-left: auto; padding-left: 8px; }
+/* Downloads and searches running now. Sits before the Needs attention count; on the Queue child when the menu is open. */
+.nav-badge.is-live { margin-left: auto; color: var(--wanted); }
+.nav-child .nav-badge.is-live + .nav-badge { margin-left: 0; }
+.nav-item.is-active > .nav-link .nav-badge.is-live { color: var(--ink); }
+.nav-item.is-open > .nav-link .nav-badge.is-live { display: none; }
 .link-btn { background: none; border: 0; padding: 0; font: inherit; color: var(--text); text-decoration: underline;
   text-decoration-color: var(--line); text-underline-offset: 3px; cursor: pointer; }
 .link-btn:hover { text-decoration-color: currentColor; }
