@@ -684,6 +684,30 @@
       closeAll(inMenu);
       if (inMenu && e.target.closest('.menu-list .btn')) inMenu.open = false;
     });
+    // A menu near the bottom of the window, or of a scrolling table that would clip it,
+    // opens upward so its last items aren't cut off.
+    function clipBox(el) {
+      var top = 0, bottom = window.innerHeight;
+      for (var p = el.parentElement; p && p !== doc.body; p = p.parentElement) {
+        var cs = getComputedStyle(p);
+        if (cs.overflowY !== 'visible' || cs.overflowX !== 'visible') {
+          var r = p.getBoundingClientRect();
+          top = Math.max(top, r.top);
+          bottom = Math.min(bottom, r.bottom);
+        }
+      }
+      return { top: top, bottom: bottom };
+    }
+    doc.addEventListener('toggle', function (e) {
+      var m = e.target;
+      if (!m.matches || !m.matches('details.menu')) return;
+      m.classList.remove('menu-up');
+      if (!m.open) return;
+      var list = m.querySelector('.menu-list');
+      if (!list) return;
+      var r = list.getBoundingClientRect(), box = clipBox(m);
+      if (r.bottom > box.bottom && m.getBoundingClientRect().top - box.top > r.height + 6) m.classList.add('menu-up');
+    }, true);
     doc.addEventListener('keydown', function (e) {
       if (e.key !== 'Escape') return;
       var open = doc.querySelector('details.menu[open]');

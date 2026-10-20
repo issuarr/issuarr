@@ -424,6 +424,7 @@ table.dt td.actions .btn { min-width: 92px; }
   position: absolute; right: 0; top: calc(100% + 6px); z-index: 30; min-width: 250px; display: flex; flex-direction: column; gap: 2px;
   padding: 6px; background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius); box-shadow: 0 16px 40px rgba(0, 0, 0, .35);
 }
+.menu.menu-up > .menu-list { top: auto; bottom: calc(100% + 6px); }
 .menu-list .btn { justify-content: flex-start; width: 100%; }
 .menu-list hr { border: 0; border-top: 1px solid var(--line); margin: 4px 2px; }
 
