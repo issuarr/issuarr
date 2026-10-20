@@ -309,7 +309,7 @@
                 </div>
                 %if all([comic['Type'] != 'TPB', comic['Type'] != 'HC', comic['Type'] != 'GN']):
                 <div class="set-row set-tog">
-                    <label class="set-label" for="ss-ignore-type"><b>Accept any edition in search results</b><span>Lets one-shots and digital releases match as regular issues.</span></label>
+                    <label class="set-label" for="ss-ignore-type"><b>Accept any edition in search results</b><span>Skips the edition check, so a single issue, trade or hardcover can be grabbed for this series. When the edition is simply wrong, Treat this series as is the better fix.</span></label>
                     <input type="checkbox" class="switch" name="ignore_type" id="ss-ignore-type" value="1" ${comicConfig['ignore_type']} />
                 </div>
                 %endif
