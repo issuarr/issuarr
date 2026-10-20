@@ -144,3 +144,47 @@ def test_files_waiting_in_needs_attention_for_this_series_are_listed(series, mon
     monkeypatch.setattr(attention, 'items', lambda: listed)
     assert matching.waiting('500') == [{'path': '/dl/Foo 004.cbz', 'name': 'Foo 004.cbz', 'size': 9, 'modified': 5,
                                         'reads_as': '004', 'issueid': '1004', 'number': '4'}]
+
+
+def right_series(folder, n=4):
+    d = db.DBConnection()
+    d.action("INSERT INTO comics (ComicID, ComicName, ComicYear, ComicLocation, ComicPublisher, Type, Status, Total, Have) "
+             "VALUES ('600', 'Foo', '2019', ?, 'DC', 'Print', 'Active', ?, 0)", [str(folder), n])
+    for i in range(1, n + 1):
+        d.action("INSERT INTO issues (IssueID, ComicID, ComicName, Issue_Number, Int_IssueNumber, IssueDate, Status) "
+                 "VALUES (?, '600', 'Foo', ?, ?, '2019-0%s-01', 'Skipped')" % i, ['200%s' % i, str(i), i * 1000])
+
+
+@pytest.mark.unit
+def test_wrong_series_moves_the_files_and_matches_them_in_the_right_one(series, tmp_path):
+    right = tmp_path / 'library' / 'Foo (2019)'
+    right_series(right)
+    got = matching.move_to('500', '600')
+    assert got['ok'] and got['moved'] == 4 and got['kept'] == []
+    assert sorted(os.listdir(right)) == ['Bar 007.cbz', 'Foo 001 (2020).cbz', 'Foo 002 (2020).cbz', 'weird scan.cbz']
+    assert os.listdir(series) == []
+    assert issue('2001')['Status'] == 'Downloaded' and issue('2002')['Status'] == 'Downloaded'
+    assert issue('1001')['Status'] != 'Downloaded'
+    # the wrong series is left for the user to remove
+    assert db.DBConnection().selectone("SELECT ComicID FROM comics WHERE ComicID='500'").fetchone() is not None
+
+
+@pytest.mark.unit
+def test_wrong_series_keeps_a_file_whose_name_is_taken(series, tmp_path):
+    right = tmp_path / 'library' / 'Foo (2019)'
+    right_series(right)
+    comic_file(right / 'Foo 001 (2020).cbz')
+    got = matching.move_to('500', '600')
+    assert got['ok'] and got['moved'] == 3 and got['kept'] == ['Foo 001 (2020).cbz']
+    assert os.path.exists(series / 'Foo 001 (2020).cbz')
+
+
+@pytest.mark.unit
+def test_wrong_series_needs_a_different_series_with_its_issues(series, tmp_path):
+    assert matching.move_to('500', '500')['ok'] is False
+    assert matching.move_to('500', '999')['ok'] is False
+    db.DBConnection().action("INSERT INTO comics (ComicID, ComicName, ComicLocation, Status) VALUES ('700', 'Foo', ?, 'Loading')",
+                             [str(tmp_path / 'x')])
+    got = matching.move_to('500', '700')
+    assert got['ok'] is False and 'still being added' in got['note']
+    assert len(os.listdir(series)) == 4

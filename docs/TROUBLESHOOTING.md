@@ -34,6 +34,8 @@ Issuarr stores the full path of every series folder. If the library now has a di
 
 **Recheck files** matches each file in a series folder by its name, and when the name doesn't say which issue it is, by the ComicVine issue ID in its tags. When that still gets it wrong, open the series and choose **Match files…** from the series menu (the ⋯ button), or **Match a file…** from an issue's own ⋯ menu, and pick the issue. Each file's own cover is shown next to the issue's ComicVine cover so you can compare them, and the search box narrows the list by file name, issue number or title. Files in **Downloads > Needs attention** that look like the series are listed too, and picking an issue for one files it. Issuarr keeps a match through later rechecks until you press **Undo** or the file is removed.
 
+If the whole series was added as the wrong ComicVine series (another edition or another country's printing, say), choose **Wrong series…** from the series menu instead. Search ComicVine, pick the right series by its cover and details, and Issuarr adds it, moves the files into its folder and rechecks them. A file whose name is already taken in the new folder stays where it was. Afterwards you can remove the wrong series from your library, which leaves its folder in place.
+
 ## Importing comics that aren't in your library yet
 
 Use **Tools > Import & scan**. See [Bringing in comics Mylar never knew about](MIGRATING.md#bringing-in-comics-mylar-never-knew-about) for the options.

@@ -4715,6 +4715,11 @@ class WebInterface(object):
         return self._attention_json(matching.unmatch(comicid, issueid))
     match_undo.exposed = True
 
+    def match_move(self, comicid, newid):
+        self._attention_post()
+        return self._attention_json(matching.move_to(comicid, newid))
+    match_move.exposed = True
+
     def cblimport(self):
         return serve_template(templatename="cblimport.html", title="CBL Import")
     cblimport.exposed = True
