@@ -453,19 +453,17 @@ class FileChecker(object):
 
             elif x  == ')' or x == '(':
                 pass
-            elif x == 'p' or x == 'ctc' or x == 'px':
-                try:
-                    if spf[wrdcnt-1].isdigit():
-                        logger.debug('THIS SHOULD BE : %s%s' % (spf[wrdcnt-1], x))
-                        newline = '%s%s' % (spf[wrdcnt-1], x)
-                        spf[wrdcnt -1] = newline
-                        #wrdcnt =-1
-                    elif spf[wrdcnt-1][-1] == 'p' and spf[wrdcnt-1][:-1].isdigit() and x == 'ctc':
-                        logger.fdebug('THIS SHOULD BE : %s%s' % (spf[wrdcnt-1], x))
-                        newline = '%s%s' % (spf[wrdcnt-1], x)
-                        spf[wrdcnt -1] = newline
-                        #wrdcnt =-1
-                except Exception as e:
+            elif x.lower() == 'ctc':
+                # a scan tag: kept with a page count ('36p ctc'), dropped after an issue number ('659 ctc'),
+                # which would otherwise read as issue '659ctc'
+                if spf and re.match(r'^\d+(c11\d+)?p$', spf[-1], re.I):
+                    logger.fdebug('THIS SHOULD BE : %s%s' % (spf[-1], x))
+                    spf[-1] = '%s%s' % (spf[-1], x)
+            elif x == 'p' or x == 'px':
+                if spf and spf[-1].isdigit():
+                    logger.debug('THIS SHOULD BE : %s%s' % (spf[-1], x))
+                    spf[-1] = '%s%s' % (spf[-1], x)
+                else:
                     spf.append(x)
             else:
                 spf.append(x)

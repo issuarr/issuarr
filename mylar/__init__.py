@@ -509,6 +509,11 @@ def start():
             SCHED.add_job(func=webp.gradual_tick, id='webp', name='WebP Gradual', max_instances=1, coalesce=True,
                           trigger=IntervalTrigger(hours=0, minutes=webp.GRADUAL_TICK, timezone='UTC'))
 
+            # Snatched issues whose download was lost or removed, or whose files were moved into the library by hand
+            from mylar import downloadqueue
+            SCHED.add_job(func=downloadqueue.clear_stuck_tick, id='snatched', name='Stuck Snatched', max_instances=1, coalesce=True,
+                          trigger=IntervalTrigger(hours=0, minutes=downloadqueue.CLEAR_EVERY, timezone='UTC'))
+
             #load up the previous runs from the job sql table so we know stuff...
             monitors = helpers.job_management(startup=True)
 

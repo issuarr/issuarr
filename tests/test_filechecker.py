@@ -133,3 +133,26 @@ def test_numeric_series_title_matches_known_series(monkeypatch, watchcomic, file
     assert parsed['process_status'] == 'match'
     assert parsed['series_name'] == watchcomic
     assert parsed['justthedigits'] == issue
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize("filename,issue", [
+    ("Detective Comics 659 ctc (Early 05-1993).cbr", "659"),
+    ("Detective Comics 868 ctc (2010) (F).cbr", "868"),
+    ("Detective Comics 541 ctc (1984).cbr", "541"),
+    ("Detective Comics 426 36p ctc (08-1972).cbz", "426"),
+    ("Detective Comics 426 36p (08-1972).cbz", "426"),
+])
+def test_scan_tag_after_the_issue_number_is_ignored(monkeypatch, filename, issue):
+    # 'ctc' (cover to cover) after a bare issue number was glued to it ('659ctc'), so the whole
+    # name read as the series and the file never matched on rescan (Detective Comics, 2026-10-19).
+    monkeypatch.setattr(mylar, "LOG_LEVEL", 0, raising=False)
+    monkeypatch.setattr(mylar, "CONFIG", mylar.config.Config("./nothing"))
+    monkeypatch.setattr(mylar.CONFIG, "IGNORE_SEARCH_WORDS", [], raising=False)
+    monkeypatch.setattr(mylar.CONFIG, "CUSTOM_ISSUE_EXCEPTIONS", [], raising=False)
+    monkeypatch.setattr(mylar.CONFIG, "ANNUALS_ON", False, raising=False)
+    fc_obj = filechecker.FileChecker(dir='/dummypath/', watchcomic="Detective Comics")
+    parsed = fc_obj.parseit('/dummypath/', filename)
+    assert parsed['process_status'] == 'match'
+    assert parsed['series_name'] == "Detective Comics"
+    assert parsed['justthedigits'] == issue

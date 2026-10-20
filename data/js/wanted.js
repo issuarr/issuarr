@@ -302,8 +302,7 @@
         var names = d.issues.slice(0, 12).map(function (i) { return i.series + ' #' + i.issue; });
         if (d.count > names.length) names.push('and ' + fmt(d.count - names.length) + ' more');
         if (!window.confirm(plural(d.count) + (d.count === 1 ? ' has' : ' have') + ' been Snatched for over ' + d.hours + ' hours with nothing downloading or filing ' +
-          (d.count === 1 ? 'it' : 'them') + ':\n\n' + names.join('\n') + '\n\nPut ' + (d.count === 1 ? 'it' : 'them') +
-          ' back to Wanted so ' + (d.count === 1 ? 'it is' : 'they are') + ' searched again?')) return;
+          (d.count === 1 ? 'it' : 'them') + ':\n\n' + names.join('\n') + '\n\nTheir series folders are checked first: an issue whose file is there becomes Downloaded. Put the rest back to Wanted so they are searched again?')) return;
         var body = new URLSearchParams({ issueids: d.issues.map(function (i) { return i.issueid; }).join(',') });
         return fetch('reset_stuck_snatched', { method: 'POST', credentials: 'same-origin', cache: 'no-store', body: body })
           .then(function (r) { if (!r.ok) throw new Error(r.status); return r.json(); })

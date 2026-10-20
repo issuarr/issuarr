@@ -4188,13 +4188,9 @@ class WebInterface(object):
         if cherrypy.request.method != 'POST':
             raise cherrypy.HTTPError(405)
         cherrypy.response.headers['Content-Type'] = 'application/json'
+        # Their series are rechecked first, so issues whose files are already in the library become Downloaded.
         shown = set(str(issueids or '').split(','))
-        myDB = db.DBConnection()
-        issues = [i for i in downloadqueue.stuck_snatched(myDB) if i['issueid'] in shown]
-        done = downloadqueue.unsnatch(myDB, [i['issueid'] for i in issues])
-        if done:
-            names = ['%s #%s' % (i['series'], i['issue']) for i in issues if i['issueid'] in done]
-            logger.info('[SNATCHED-RESET] Put %s stuck Snatched issues back to Wanted: %s' % (len(done), ', '.join(names)))
+        done = downloadqueue.clear_stuck(db.DBConnection(), issueids=shown)
         if not done:
             message = 'No snatched issues were stuck'
         else:
@@ -5024,6 +5020,7 @@ class WebInterface(object):
             cline = myDB.selectone("SELECT ComicName, ComicYear FROM comics WHERE ComicID=?", [ComicID]).fetchone()
             if cline:
                 updater.forceRescan(ComicID)
+                downloadqueue.clear_stuck(myDB, comicid=ComicID, rechecked=True)
                 mylar.GLOBAL_MESSAGES = {'status': 'success', 'comicname': cline['ComicName'], 'seriesyear': cline['ComicYear'], 'comicid': ComicID, 'tables': 'both', 'message': 'Recheck Files completed for %s (%s)' % (cline['ComicName'], cline['ComicYear'])}
 
     forceRescan.exposed = True

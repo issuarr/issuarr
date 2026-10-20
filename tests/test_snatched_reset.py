@@ -14,7 +14,7 @@ import cherrypy
 import pytest
 
 import mylar
-from mylar import archives, db, downloadqueue, helpers
+from mylar import archives, autoadd, db, downloadqueue, helpers, updater
 from mylar.queues import ddl, jd2
 from mylar.webserve import WebInterface
 
@@ -40,6 +40,7 @@ def myDB(monkeypatch, tmp_path):
     monkeypatch.setattr(ddl, 'ACTIVE', set())
     monkeypatch.setattr(ddl, 'PENDING', [])
     os.makedirs(str(tmp_path / 'dl'))
+    monkeypatch.setattr(updater, 'forceRescan', lambda *a, **k: None)   # the series folders, see test_clear_stuck_*
     d = db.DBConnection()
     d.action('CREATE TABLE issues (IssueID TEXT, ComicID TEXT, ComicName TEXT, Issue_Number TEXT, Status TEXT)')
     d.action('CREATE TABLE annuals (IssueID TEXT, ComicID TEXT, ReleaseComicName TEXT, Issue_Number TEXT, Status TEXT, Deleted INTEGER DEFAULT 0)')
@@ -408,3 +409,78 @@ def test_reset_refuses_get(myDB, method):
         WebInterface().reset_stuck_snatched()
     assert e.value.status == 405
     assert statuses(myDB) == {'1': 'Snatched'}
+
+
+# ---- stuck issues clear on their own (Detective Comics, 2026-10-19) ---------
+# Packs moved into the library by hand left their issues Snatched, and so did grabs whose download
+# was gone. The series is rechecked first, so a file that's there makes its issue Downloaded.
+
+def _rescan_finds(d, found, calls):
+    def rescan(cid, **kw):
+        calls.append(cid)
+        for iid in found:
+            d.action("UPDATE issues SET Status='Downloaded' WHERE IssueID=? AND ComicID=?", [iid, cid])
+    return rescan
+
+
+@pytest.mark.unit
+def test_clear_stuck_rechecks_each_series_then_puts_the_rest_back_to_wanted(myDB, monkeypatch):
+    real = downloadqueue.stuck_snatched
+    monkeypatch.setattr(downloadqueue, 'stuck_snatched', lambda d: real(d, now=NOW))
+    issue(myDB, '1', ddl_id='10')
+    issue(myDB, '2', number='2', ddl_id='10')
+    issue(myDB, '3', number='3', snatched=RECENT)
+    issue(myDB, '4', name='Detective Comics', comicid='18058', ddl_id='40')
+    calls = []
+    done = downloadqueue.clear_stuck(myDB, rescan=_rescan_finds(myDB, ['1'], calls))
+    assert sorted(calls) == ['18058', '29329']
+    assert done == ['2', '4']
+    assert statuses(myDB) == {'1': 'Downloaded', '2': 'Wanted', '3': 'Snatched', '4': 'Wanted'}
+
+
+@pytest.mark.unit
+def test_clear_stuck_leaves_issues_something_is_still_getting(myDB, monkeypatch):
+    real = downloadqueue.stuck_snatched
+    monkeypatch.setattr(downloadqueue, 'stuck_snatched', lambda d: real(d, now=NOW))
+    issue(myDB, '1', ddl_id='10')
+    download(myDB, '10', '1', status='Downloading')
+    issue(myDB, '2', ddl_id='20', provider='SABnzbd')
+    calls = []
+    assert downloadqueue.clear_stuck(myDB, rescan=_rescan_finds(myDB, [], calls)) == []
+    assert calls == []
+    assert statuses(myDB) == {'1': 'Snatched', '2': 'Snatched'}
+
+
+@pytest.mark.unit
+def test_clear_stuck_waits_while_files_are_being_filed(myDB, monkeypatch):
+    real = downloadqueue.stuck_snatched
+    monkeypatch.setattr(downloadqueue, 'stuck_snatched', lambda d: real(d, now=NOW))
+    monkeypatch.setattr(autoadd, 'running', lambda: True)
+    issue(myDB, '1', ddl_id='10')
+    assert downloadqueue.clear_stuck(myDB) == []
+    assert statuses(myDB) == {'1': 'Snatched'}
+
+
+@pytest.mark.unit
+def test_recheck_files_clears_the_series_stuck_issues_without_a_second_recheck(myDB, monkeypatch):
+    real = downloadqueue.stuck_snatched
+    monkeypatch.setattr(downloadqueue, 'stuck_snatched', lambda d: real(d, now=NOW))
+    monkeypatch.setattr(mylar, 'GLOBAL_MESSAGES', None, raising=False)
+    myDB.action("ALTER TABLE comics ADD COLUMN ComicYear TEXT")
+    myDB.action("INSERT INTO comics VALUES ('18058', 'Detective Comics', '1937')")
+    issue(myDB, '1', name='Detective Comics', comicid='18058', ddl_id='10')
+    issue(myDB, '2', number='2', name='Detective Comics', comicid='18058', ddl_id='10')
+    issue(myDB, '3', ddl_id='30')    # another series: left for the scheduler
+    calls = []
+    monkeypatch.setattr(updater, 'forceRescan', _rescan_finds(myDB, ['1'], calls))
+    WebInterface().forceRescan('18058')
+    assert calls == ['18058']
+    assert statuses(myDB) == {'1': 'Downloaded', '2': 'Wanted', '3': 'Snatched'}
+
+
+@pytest.mark.unit
+def test_the_scheduler_job_never_raises(myDB, monkeypatch):
+    def boom(*a, **k):
+        raise RuntimeError('db locked')
+    monkeypatch.setattr(downloadqueue, 'clear_stuck', boom)
+    downloadqueue.clear_stuck_tick()
