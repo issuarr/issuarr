@@ -25,9 +25,9 @@ def env(monkeypatch, tmp_path):
     monkeypatch.setattr(attention, '_COMICS', [0.0, []])
     monkeypatch.setattr(attention, 'JOBS', {})
     d = db.DBConnection()
-    d.action('CREATE TABLE comics (ComicID TEXT, ComicName TEXT, ComicYear TEXT, ComicVersion TEXT, Total INTEGER)')
+    d.action('CREATE TABLE comics (ComicID TEXT, ComicName TEXT, ComicYear TEXT, ComicVersion TEXT, Total INTEGER, Type TEXT, Corrected_Type TEXT)')
     d.action('CREATE TABLE issues (IssueID TEXT, ComicID TEXT, Issue_Number TEXT, Status TEXT, IssueDate TEXT, ReleaseDate TEXT)')
-    d.action("INSERT INTO comics VALUES ('85120', 'Marvel Universe Guardians of the Galaxy', '2015', NULL, 23), "
+    d.action("INSERT INTO comics (ComicID, ComicName, ComicYear, ComicVersion, Total) VALUES ('85120', 'Marvel Universe Guardians of the Galaxy', '2015', NULL, 23), "
              "('94801', 'Great Lakes Avengers', '2016', NULL, 7)")
     d.action("INSERT INTO issues VALUES ('547001', '85120', '3', 'Snatched', '2016-02-01', NULL), "
              "('562595', '94801', '2', 'Snatched', '2017-01-01', NULL)")
@@ -191,7 +191,7 @@ def test_filing_records_only_the_files_it_left_unplaced(env, monkeypatch):
 
 @pytest.mark.unit
 def test_series_with_the_same_name_are_told_apart_by_the_issues_year(env):
-    env.db.action("INSERT INTO comics VALUES ('1001', 'X-Factor', '1986', NULL, 259), ('1002', 'X-Factor', '2020', NULL, 10), "
+    env.db.action("INSERT INTO comics (ComicID, ComicName, ComicYear, ComicVersion, Total) VALUES ('1001', 'X-Factor', '1986', NULL, 259), ('1002', 'X-Factor', '2020', NULL, 10), "
                   "('1003', 'Battle Scars', '2012', NULL, 6)")
     env.db.action("INSERT INTO issues VALUES ('a3', '1001', '3', 'Downloaded', '1986-04-01', NULL), "
                   "('b3', '1002', '3', 'Wanted', '2020-09-01', NULL), ('c3', '1003', '3', 'Wanted', '2012-03-01', NULL)")
@@ -202,7 +202,7 @@ def test_series_with_the_same_name_are_told_apart_by_the_issues_year(env):
 
 @pytest.mark.unit
 def test_search_puts_the_exact_name_first(env):
-    env.db.action("INSERT INTO comics VALUES ('1001', 'X-Factor', '1986', NULL, 259), ('2001', 'All-New X-Factor', '2014', NULL, 20)")
+    env.db.action("INSERT INTO comics (ComicID, ComicName, ComicYear, ComicVersion, Total) VALUES ('1001', 'X-Factor', '1986', NULL, 259), ('2001', 'All-New X-Factor', '2014', NULL, 20)")
     assert [s['name'] for s in attention.search('x-factor')][:2] == ['X-Factor', 'All-New X-Factor']
 
 
@@ -439,3 +439,57 @@ def test_everything_is_tried_again_once_per_new_version(env, monkeypatch):
     monkeypatch.setattr(mylar, 'CURRENT_VERSION', 'def456', raising=False)
     assert attention.refile_after_update() is True
     assert calls == [True, True]
+
+
+@pytest.mark.unit
+def test_comicvine_search_marks_series_already_on_the_watchlist(env, monkeypatch):
+    from mylar import mb
+    monkeypatch.setattr(mylar.CONFIG, 'COMICVINE_API', 'key', raising=False)
+    asked = {}
+
+    def find(name, mode, issue, **kw):
+        asked.update(kw, name=name)
+        return [{'comicid': 94801, 'name': 'Great Lakes Avengers', 'comicyear': '2016', 'publisher': 'Marvel', 'issues': '7', 'volume': None},
+                {'comicid': 4321, 'name': 'Great Lakes Avengers', 'comicyear': '1999', 'publisher': 'Marvel', 'issues': '4', 'volume': None}]
+    monkeypatch.setattr(mb, 'findComic', find)
+    got = attention.find_series('great lakes avengers')
+    assert asked['page'] == 1 and asked['name'] == 'great lakes avengers'
+    assert [(s['comicid'], s['watched']) for s in got['series']] == [('94801', True), ('4321', False)]
+
+
+@pytest.mark.unit
+def test_comicvine_search_needs_a_key(env, monkeypatch):
+    monkeypatch.setattr(mylar.CONFIG, 'COMICVINE_API', None, raising=False)
+    got = attention.find_series('anything')
+    assert got['ok'] is False and 'API key' in got['note']
+
+
+@pytest.mark.unit
+def test_adding_a_series_queues_it_and_says_when_its_issues_are_there(env, monkeypatch):
+    from mylar import importer
+    monkeypatch.setattr(mylar.CONFIG, 'COMICVINE_API', 'key', raising=False)
+    env.db.action('ALTER TABLE comics ADD COLUMN Status TEXT')
+    queued = []
+    monkeypatch.setattr(importer, 'importer_thread', lambda lst: queued.extend(lst))
+
+    got = attention.add_series('4050-4321', 'Great Lakes Avengers', '1999')
+    assert got['ok'] and got['state'] == 'adding'
+    assert queued == [{'comicid': '4321', 'comicname': 'Great Lakes Avengers', 'seriesyear': '1999'}]
+    assert attention.series_state('4321')['state'] == 'missing'
+
+    env.db.action("INSERT INTO comics (ComicID, ComicName, ComicYear, ComicVersion, Total, Status) VALUES ('4321', 'Great Lakes Avengers', '1999', NULL, 4, 'Loading')")
+    assert attention.series_state('4321')['state'] == 'adding'
+    env.db.action("UPDATE comics SET Status='Active' WHERE ComicID='4321'")
+    env.db.action("INSERT INTO issues VALUES ('9001', '4321', '1', 'Skipped', '1999-01-01', NULL)")
+    ready = attention.series_state('4321')
+    assert ready['state'] == 'ready' and ready['series']['name'] == 'Great Lakes Avengers'
+    assert {s['comicid'] for s in attention.search('great lakes avengers')} == {'94801', '4321'}
+
+    # a series that's already there isn't queued again
+    again = attention.add_series('4321', 'Great Lakes Avengers', '1999')
+    assert again['state'] == 'ready' and len(queued) == 1
+
+
+@pytest.mark.unit
+def test_adding_refuses_something_that_isnt_a_comicvine_id(env):
+    assert attention.add_series('nope')['ok'] is False

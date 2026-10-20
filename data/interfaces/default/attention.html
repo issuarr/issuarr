@@ -20,7 +20,14 @@
         <p class="att-refile muted" id="att-refile-note" aria-live="polite" hidden></p>
 
         <section class="section" aria-label="Files that need a decision">
-            <div class="filter-tabs" role="group" aria-label="Show" id="att-tabs"></div>
+            <div class="att-bar">
+                <div class="filter-tabs" role="group" aria-label="Show" id="att-tabs"></div>
+                <div class="filter-tabs" role="group" aria-label="View" id="att-view">
+                    <button type="button" data-view="files" aria-pressed="true">Each file</button>
+                    <button type="button" data-view="groups" aria-pressed="false">By folder</button>
+                </div>
+            </div>
+            <p class="att-groupbar muted" id="att-groupbar" hidden></p>
             <div id="att-list" class="att-list" aria-live="polite">
                 <p class="empty-state">Looking for files…</p>
             </div>
@@ -36,17 +43,20 @@
         var list = document.getElementById('att-list');
         var tabs = document.getElementById('att-tabs');
         var items = [], show = 'all', open = null, timer = null, poller = null, refiling = false;
+        var view = 'files', groupFilter = null, groupList = [];
+        var viewBar = document.getElementById('att-view'), groupBar = document.getElementById('att-groupbar');
 
         var REASON = {
             series: ['place', 'Couldn\'t tell which series this is.'],
             volume: ['place', 'The volume doesn\'t match your series.'],
             year: ['place', 'The year doesn\'t match that issue.'],
             issue: ['place', 'That issue number isn\'t on the series.'],
+            owned: ['owned', 'You already have this issue.'],
             damaged: ['bad', 'The file is damaged or incomplete.'],
             cover: ['bad', 'Covers only, not the full issue.'],
             unclaimed: ['review', 'Nothing on your watchlist claimed it, so it was moved to review.']
         };
-        var TABS = [['all', 'All'], ['place', 'Couldn\'t place'], ['review', 'In review'], ['bad', 'Damaged or covers']];
+        var TABS = [['all', 'All'], ['place', 'Couldn\'t place'], ['owned', 'Already have'], ['review', 'In review'], ['bad', 'Damaged or covers']];
 
         function esc(t) { return window.Issuarr.esc(t == null ? '' : String(t)); }
         function kind(i) { return (REASON[i.reason] || REASON.series)[0]; }
@@ -80,6 +90,7 @@
                 cell('Issue', p.issue && '#' + p.issue, m && m.number && '#' + m.number, m ? a.issue : null, m ? 'not on this series' : '') +
                 cell('Year', p.year, m && m.issue_year, m ? a.year : null) +
                 cell('Volume', p.volume, m && m.volume, m ? a.volume : null) +
+                cell('Format', p.collected ? 'Collected edition' : 'Single issue', m && m.format, m ? a.format : null, m ? 'not known' : '') +
                 '</div>';
         }
 
@@ -147,14 +158,105 @@
                 '<label class="field"><span>Series on your watchlist</span>' +
                 '<input type="search" data-q value="' + esc(i.parsed.series || '') + '" autocomplete="off" /></label>' +
                 '<ul class="att-series" data-series></ul>' +
+                '<p class="att-cv-ask muted">Not on your watchlist? <button type="button" class="link-btn" data-cv>Search ComicVine</button></p>' +
+                '<p class="att-cv-note muted" data-cv-note aria-live="polite" hidden></p>' +
+                '<ul class="att-series att-cv" data-cv-list hidden></ul>' +
                 '<label class="field" hidden data-issue-wrap><span>Issue</span><select data-issue></select></label>' +
-                '<div class="att-acts"><button type="button" class="btn btn-sm btn-primary" data-file-picked disabled>File as this issue</button>' +
-                '<button type="button" class="btn btn-sm btn-ghost" data-add>Not on your watchlist? Add the series</button></div>' +
+                '<div class="att-acts"><button type="button" class="btn btn-sm btn-primary" data-file-picked disabled>File as this issue</button></div>' +
                 '</div>';
         }
 
+        /* Series that aren't on the watchlist yet: search ComicVine, add one, then pick its issue
+           here. Adding runs in the background, so it's tracked by file and outlives redraws. */
+        var adding = {};   // file path -> {comicid, name, timer, tries}
+
+        function cvSearch(pk, text) {
+            var note = pk.querySelector('[data-cv-note]'), ul = pk.querySelector('[data-cv-list]');
+            text = (text || '').trim();
+            if (!text) { note.hidden = false; note.textContent = 'Type a series name above first.'; return; }
+            note.hidden = false;
+            note.textContent = 'Searching ComicVine for ' + text + '…';
+            ul.hidden = true;
+            fetch('attention_find?' + q({ q: text }), { credentials: 'same-origin' })
+                .then(function (r) { if (!r.ok) throw new Error(r.status); return r.json(); })
+                .then(function (d) {
+                    if (d.ok === false) { note.textContent = d.note; return; }
+                    note.textContent = d.series.length ? 'ComicVine has these for ' + text + ':' : 'ComicVine has nothing called ' + text + '. Try fewer words.';
+                    ul.hidden = !d.series.length;
+                    ul.innerHTML = d.series.map(function (s) {
+                        var label = esc(s.name) + ' (' + esc(s.year) + ')' + (s.volume ? ' ' + esc(s.volume) : '');
+                        var meta = [s.publisher, s.issues != null ? s.issues + ' issues' : ''].filter(Boolean).map(esc).join(' · ');
+                        return '<li class="att-cv-row"><span>' + label + (meta ? ' <span class="faint">' + meta + '</span>' : '') + '</span>' +
+                               '<button type="button" class="btn btn-sm" data-cv-add="' + esc(s.comicid) + '" data-name="' + esc(s.name) + '" data-year="' + esc(s.year) + '">' +
+                               (s.watched ? 'Use it' : 'Add and pick an issue') + '</button></li>';
+                    }).join('');
+                })
+                .catch(function () { note.textContent = 'Couldn\'t search ComicVine. Check the log.'; });
+        }
+
+        function pickerOf(path) {
+            var card = cardOf(path);
+            return card && card.querySelector('[data-picker]');
+        }
+
+        function cvAdd(i, btn) {
+            var comicid = btn.getAttribute('data-cv-add'), name = btn.getAttribute('data-name');
+            btn.disabled = true;
+            post('attention_add_series', { comicid: comicid, name: name, year: btn.getAttribute('data-year') }).then(function (d) {
+                if (d.ok === false) { window.Issuarr.toast(d.note, false); btn.disabled = false; return; }
+                if (d.state === 'ready') return useSeries(i.path, d.series);
+                window.Issuarr.toast(d.note, true);
+                var a = adding[i.path];
+                if (a) clearTimeout(a.timer);
+                adding[i.path] = { comicid: comicid, name: name, tries: 0 };
+                showAdding(i.path);
+                waitForSeries(i.path);
+            }).catch(function () { window.Issuarr.toast('That didn\'t work. Check the log.', false); btn.disabled = false; });
+        }
+
+        function showAdding(path) {
+            var a = adding[path], pk = pickerOf(path);
+            if (!a || !pk) return;
+            var note = pk.querySelector('[data-cv-note]');
+            note.hidden = false;
+            note.textContent = 'Adding ' + a.name + ' to your watchlist and loading its issues…';
+            pk.querySelectorAll('[data-cv-add]').forEach(function (b) { b.disabled = true; });
+        }
+
+        function waitForSeries(path) {
+            var a = adding[path];
+            if (!a) return;
+            fetch('attention_series_state?' + q({ comicid: a.comicid }), { credentials: 'same-origin', cache: 'no-store' })
+                .then(function (r) { if (!r.ok) throw new Error(r.status); return r.json(); })
+                .then(function (d) {
+                    if (adding[path] !== a) return;
+                    if (d.state === 'ready') { delete adding[path]; return useSeries(path, d.series); }
+                    if (++a.tries < 60) { a.timer = setTimeout(function () { waitForSeries(path); }, 3000); return; }
+                    delete adding[path];
+                    var pk = pickerOf(path);
+                    if (pk) {
+                        pk.querySelector('[data-cv-note]').textContent = a.name + ' is still being added. Search for it above when it shows up in your library.';
+                        pk.querySelectorAll('[data-cv-add]').forEach(function (b) { b.disabled = false; });
+                    }
+                })
+                .catch(function () { a.timer = setTimeout(function () { waitForSeries(path); }, 10000); });
+        }
+
+        /* Put a series in the picker's list as the chosen one and load its issues. */
+        function useSeries(path, s) {
+            var pk = pickerOf(path);
+            if (!pk) return;   // the picker was closed, or the file was dealt with meanwhile
+            var ul = pk.querySelector('[data-series]'), note = pk.querySelector('[data-cv-note]');
+            ul.innerHTML = '<li><button type="button" class="link-btn" data-series-id="' + esc(s.comicid) + '">' + esc(s.name) + ' (' + esc(s.year) + ')' +
+                           (s.volume ? ' ' + esc(s.volume) : '') + '</button></li>';
+            pk.querySelector('[data-cv-list]').hidden = true;
+            note.hidden = false;
+            note.textContent = s.name + ' is on your watchlist. Pick the issue below.';
+            chooseSeries(pk, s.comicid, ul.querySelector('[data-series-id]'));
+        }
+
         function drawTabs() {
-            var counts = { all: items.length, place: 0, review: 0, bad: 0 };
+            var counts = { all: items.length, place: 0, owned: 0, review: 0, bad: 0 };
             items.forEach(function (i) { counts[kind(i)]++; });
             tabs.innerHTML = TABS.filter(function (t) { return t[0] === 'all' || counts[t[0]]; }).map(function (t) {
                 return '<button type="button" data-tab="' + t[0] + '" aria-pressed="' + (show === t[0]) + '">' + t[1] +
@@ -162,21 +264,118 @@
             }).join('');
         }
 
+        function shown(i) { return (show === 'all' || kind(i) === show) && (!groupFilter || i.group === groupFilter); }
+
         function draw() {
             drawTabs();
-            var shown = items.filter(function (i) { return show === 'all' || kind(i) === show; });
+            viewBar.querySelectorAll('[data-view]').forEach(function (b) { b.setAttribute('aria-pressed', String(b.getAttribute('data-view') === view)); });
+            tabs.hidden = view === 'groups';
+            var g = groupFilter && groupList.filter(function (x) { return x.key === groupFilter; })[0];
+            groupBar.hidden = view !== 'files' || !groupFilter;
+            if (!groupBar.hidden) groupBar.innerHTML = 'Showing <b>' + esc(g ? g.label : groupFilter) + '</b> only. <button type="button" class="link-btn" data-group-clear>Show every file</button>';
+            if (view === 'groups') return drawGroups();
+            parked = [];
+            var showing = items.filter(shown);
             if (!items.length) {
                 list.innerHTML = '<p class="empty-state">Nothing needs attention. Files Issuarr can\'t file on its own, and anything it moves to the review folder, show up here.</p>';
-            } else if (!shown.length) {
+            } else if (!showing.length) {
                 list.innerHTML = '<p class="empty-state">Nothing here. Pick another tab.</p>';
             } else {
-                list.innerHTML = shown.map(row).join('');
-            }
-            if (open) {
-                var pk = list.querySelector('[data-picker]');
-                if (pk) search(pk, pk.querySelector('[data-q]').value);
+                var kept = keepPicker();
+                list.innerHTML = showing.map(row).join('');
+                putPicker(kept);
             }
         }
+
+        function cardOf(path) { return list.querySelector('[data-path="' + CSS.escape(path) + '"]'); }
+
+        /* The open picker survives a redraw as it is: what was typed, the series and issue chosen,
+           the cover shown, and the focus. A picker drawn new starts its search. */
+        function keepPicker() {
+            var card = open && cardOf(open), pk = card && card.querySelector('[data-picker]');
+            if (!pk) return null;
+            var a = document.activeElement;
+            return { path: open, picker: pk, cover: card.querySelector('[data-issue-cover]'), focus: pk.contains(a) ? a : null };
+        }
+
+        function putPicker(kept) {
+            var card = open && cardOf(open), pk = card && card.querySelector('[data-picker]');
+            if (!pk) return;
+            if (kept && kept.path === open) {
+                if (pk === kept.picker) return;   // another card was redrawn; this one wasn't touched
+                pk.replaceWith(kept.picker);
+                if (kept.cover) card.querySelector('[data-issue-cover]').replaceWith(kept.cover);
+                if (kept.focus && kept.focus.isConnected) kept.focus.focus({ preventScroll: true });
+                return;
+            }
+            search(pk, pk.querySelector('[data-q]').value);
+            showAdding(open);
+        }
+
+        /* Redraw one card where it is, so the rest of the page, and whatever the user is doing in
+           it, isn't touched. */
+        function redraw(i) {
+            var old = cardOf(i.path);
+            if (!old) return;
+            var kept = keepPicker(), box = document.createElement('div');
+            box.innerHTML = row(i);
+            old.replaceWith(box.firstElementChild);
+            putPicker(kept);
+        }
+
+        /* By folder: a collection or download as one row, with one action for all its files. */
+        var GROUP_REASON = { owned: 'Already have', series: 'Couldn\'t place', issue: 'Issue not on the series', volume: 'Wrong volume',
+                             year: 'Wrong year', unclaimed: 'Unclaimed', damaged: 'Damaged', cover: 'Covers only' };
+        function drawGroups() {
+            if (!groupList.length) { list.innerHTML = '<p class="empty-state">Nothing needs attention.</p>'; return; }
+            list.innerHTML = groupList.map(function (g) {
+                var why = Object.keys(g.reasons).sort(function (a, b) { return g.reasons[b] - g.reasons[a]; })
+                    .map(function (r) { return (GROUP_REASON[r] || r) + ' ' + g.reasons[r]; }).join(' · ');
+                return '<article class="att-item att-group" data-group="' + esc(g.key) + '">' +
+                    '<div class="att-head"><h2 class="att-name"><button type="button" class="link-btn" data-group-open>' + esc(g.label) + '</button></h2>' +
+                    '<p class="att-meta muted"><span>' + g.count + ' file' + (g.count === 1 ? '' : 's') + '</span><span>' + mb(g.size) + '</span></p></div>' +
+                    '<p class="att-path"><span class="mono">' + esc(g.folder) + '</span></p>' +
+                    '<p class="att-why">' + esc(why) + '</p>' +
+                    '<div class="att-acts">' +
+                        '<button type="button" class="btn btn-sm" data-group-act="add" title="Look their series up on ComicVine, add them to your watchlist, then file this folder again">Add their series</button>' +
+                        '<button type="button" class="btn btn-sm btn-ghost" data-group-act="ignore">Ignore all</button>' +
+                        '<button type="button" class="btn btn-sm btn-ghost" data-group-act="trash">Move all to trash</button>' +
+                    '</div></article>';
+            }).join('');
+        }
+
+        function loadGroups() {
+            return fetch('attention_groups', { credentials: 'same-origin', cache: 'no-store' })
+                .then(function (r) { if (!r.ok) throw new Error(r.status); return r.json(); })
+                .then(function (d) { groupList = d.groups; draw(); })
+                .catch(function () { list.innerHTML = '<p class="empty-state">Couldn\'t list the folders. Check the log.</p>'; });
+        }
+
+        function groupAct(key, action, btn) {
+            var g = groupList.filter(function (x) { return x.key === key; })[0] || { label: key, count: 0 };
+            if (action === 'trash' && !window.confirm('Move all ' + g.count + ' files of ' + g.label + ' to the trash? They are deleted for good after ${trash_days} days.')) return;
+            var art = btn.closest('[data-group]');
+            art.classList.add('is-busy');
+            art.querySelectorAll('button').forEach(function (b) { b.disabled = true; });
+            post('attention_group', { key: key, action: action }).then(function (d) {
+                window.Issuarr.toast(d.note, d.ok !== false);
+                if (action !== 'add') {
+                    groupList = groupList.filter(function (x) { return x.key !== key; });
+                    items = items.filter(function (i) { return i.group !== key; });
+                }
+                draw();
+            }).catch(function () { window.Issuarr.toast('That didn\'t work. Check the log.', false); draw(); });
+        }
+
+        viewBar.addEventListener('click', function (e) {
+            var b = e.target.closest('[data-view]');
+            if (!b) return;
+            view = b.getAttribute('data-view');
+            if (view === 'groups') { list.innerHTML = '<p class="empty-state">Grouping the files…</p>'; loadGroups(); } else draw();
+        });
+        groupBar.addEventListener('click', function (e) {
+            if (e.target.closest('[data-group-clear]')) { groupFilter = null; draw(); }
+        });
 
         function load() {
             clearTimeout(timer);
@@ -221,9 +420,51 @@
             });
         }
 
-        function drop(i) {
+        /* Take a dealt-with file off the page without redrawing the rest. A file above a card whose
+           picker is open stays where it is, marked done, until that picker closes, so what the
+           user is choosing doesn't move. Otherwise, when the card was above what the user is
+           looking at, scroll by what it took up so the cards below stay put under the pointer. */
+        var parked = [];
+
+        function drop(i, note) {
             items = items.filter(function (x) { return x.path !== i.path; });
-            draw();
+            var closing = open === i.path;
+            if (closing) open = null;
+            var a = adding[i.path];
+            if (a) { clearTimeout(a.timer); delete adding[i.path]; }
+            if (view !== 'files' || !items.filter(shown).length) return draw();
+            var card = cardOf(i.path), pick = open && cardOf(open);
+            drawTabs();
+            if (!card) return;
+            if (pick && (card.compareDocumentPosition(pick) & Node.DOCUMENT_POSITION_FOLLOWING)) {
+                card.classList.add('is-busy');
+                card.querySelectorAll('button').forEach(function (b) { b.disabled = true; });
+                card.querySelectorAll('.att-job, .att-acts').forEach(function (el, n) {
+                    if (n) el.remove(); else el.outerHTML = '<p class="att-job">' + esc(note || 'Done.') + '</p>';
+                });
+                parked.push(card);
+                return;
+            }
+            unmount(card);
+            if (closing) unpark();
+        }
+
+        function unmount(card) {
+            var anchor = null, cards = list.querySelectorAll('[data-path]');
+            for (var n = 0; n < cards.length; n++) {
+                if (cards[n] !== card && cards[n].getBoundingClientRect().bottom > 0) { anchor = cards[n]; break; }
+            }
+            var before = anchor && anchor.getBoundingClientRect().top;
+            card.remove();
+            if (anchor) {
+                var moved = anchor.getBoundingClientRect().top - before;   // 0 where the browser kept it in place itself
+                if (moved) window.scrollBy(0, moved);
+            }
+        }
+
+        function unpark() {
+            parked.forEach(function (c) { if (c.isConnected) unmount(c); });
+            parked = [];
         }
 
         // Each button answers at once on its card; the full list isn't reloaded, which is slow
@@ -239,17 +480,17 @@
             post(url, Object.assign({ path: i.path }, params || {})).then(function (d) {
                 window.Issuarr.toast(d.note, d.ok !== false);
                 if (done && d.ok !== false && !d.gone) done(d);
-                else if (d.ok !== false || d.gone) drop(i);
-                else draw();
-            }).catch(function () { window.Issuarr.toast('That didn\'t work. Check the log.', false); draw(); });
+                else if (d.ok !== false || d.gone) drop(i, d.note);
+                else redraw(i);
+            }).catch(function () { window.Issuarr.toast('That didn\'t work. Check the log.', false); redraw(i); });
         }
 
         function fileAs(i, pair) {
             var parts = pair.split('|');
-            open = null;
+            if (open === i.path) { open = null; unpark(); }   // a picker open on another file stays open
             act('attention_file', i, { comicid: parts[0], issueid: parts[1] }, 'Sending it to filing', function (d) {
                 i.job = { state: 'waiting', note: 'Waiting to file' };
-                draw();
+                redraw(i);
                 poll();
             });
         }
@@ -283,15 +524,13 @@
             fetch('attention_status', { credentials: 'same-origin', cache: 'no-store' })
                 .then(function (r) { if (!r.ok) throw new Error(r.status); return r.json(); })
                 .then(function (d) {
-                    var changed = false, busy = false;
-                    items = items.filter(function (i) {
+                    var busy = false;
+                    items.slice().forEach(function (i) {
                         var j = d.jobs[i.path];
-                        if (j && j.state === 'filed') { window.Issuarr.toast(j.note, true); changed = true; return false; }
-                        if (j && (!i.job || i.job.state !== j.state || i.job.note !== j.note)) { i.job = j; changed = true; }
+                        if (j && j.state === 'filed') { window.Issuarr.toast(j.note, true); drop(i, j.note); return; }
+                        if (j && (!i.job || i.job.state !== j.state || i.job.note !== j.note)) { i.job = j; redraw(i); }
                         if (i.job && (i.job.state === 'waiting' || i.job.state === 'filing')) busy = true;
-                        return true;
                     });
-                    if (changed) draw();
                     showRefile(d.refile || {});
                     var running = d.refile && d.refile.state === 'running';
                     if (refiling && !running) { refiling = false; load(); return; }   // the run filed files: list again
@@ -369,24 +608,31 @@
         }
 
         list.addEventListener('click', function (e) {
+            var gb = e.target.closest('[data-group]');
+            if (gb) {
+                var key = gb.getAttribute('data-group'), ab = e.target.closest('[data-group-act]');
+                if (ab) return groupAct(key, ab.getAttribute('data-group-act'), ab);
+                if (e.target.closest('[data-group-open]')) { groupFilter = key; view = 'files'; show = 'all'; draw(); window.scrollTo(0, 0); }
+                return;
+            }
             var i = itemOf(e.target), b;
             if (!i) return;
             if (e.target.closest('[data-zoom]')) { e.target.closest('.att-covers').classList.toggle('is-large'); return; }
             if (e.target.closest('[data-copy]')) return copyPath(i.path);
             if ((b = e.target.closest('[data-file]'))) return fileAs(i, b.getAttribute('data-file'));
-            if (e.target.closest('[data-pick]')) { open = open === i.path ? null : i.path; draw(); return; }
+            if (e.target.closest('[data-pick]')) {
+                var was = open && items.filter(function (x) { return x.path === open; })[0];
+                open = open === i.path ? null : i.path;
+                if (was && was !== i) redraw(was);
+                redraw(i);
+                if (!open) unpark();
+                return;
+            }
             if (e.target.closest('[data-trash]')) return act('attention_trash', i, null, 'Moving it to the trash');
             if (e.target.closest('[data-ignore]')) return act('attention_ignore', i, null, 'Hiding it');
             if ((b = e.target.closest('[data-series-id]'))) return chooseSeries(b.closest('[data-picker]'), b.getAttribute('data-series-id'), b);
-            if (e.target.closest('[data-add]')) {
-                var add = document.querySelector('[data-action="add"]');
-                if (add) {
-                    add.click();   // the add-series search, filled in with the name read from the file
-                    var box = document.activeElement;
-                    if (box && box.tagName === 'INPUT') { box.value = i.parsed.series || ''; box.dispatchEvent(new Event('input', { bubbles: true })); }
-                }
-                return;
-            }
+            if (e.target.closest('[data-cv]')) { var cp = e.target.closest('[data-picker]'); return cvSearch(cp, cp.querySelector('[data-q]').value); }
+            if ((b = e.target.closest('[data-cv-add]'))) return cvAdd(i, b);
             if ((b = e.target.closest('[data-file-picked]'))) return fileAs(i, b.closest('[data-picker]').querySelector('[data-issue]').value);
         });
 

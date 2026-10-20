@@ -32,6 +32,9 @@ page docs/UNRAID.md UNRAID.md \
 page docs/JDOWNLOADER2.md JDOWNLOADER2.md \
     "Using JDownloader 2 with Issuarr" \
     "Hand GetComics mirror links (Mega, Mediafire, Pixeldrain) from Issuarr to JDownloader 2."
+page docs/AIRDCPP.md AIRDCPP.md \
+    "Using AirDC++ with Issuarr" \
+    "Search Direct Connect hubs through AirDC++ and choose whether Issuarr or AirDC++ picks the download folder, with path mapping for Docker and Windows."
 page docs/API.md API.md \
     "Issuarr web API" \
     "The Issuarr web API, compatible with Mylar3 scripts and apps: keys, commands and responses."

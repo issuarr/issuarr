@@ -79,8 +79,9 @@
 
 /* Table */
 .lg-tablebox { overflow-x: auto; background: var(--surface); border: 1px solid var(--line); border-radius: calc(var(--radius) * 1.3); }
-.lg-table { border-collapse: collapse; width: 100%; min-width: 860px; border: 0 !important; font-size: 14px; }
-.lg-table th { padding: 11px 14px !important; text-align: left; white-space: nowrap; cursor: pointer; user-select: none; }
+.lg-table { border-collapse: collapse; width: 100%; min-width: 1180px; table-layout: fixed; border: 0 !important; font-size: 14px; }
+.lg-table td { overflow-wrap: anywhere; }
+.lg-table th { box-sizing: border-box; padding: 11px 14px !important; text-align: left; white-space: nowrap; cursor: pointer; user-select: none; }
 .lg-table td { padding: 10px 14px; border-bottom: 1px solid var(--line-soft) !important; vertical-align: middle; }
 .lg-table tbody tr:last-child td { border-bottom: 0 !important; }
 .lg-table th[aria-sort="ascending"]::after { content: " ↑"; color: var(--text); }
@@ -88,7 +89,7 @@
 .lg-table tbody tr:hover td { background: color-mix(in srgb, var(--raised) 60%, var(--surface)); }
 .lg-table tr.lg-on td { background: color-mix(in srgb, var(--text) 8%, var(--surface)); }
 .lg-table td.num, .lg-table th.num { text-align: right; }
-.lg-chk { width: 28px; padding-right: 0 !important; }
+.lg-chk { width: 42px; box-sizing: border-box; padding-right: 0 !important; }
 .lg-chk input { width: 17px; height: 17px; margin: 0; vertical-align: middle; }
 .lg-table td.lg-chk input:focus-visible { outline: 2px solid var(--focus); outline-offset: 2px; }
 .lg-mono { font-family: var(--font-mono); font-size: 13px; white-space: nowrap; }
@@ -123,3 +124,7 @@
 .lg-miss i { font-style: normal; color: var(--faint); }
 .lg-miss .lg-strong { color: var(--text); font-weight: 700; }
 th small.lg-dim { display: block; font-weight: 500; font-size: 11px; }
+
+/* Remove series (selection bar) */
+.lg-del-files { display: inline-flex !important; align-items: center; gap: 6px; float: none !important; width: auto !important; margin: 8px 0 0 !important; font-weight: 600; }
+.lg-del-files input { width: 16px; height: 16px; margin: 0; }

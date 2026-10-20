@@ -18,7 +18,7 @@
                Archived: 'Marked {n} as archived', OppositeTier: 'Switched the tier of {n}' };
   var STATUS = { Wanted: 'is-wanted', Snatched: 'is-snatched', Failed: 'is-failed' };
 
-  var st = { rows: [], tab: 'all', q: '', sort: 'release-desc', limit: CHUNK, sel: {}, loaded: false,
+  var st = { rows: [], tab: 'all', q: '', sort: 'release-desc', col: null, limit: CHUNK, sel: {}, loaded: false,
              flow: {}, current: null };
 
   function $id(id) { return document.getElementById(id); }
@@ -103,6 +103,23 @@
       'added-desc': function (a, b) { return b.added.localeCompare(a.added) || b.release.localeCompare(a.release); },
       series: bySeries
     };
+    if (st.col) {
+      // A column header was clicked. Empty values stay at the bottom; series and issue break ties.
+      var col = st.col;
+      var val = {
+        series: function (r) { return r.name; },
+        issue: function (r) { return r.num; },
+        release: function (r) { return r.release || null; },
+        status: function (r) { return r.status || null; },
+        tier: function (r) { return r.tier === 1 ? 1 : r.tier === 2 ? 2 : r.tier === 'soon' ? 3 : null; }
+      }[col.key] || function (r) { return r.name; };
+      return list.sort(function (a, b) {
+        var x = val(a), y = val(b);
+        if (x === null || y === null) return (x === y ? 0 : x === null ? 1 : -1) || bySeries(a, b);
+        var c = typeof x === 'number' ? x - y : String(x).localeCompare(String(y), undefined, { sensitivity: 'base', numeric: true });
+        return col.dir * c || bySeries(a, b);
+      });
+    }
     return list.sort(sorts[st.sort] || sorts['release-desc']);
   }
 
@@ -285,8 +302,7 @@
         var names = d.issues.slice(0, 12).map(function (i) { return i.series + ' #' + i.issue; });
         if (d.count > names.length) names.push('and ' + fmt(d.count - names.length) + ' more');
         if (!window.confirm(plural(d.count) + (d.count === 1 ? ' has' : ' have') + ' been Snatched for over ' + d.hours + ' hours with nothing downloading or filing ' +
-          (d.count === 1 ? 'it' : 'them') + ':\n\n' + names.join('\n') + '\n\nPut ' + (d.count === 1 ? 'it' : 'them') +
-          ' back to Wanted so ' + (d.count === 1 ? 'it is' : 'they are') + ' searched again?')) return;
+          (d.count === 1 ? 'it' : 'them') + ':\n\n' + names.join('\n') + '\n\nTheir series folders are checked first: an issue whose file is there becomes Downloaded. Put the rest back to Wanted so they are searched again?')) return;
         var body = new URLSearchParams({ issueids: d.issues.map(function (i) { return i.issueid; }).join(',') });
         return fetch('reset_stuck_snatched', { method: 'POST', credentials: 'same-origin', cache: 'no-store', body: body })
           .then(function (r) { if (!r.ok) throw new Error(r.status); return r.json(); })
@@ -299,7 +315,8 @@
     clearTimeout(qTimer);
     qTimer = setTimeout(function () { st.q = e.target.value.trim(); st.limit = CHUNK; render(); }, 120);
   });
-  $id('w-sort').addEventListener('change', function (e) { st.sort = e.target.value; render(); });
+  $id('w-sort').addEventListener('change', function (e) { st.sort = e.target.value; st.col = null; I().clearSort($id('w-table')); render(); });
+  $id('w-table').addEventListener('issuarr:sort', function (e) { st.col = e.detail; render(); });
   $id('w-more-rows').addEventListener('click', function () { st.limit += CHUNK; render(); });
   var refreshTimer = null;
   document.addEventListener('issuarr:refresh', function () { clearTimeout(refreshTimer); refreshTimer = setTimeout(load, 800); });

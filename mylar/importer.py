@@ -205,6 +205,13 @@ def addComictoDB(comicid, mismatch=None, pullupd=None, imported=None, ogcname=No
         myDB.upsert("comics", newValueDict, controlValueDict)
         return {'status': 'incomplete'}
 
+    # a publisher or imprint typed in on the series page wins over ComicVine's
+    if dbcomic is not None:
+        if dbcomic['Corrected_Publisher']:
+            comic['ComicPublisher'] = dbcomic['Corrected_Publisher']
+        if dbcomic['Corrected_Imprint']:
+            comic['PublisherImprint'] = dbcomic['Corrected_Imprint']
+
     if comic['ComicName'].startswith('The '):
         sortname = comic['ComicName'][4:]
     else:
@@ -285,9 +292,10 @@ def addComictoDB(comicid, mismatch=None, pullupd=None, imported=None, ogcname=No
     else:
         SeriesYear = comic['ComicYear']
 
-    if any([int(SeriesYear) > int(datetime.datetime.now().year) + 1, int(SeriesYear) == 2099]) and csyear is not None:
-        logger.info('Corrected year of ' + str(SeriesYear) + ' to corrected year for series that was manually entered previously of ' + str(csyear))
-        SeriesYear = csyear
+    # a year set by hand on the series page is kept, whatever ComicVine says
+    if csyear is not None and str(csyear).isdigit() and str(csyear) != str(SeriesYear):
+        logger.info('Using the series year of %s that was set by hand instead of %s' % (csyear, SeriesYear))
+        SeriesYear = str(csyear)
 
     logger.info('Sucessfully retrieved details for ' + comic['ComicName'])
 

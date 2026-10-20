@@ -70,16 +70,16 @@
 
         <div id="lib-grid" class="cover-grid" aria-live="polite"></div>
         <div id="lib-list" class="dt-wrap" hidden>
-            <table class="dt">
+            <table class="dt" id="lib-table" data-sort="custom">
                 <thead>
                     <tr>
                         <th scope="col" class="check lib-check-col"><span class="sr-only">Select</span></th>
-                        <th scope="col">Series</th>
-                        <th scope="col">Publisher</th>
-                        <th scope="col">Year</th>
-                        <th scope="col">Latest</th>
-                        <th scope="col">Status</th>
-                        <th scope="col" style="min-width: 220px">Issues</th>
+                        <th scope="col" data-key="name">Series</th>
+                        <th scope="col" data-key="publisher">Publisher</th>
+                        <th scope="col" data-key="year">Year</th>
+                        <th scope="col" data-key="latest" data-sort-first="desc">Latest</th>
+                        <th scope="col" data-key="status">Status</th>
+                        <th scope="col" data-key="have" data-sort-first="desc" style="min-width: 220px">Issues</th>
                     </tr>
                 </thead>
                 <tbody></tbody>

@@ -912,9 +912,9 @@ def GetSeriesYears(dom):
         if comic_desc != 'None' and tempseries['Type'] == 'None':
             if 'print' in comic_desc[:60].lower() and all(['also available as a print' not in comic_desc.lower(), 'for the printed edition' not in comic_desc.lower(), 'print edition can be found' not in comic_desc.lower(), 'reprints' not in comic_desc.lower()]):
                 tempseries['Type'] = 'Print'
-            elif all(['digital' in comic_desc[:60].lower(), 'graphic novel' not in comic_desc[:60].lower(), 'digital edition can be found' not in comic_desc.lower()]):
+            elif all(['digital' in comic_desc[:60].lower(), 'graphic novel' not in comic_desc[:60].lower(), 'digital edition can be found' not in comic_desc.lower(), not re.search(r'\bcollect(s|ed|ing|ion)\b', comic_desc[:60].lower())]):
                 tempseries['Type'] = 'Digital'
-            elif all(['paperback' in comic_desc[:60].lower(), 'paperback can be found' not in comic_desc.lower()]) or all(['hardcover' not in comic_desc[:60].lower(), 'collects' in comic_desc[:60].lower()]):
+            elif all(['paperback' in comic_desc[:60].lower(), 'paperback can be found' not in comic_desc.lower()]) or all(['hardcover' not in comic_desc[:60].lower(), re.search(r'\bcollect(s|ed|ing|ion)\b', comic_desc[:60].lower())]):
                 tempseries['Type'] = 'TPB'
             elif all(['graphic novel' in comic_desc[:60].lower(), 'graphic novel can be found' not in comic_desc.lower()]):
                 tempseries['Type'] = 'GN'
@@ -923,7 +923,7 @@ def GetSeriesYears(dom):
             elif any(['one-shot' in comic_desc[:60].lower(), 'one shot' in comic_desc[:60].lower()]) and any(['can be found' not in comic_desc.lower(), 'following the' not in comic_desc.lower()]):
                 i = 0
                 tempseries['Type'] = 'One-Shot'
-                avoidwords = ['preceding', 'after the special', 'following the', 'continued from']
+                avoidwords = ['preceding', 'after the special', 'following the', 'continued from', 'continuing from', 'continues from']
                 while i < 2:
                     if i == 0:
                         cbd = 'one-shot'
@@ -1407,9 +1407,9 @@ def get_imprint_volume_and_booktype(series, comicyear, publisher, firstissueid, 
     if comic_desc != 'None' and comic['Type'] == 'Print':
         if 'print' in comic_desc[:60].lower() and all(['also available as a print' not in comic_desc.lower(), 'for the printed edition' not in comic_desc.lower(), 'print edition can be found' not in comic_desc.lower(), 'reprints' not in comic_desc.lower()]):
             comic['Type'] = 'Print'
-        elif all(['digital' in comic_desc[:60].lower(), 'graphic novel' not in comic_desc[:60].lower(), 'digital edition can be found' not in comic_desc.lower()]):
+        elif all(['digital' in comic_desc[:60].lower(), 'graphic novel' not in comic_desc[:60].lower(), 'digital edition can be found' not in comic_desc.lower(), not re.search(r'\bcollect(s|ed|ing|ion)\b', comic_desc[:60].lower())]):
             comic['Type'] = 'Digital'
-        elif all(['paperback' in comic_desc[:60].lower(), 'paperback can be found' not in comic_desc.lower()]) or all(['hardcover' not in comic_desc[:60].lower(), 'collects' in comic_desc[:60].lower()]):
+        elif all(['paperback' in comic_desc[:60].lower(), 'paperback can be found' not in comic_desc.lower()]) or all(['hardcover' not in comic_desc[:60].lower(), re.search(r'\bcollect(s|ed|ing|ion)\b', comic_desc[:60].lower())]):
             comic['Type'] = 'TPB'
         elif all(['graphic novel' in comic_desc[:60].lower(), 'graphic novel can be found' not in comic_desc.lower()]):
             comic['Type'] = 'GN'
@@ -1418,7 +1418,7 @@ def get_imprint_volume_and_booktype(series, comicyear, publisher, firstissueid, 
         elif any(['one-shot' in comic_desc[:60].lower(), 'one shot' in comic_desc[:60].lower()]) and any(['can be found' not in comic_desc.lower(), 'following the' not in comic_desc.lower(), 'after the' not in comic_desc.lower()]):
             i = 0
             comic['Type'] = 'One-Shot'
-            avoidwords = ['preceding', 'after the', 'following the', 'continued from']
+            avoidwords = ['preceding', 'after the', 'following the', 'continued from', 'continuing from', 'continues from']
             while i < 2:
                 if i == 0:
                     cbd = 'one-shot'

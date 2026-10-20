@@ -37,12 +37,12 @@ import threading
 import time
 
 import mylar
-from mylar import db, logger
+from mylar import db, logger, editions
 
 COMIC_EXT = ('.cbz', '.cbr', '.cb7', '.pdf')
 # Most telling first: a file that failed on volume for one series and on name for the rest
 # failed on volume.
-REASONS = ('damaged', 'cover', 'volume', 'year', 'issue', 'series', 'unclaimed')
+REASONS = ('damaged', 'cover', 'owned', 'volume', 'year', 'issue', 'series', 'unclaimed')
 CACHE_SECONDS = 60
 _COUNT = [0.0, 0]          # (counted at, count) for the nav badge
 _COMICS = [0.0, []]        # (loaded at, watchlist rows) for suggestions
@@ -220,7 +220,7 @@ def _norm(name):
 def _watchlist():
     if time.time() - _COMICS[0] < 300 and _COMICS[1]:
         return _COMICS[1]
-    rows = db.DBConnection().select('SELECT ComicID, ComicName, ComicYear, ComicVersion, Total FROM comics WHERE ComicName IS NOT NULL')
+    rows = db.DBConnection().select('SELECT ComicID, ComicName, ComicYear, ComicVersion, Total, Type, Corrected_Type FROM comics WHERE ComicName IS NOT NULL')
     rows = [dict(r, norm=_norm(r['ComicName'])) for r in rows]
     for r in rows:
         r['chars'] = collections.Counter(r['norm'])
@@ -233,7 +233,7 @@ def parse(path):
     """What the file name says: series, issue, year and volume, as filing reads them."""
     from mylar import filechecker
     name = os.path.basename(path)
-    out = {'series': None, 'issue': None, 'year': None, 'volume': None}
+    out = {'series': None, 'issue': None, 'year': None, 'volume': None, 'name': name, 'collected': editions.collected(name)}
     try:
         p = filechecker.FileChecker(file=name).listFiles()
     except Exception as e:
@@ -299,10 +299,18 @@ def suggest(parsed, limit=3, comicid=None):
         return []
     named = _named(want, comicid)
     myDB = db.DBConnection()
-    target = _num(parsed.get('issue')) if parsed.get('issue') else None
     fyear = str(parsed.get('year') or '')
     out = []
     for s, c in named[:10]:
+        # A collected edition is numbered by its volume ("Vol 2" is #2 of a TPB series). It isn't
+        # offered as an issue of a series of single issues; picking one by hand still can.
+        is_collected = editions.collected(parsed['name'], c['ComicName']) if parsed.get('name') else bool(parsed.get('collected'))
+        stype = editions.series_type(c.get('Type'), c.get('Corrected_Type'))
+        singles, collection = editions.singles(stype), stype in editions.COLLECTED_TYPES
+        number = parsed.get('issue')
+        if is_collected and collection and _vol(parsed.get('volume')) is not None:
+            number = str(_vol(parsed.get('volume')))
+        target = _num(number) if number and not (is_collected and singles) else None
         issue = None
         if target is not None:
             for r in myDB.select('SELECT IssueID, Issue_Number, Status, IssueDate, ReleaseDate FROM issues WHERE ComicID=?', [c['ComicID']]):
@@ -315,13 +323,16 @@ def suggest(parsed, limit=3, comicid=None):
             'series': s >= 0.92,
             'issue': issue is not None,
             'year': fyear == iyear if fyear.isdigit() and iyear.isdigit() else None,
-            'volume': None if fvol is None else (fvol == svol or (svol is None and fvol == 1)),
+            # a collected edition's volume is its number, not the series' volume
+            'volume': None if fvol is None or (is_collected and collection) else (fvol == svol or (svol is None and fvol == 1)),
+            'format': True if (collection if is_collected else singles) else False if (singles or collection) else None,
         }
         near = fyear.isdigit() and iyear.isdigit() and abs(int(fyear) - int(iyear)) <= 1   # cover dates run ahead
         rank = s + (0.3 if agree['issue'] else 0) + (0.2 if agree['year'] else 0.1 if near else -0.2 if agree['year'] is False else 0) + \
-            {True: 0.1, False: -0.1, None: 0}[agree['volume']]
+            {True: 0.1, False: -0.1, None: 0}[agree['volume']] + {True: 0, None: 0, False: -0.5 if is_collected else -0.2}[agree['format']]
         out.append({'comicid': c['ComicID'], 'name': c['ComicName'], 'year': c['ComicYear'], 'volume': c['ComicVersion'],
                      'total': c['Total'], 'score': round(s, 2), 'rank': round(rank, 2), 'agree': agree,
+                     'format': 'Single issues' if singles else stype,
                      'issueid': (issue or {}).get('IssueID'), 'number': (issue or {}).get('Issue_Number'),
                      'status': (issue or {}).get('Status'), 'issue_year': iyear or None})
     out.sort(key=lambda m: -m['rank'])
@@ -352,7 +363,7 @@ def items():
         job = JOBS.get(path)
         if job is None and row.get('status') == 'queued':
             job = {'state': 'waiting', 'note': 'Waiting to file'}
-        out.append({'path': path, 'name': os.path.basename(path), 'folder': os.path.dirname(path),
+        out.append({'path': path, 'name': os.path.basename(path), 'folder': os.path.dirname(path), 'group': group_of(path)[0],
                     'in_review': bool(review) and os.path.normpath(path).startswith(review + os.sep),
                     'in_library': library,
                     'reason': row.get('reason') or 'unclaimed', 'detail': row.get('detail') or '',
@@ -390,8 +401,66 @@ def search(text, limit=12):
     return [{'comicid': c['ComicID'], 'name': c['ComicName'], 'year': c['ComicYear'], 'volume': c['ComicVersion']} for s, c in hits[:limit]]
 
 
+def _cv_key():
+    key = mylar.CONFIG.COMICVINE_API
+    return key if key and key != 'None' else None
+
+
+def find_series(text, limit=20):
+    """Series on ComicVine for the manual pick, for when the right one isn't on the watchlist yet.
+    Uses the same search as Add series, one page of it."""
+    from mylar import mb
+    text = (text or '').strip()
+    if not text:
+        return {'ok': True, 'series': []}
+    if not _cv_key():
+        return {'ok': False, 'note': 'Searching ComicVine needs a ComicVine API key (Settings).', 'series': []}
+    try:
+        found = mb.findComic(text, 'series', None, page=1, pageSize=limit) or []
+    except Exception as e:
+        logger.warn('[ATTENTION] ComicVine search for %s failed: %s' % (text, e))
+        return {'ok': False, 'note': 'The ComicVine search didn\'t work. The log has why.', 'series': []}
+    watched = {str(r['ComicID']) for r in db.DBConnection().select('SELECT ComicID FROM comics')}
+    return {'ok': True, 'series': [{'comicid': str(x['comicid']), 'name': x['name'], 'year': x.get('comicyear'),
+                                    'publisher': x.get('publisher'), 'issues': x.get('issues'), 'volume': x.get('volume'),
+                                    'thumb': x.get('comicthumb'), 'type': x.get('type'),
+                                    'watched': str(x['comicid']) in watched} for x in found]}
+
+
+def add_series(comicid, name=None, year=None):
+    """Add a ComicVine series to the watchlist from the manual pick, in the background like
+    Add series does. series_state says when its issues are there to pick from."""
+    comicid = re.sub(r'^4050-', '', str(comicid or '')).strip()
+    if not comicid.isdigit():
+        return {'ok': False, 'note': 'That isn\'t a ComicVine series.'}
+    state = series_state(comicid)
+    if state['state'] == 'ready':
+        return dict(state, ok=True, note='%s is already on your watchlist.' % (name or 'That series'))
+    if not _cv_key():
+        return {'ok': False, 'note': 'Adding series needs a ComicVine API key (Settings).'}
+    if state['state'] == 'missing':
+        from mylar import importer
+        logger.info('[ATTENTION] Adding %s (%s) [%s] to the watchlist to file a file as one of its issues.' % (name, year, comicid))
+        importer.importer_thread([{'comicid': comicid, 'comicname': name or None, 'seriesyear': year or None}])
+    return {'ok': True, 'state': 'adding', 'note': 'Adding %s. Its issues load from ComicVine, then you can pick one.' % (name or 'the series')}
+
+
+def series_state(comicid):
+    """'ready' once a series is on the watchlist with its issues, 'adding' while it loads,
+    'missing' when it isn't there at all."""
+    myDB = db.DBConnection()
+    row = myDB.selectone('SELECT ComicName, ComicYear, ComicVersion, Status FROM comics WHERE ComicID=?', [comicid]).fetchone()
+    if row is None:
+        return {'state': 'missing'}
+    have = myDB.selectone('SELECT COUNT(*) AS n FROM issues WHERE ComicID=?', [comicid]).fetchone()['n']
+    if row['Status'] == 'Loading' or not have:
+        return {'state': 'adding'}
+    _COMICS[0] = 0   # the watchlist search should find it now
+    return {'state': 'ready', 'series': {'comicid': comicid, 'name': row['ComicName'], 'year': row['ComicYear'], 'volume': row['ComicVersion']}}
+
+
 def issues(comicid):
-    rows = db.DBConnection().select('SELECT IssueID, Issue_Number, Status, IssueDate FROM issues WHERE ComicID=?', [comicid])
+    rows =db.DBConnection().select('SELECT IssueID, Issue_Number, Status, IssueDate FROM issues WHERE ComicID=?', [comicid])
     rows = [dict(r) for r in rows]
     rows.sort(key=lambda r: (_num(r['Issue_Number']) is None, _num(r['Issue_Number']) or 0))
     return rows
@@ -437,6 +506,12 @@ def file_cover(path):
     gets a fresh one."""
     if not _known(path):
         return None
+    return cover_of(path)
+
+
+def cover_of(path):
+    """The front cover inside any comic file, as a cached JPEG path, BUSY, or None. Callers check
+    the file is one they may show."""
     try:
         st = os.stat(path)
     except OSError:
@@ -536,6 +611,12 @@ def trash(path):
         return left
     if not _known(path):
         return {'ok': False, 'note': 'That file is no longer waiting for a decision.'}
+    dest_dir = _trash_file(path)
+    logger.info('[ATTENTION] Moved %s to the trash (%s).' % (os.path.basename(path), dest_dir))
+    return {'ok': True, 'note': 'Moved to the trash. It\'s deleted for good after %s days.' % trash_days()}
+
+
+def _trash_file(path):
     dest_dir = os.path.join(trash_dir(), datetime.date.today().isoformat())
     os.makedirs(dest_dir, exist_ok=True)
     dest = os.path.join(dest_dir, os.path.basename(path))
@@ -544,8 +625,7 @@ def trash(path):
         dest = '%s (%s)%s' % (base, int(time.time()), ext)
     shutil.move(path, dest)
     forget(path)
-    logger.info('[ATTENTION] Moved %s to the trash (%s).' % (os.path.basename(path), dest_dir))
-    return {'ok': True, 'note': 'Moved to the trash. It\'s deleted for good after %s days.' % trash_days()}
+    return dest_dir
 
 
 def purge_trash():
@@ -738,6 +818,9 @@ def _refile_run(folders):
             if os.path.isdir(folder):
                 try:
                     PostProcessor.PostProcessor('Manual Run', folder, queue=queue.Queue()).Process()
+                    # a direct-download pack: what still doesn't file isn't wanted
+                    from mylar import archives
+                    archives.clear_pack(folder)
                 except Exception as e:
                     logger.warn('[ATTENTION] Filing %s again failed: %s' % (folder, e))
             REFILE['done'] = n + 1
@@ -789,3 +872,73 @@ def refile_after_update(delay=AFTER_UPDATE_DELAY):
 def after_start():
     resume_picks()
     refile_after_update()
+
+
+def group_of(path):
+    """Which group a listed file belongs to, as (key, label, folder): a collection in the review
+    folder (its first sub-folder, "Star Wars"), a download's own folder, or else the file's folder."""
+    path = os.path.normpath(path)
+    review = os.path.normpath(review_dir() or '')
+    ddl = os.path.normpath(getattr(mylar.CONFIG, 'DDL_LOCATION', None) or '') if getattr(mylar.CONFIG, 'DDL_LOCATION', None) else ''
+    for base, where in ((review, 'Review folder'), (ddl, 'Downloads')):
+        if base and path.startswith(base + os.sep):
+            parts = os.path.relpath(path, base).split(os.sep)
+            if len(parts) == 1:
+                return (base, '%s (loose files)' % where, base)
+            folder = os.path.join(base, parts[0])
+            return (folder, parts[0], folder)
+    folder = os.path.dirname(path)
+    return (folder, os.path.basename(folder) or folder, folder)
+
+
+def groups():
+    """The listed files by group, biggest first, with how many and why. Cheap: no suggestions."""
+    out = {}
+    for path, row in _open_paths(db.DBConnection()).items():
+        key, label, folder = group_of(path)
+        g = out.setdefault(key, {'key': key, 'label': label, 'folder': folder, 'count': 0, 'size': 0, 'reasons': {}})
+        g['count'] += 1
+        g['size'] += _size(path) or 0
+        reason = row.get('reason') or 'unclaimed'
+        g['reasons'][reason] = g['reasons'].get(reason, 0) + 1
+    return sorted(out.values(), key=lambda g: (-g['count'], g['label'].lower()))
+
+
+def group_paths(key):
+    return [p for p in _open_paths(db.DBConnection()) if group_of(p)[0] == key]
+
+
+def group_action(key, action):
+    """Do one thing to every listed file in a group: 'trash', 'ignore', or 'add' (find their series
+    on ComicVine, add them, then file the group's folder again)."""
+    paths = group_paths(key)
+    if not paths:
+        return {'ok': False, 'note': 'Nothing in that group is waiting any more.'}
+    if action == 'add':
+        from mylar import autoadd
+        folder = group_of(paths[0])[2]
+        problem = autoadd.queue(paths, force=True, folder=folder)
+        if problem:
+            return {'ok': False, 'note': problem}
+        return {'ok': True, 'note': 'Looking up the series of %s files on ComicVine. Series found are added, then the folder is filed again.' % len(paths)}
+    done, failed = 0, 0
+    for p in paths:
+        try:
+            if action == 'trash':
+                if os.path.exists(p):
+                    _trash_file(p)
+                else:
+                    forget(p)
+            elif action == 'ignore':
+                ignore(p)
+            else:
+                return {'ok': False, 'note': 'Unknown action.'}
+            done += 1
+        except Exception as e:
+            failed += 1
+            logger.warn('[ATTENTION] Could not %s %s: %s' % (action, p, e))
+    _COUNT[0] = 0
+    what = 'Moved %s files to the trash.' % done if action == 'trash' else 'Hid %s files until they change.' % done
+    if action == 'trash':
+        logger.info('[ATTENTION] Moved %s file(s) of %s to the trash.' % (done, key))
+    return {'ok': failed == 0, 'note': what + (' %s could not be changed - the log has why.' % failed if failed else '')}

@@ -24,7 +24,7 @@ import sys
 import calendar
 
 import mylar
-from mylar import db, logger, helpers, filechecker
+from mylar import db, logger, helpers, filechecker, matching, editions
 
 def addvialist(queue):
     while True:
@@ -122,9 +122,9 @@ def dbUpdate(ComicIDList=None, calledfrom=None, sched=False):
         if comic['Corrected_Type'] is not None:
             fixed_type = comic['Corrected_Type']
 
-        if comic['Corrected_SeriesYear'] is not None:
+        if comic['Corrected_SeriesYear'] is not None and str(comic['Corrected_SeriesYear']).isdigit():
             csyear = comic['Corrected_SeriesYear']
-            if int(csyear) != int(comic['ComicYear']):
+            if str(csyear) != str(comic['ComicYear']):
                 comic['ComicYear'] = csyear
                 dspyear = csyear
 
@@ -461,7 +461,7 @@ def dbUpdate(ComicIDList=None, calledfrom=None, sched=False):
                         sm.update_metadata()
 
                 else:
-                    chkstatus = mylar.importer.addComictoDB(ComicID, mismatch, annload=annload, csyear=csyear)
+                    chkstatus = mylar.importer.addComictoDB(ComicID, mismatch, annload=annload, csyear=csyear, fixed_type=fixed_type)
                     #if cchk:
                     #    #delete the data here if it's all valid.
                     #    #logger.fdebug("Deleting all old issue data to make sure new data is clean...")
@@ -1165,9 +1165,11 @@ def forceRescan(ComicID, archive=None, module=None, recheck=False):
         altnames = altnames[:-2]
     logger.info(module + ' Now checking files for ' + rescan['ComicName'] + ' (' + str(rescan['ComicYear']) + ') in ' + rescan['ComicLocation'])
     fca = []
+    unnamed = []   # files whose name didn't read as this series: their tags may still say which issue they are
     if archive is None:
         tval = filechecker.FileChecker(dir=rescan['ComicLocation'], watchcomic=rescan['ComicName'], Publisher=rescan['ComicPublisher'], AlternateSearch=altnames)
         tmpval = tval.listFiles()
+        unnamed += tval.failed_files
         #tmpval = filechecker.listFiles(dir=rescan['ComicLocation'], watchcomic=rescan['ComicName'], Publisher=rescan['ComicPublisher'], AlternateSearch=altnames)
         comiccnt = int(tmpval['comiccount'])
         #logger.fdebug(module + 'comiccnt is:' + str(comiccnt))
@@ -1186,6 +1188,7 @@ def forceRescan(ComicID, archive=None, module=None, recheck=False):
                 logger.info(module + ' Now checking files for ' + rescan['ComicName'] + ' (' + str(rescan['ComicYear']) + ') in :' + secondary_folders)
                 mvals = filechecker.FileChecker(dir=secondary_folders, watchcomic=rescan['ComicName'], Publisher=rescan['ComicPublisher'], AlternateSearch=altnames)
                 tmpv = mvals.listFiles()
+                unnamed += mvals.failed_files
                 #tmpv = filechecker.listFiles(dir=secondary_dir, watchcomic=rescan['ComicName'], Publisher=rescan['ComicPublisher'], AlternateSearch=altnames)
                 logger.fdebug(module + 'tmpv filecount: ' + str(tmpv['comiccount']))
                 comiccnt += int(tmpv['comiccount'])
@@ -1196,6 +1199,7 @@ def forceRescan(ComicID, archive=None, module=None, recheck=False):
 #        files_arc = filechecker.listFiles(dir=archive, watchcomic=rescan['ComicName'], Publisher=rescan['ComicPublisher'], AlternateSearch=rescan['AlternateSearch'])
         arcval = filechecker.FileChecker(dir=archive, watchcomic=rescan['ComicName'], Publisher=rescan['ComicPublisher'], AlternateSearch=rescan['AlternateSearch'])
         files_arc = arcval.listFiles()
+        unnamed += arcval.failed_files
         fca.append(files_arc)
         comiccnt = int(files_arc['comiccount'])
 
@@ -1213,6 +1217,13 @@ def forceRescan(ComicID, archive=None, module=None, recheck=False):
             except (IndexError, KeyError) as e:
                 break
 
+            if booktype == 'Print' and editions.collected(cla['ComicFilename'], rescan['ComicName']):
+                # its volume number isn't an issue number of a series of single issues
+                logger.fdebug('%s %s is a collected edition - not matching it to a single issue.' % (module, cla['ComicFilename']))
+                comiccnt -= 1
+                i += 1
+                continue
+
             try:
                 if all([booktype == 'TPB', iscnt > 1]) or all([booktype == 'GN', iscnt > 1]) or all([booktype =='HC', iscnt > 1]) or all([booktype == 'One-Shot', iscnt == 1, cla['JusttheDigits'] is None]):
                     if cla['SeriesVolume'] is not None:
@@ -1228,6 +1239,7 @@ def forceRescan(ComicID, archive=None, module=None, recheck=False):
             else:
                 fcb.append({"ComicFilename":   cla['ComicFilename'],
                             "ComicLocation":   cla['ComicLocation'],
+                            "sub":             cla.get('sub'),
                             "ComicSize":       cla['ComicSize'],
                             "JusttheDigits":   just_the_digits,
                             "AnnualComicID":   cla['AnnualComicID']})
@@ -1303,6 +1315,11 @@ def forceRescan(ComicID, archive=None, module=None, recheck=False):
     d_annuals = []
     d_issues = []
 
+    # Files matched by hand stay with their issue; a match whose file is gone is dropped.
+    pins = matching.pins(ComicID, matching.series_dirs(rescan))
+    pinned_ids = set(pins.values())
+    leftovers = []
+
     reissues = myDB.select('SELECT * FROM issues WHERE ComicID=?', [ComicID])
 
     a_start = datetime.datetime.now()
@@ -1320,6 +1337,10 @@ def forceRescan(ComicID, archive=None, module=None, recheck=False):
             else:
                 break
 
+        if tmpfc['ComicFilename'] in pins:
+            fn += 1
+            continue
+
         if tmpfc['JusttheDigits'] is not None:
             temploc= tmpfc['JusttheDigits'].replace('_', ' ')
             if "Director's Cut" not in temploc:
@@ -1329,6 +1350,7 @@ def forceRescan(ComicID, archive=None, module=None, recheck=False):
             temploc = numberless_issue(booktype, reissues, tmpfc['AnnualComicID'])
             if temploc is None:
                 logger.warn('The filename [%s] does not have a valid issue number, and the Edition of the series is %s. You might need to Forcibly Mark the Series as TPB/GN and try this again.' % (tmpfc['ComicFilename'], rescan['Type']))
+                leftovers.append(tmpfc)
                 fn += 1
                 continue
 
@@ -1360,22 +1382,10 @@ def forceRescan(ComicID, archive=None, module=None, recheck=False):
                 old_status = reiss['Status']
                 issname = reiss['IssueName']
 
-                if reiss['forced_file'] is not None and bool(reiss['forced_file']) is True:
-                    logger.fdebug(module + '[FORCED-MATCH] Matched...issue: ' + rescan['ComicName'] + '#' + reiss['Issue_Number'] + ' --- ' + str(int_iss))
-                    havefiles+=1
-                    haveissue = "yes"
-                    isslocation = tmpfc['ComicFilename'] #helpers.conversion(tmpfc['ComicFilename'])
-                    issSize = str(tmpfc['ComicSize'])
-                    logger.fdebug(module + ' .......filename: ' + isslocation)
-                    logger.fdebug(module + ' .......filesize: ' + str(tmpfc['ComicSize']))
-                    # to avoid duplicate issues which screws up the count...let's store the filename issues then
-                    # compare earlier...
-                    issuedupechk.append({'fcdigit':   int_iss,
-                                         'filename':  tmpfc['ComicFilename'],
-                                         'filesize':  tmpfc['ComicSize'],
-                                         'issueyear': issyear,
-                                         'issueid':   reiss['IssueID']})
-                    break
+                if reiss['IssueID'] in pinned_ids:
+                    # matched by hand to its own file below
+                    n+=1
+                    continue
 
                 fnd_iss_except = 'None'
 
@@ -1684,6 +1694,8 @@ def forceRescan(ComicID, archive=None, module=None, recheck=False):
                 logger.warn(module + ' you should either Refresh the series, and/or submit an issue on github in regards to the series and the error.')
                 return
 
+            if haveissue != 'yes':
+                leftovers.append(tmpfc)
             if writeit == True and haveissue == 'yes':
                 #logger.fdebug(module + ' issueID to write to db:' + str(iss_id))
 
@@ -1705,6 +1717,20 @@ def forceRescan(ComicID, archive=None, module=None, recheck=False):
                 ANNComicID = None
         fn+=1
     logger.fdebug('[haves] issue_status_generation took %s' % (datetime.datetime.now() - a_start))
+
+    # Files the name didn't place: a file tagged with a ComicVine issue ID of this series is that issue.
+    issStatus = 'Archived' if archive else 'Downloaded'
+    for tagged in matching.by_tags(ComicID, [(f['ComicLocation'], f.get('sub'), f['ComicFilename'], f['ComicSize']) for f in leftovers] +
+                                   [(f['comiclocation'], f['sub'], f['comicfilename'], None) for f in unnamed],
+                                   pins, set(issID_to_ignore) | set(annID_to_ignore)):
+        logger.fdebug('%s [TAGGED-MATCH] %s is #%s by its ComicVine issue ID %s' % (module, tagged['name'], tagged['number'], tagged['issueid']))
+        havefiles += 1
+        if tagged['annual']:
+            d_annuals.append((issStatus, tagged['size'], tagged['name'], tagged['issueid']))
+            annID_to_ignore.append(tagged['issueid'])
+        else:
+            d_issues.append((issStatus, tagged['size'], tagged['name'], tagged['issueid']))
+            issID_to_ignore.append(tagged['issueid'])
 
     b_start = datetime.datetime.now()
     try:

@@ -69,9 +69,11 @@ from mylar import (
     importstatus,
     ddlsources,
     downloadqueue,
+    editions,
     ledger,
     librarysync,
     logger,
+    matching,
     mb,
     moveit,
     notifiers,
@@ -718,8 +720,12 @@ class WebInterface(object):
                         description = description_load
                     else:
                         description = comic['Description']
+            elif comic['DescriptionEdit'] is not None:
+                description = comic['DescriptionEdit']
             else:
                 description = comic['Description']
+            if description in ('None', ''):
+                description = None
 
             if comic['Collects'] is not None:
                 issues_list = json.loads(comic['Collects'])
@@ -914,15 +920,17 @@ class WebInterface(object):
             filters = []
 
         myDB = db.DBConnection()
+        # The direction goes into the SQL, so only asc or desc gets through.
+        sSortDir_0 = 'asc' if str(sSortDir_0).lower() == 'asc' else 'desc'
         sortcolumn = 'b.Int_IssueNumber %s' % sSortDir_0
         if iSortCol_0 == '1':
             sortcolumn = 'b.Int_IssueNumber %s' % sSortDir_0
         elif iSortCol_0 == '2':
-            sortcolumn = 'b.IssueName %s' % sSortDir_0
+            sortcolumn = 'b.IssueName COLLATE NOCASE %s, b.Int_IssueNumber' % sSortDir_0
         elif iSortCol_0 == '3':
-            sortcolumn = 'b.ReleaseDate %s' % sSortDir_0
+            sortcolumn = 'b.ReleaseDate %s, b.Int_IssueNumber' % sSortDir_0
         elif iSortCol_0 == '4':
-            sortcolumn = 'b.Status %s' % sSortDir_0
+            sortcolumn = 'b.Status %s, b.Int_IssueNumber' % sSortDir_0
 
         #logger.info('sortcolumn: %s' % sortcolumn)
         queryline = 'SELECT a.ComicLocation as ComicLocation, b.* FROM comics a LEFT JOIN issues b ON a.ComicID = b.ComicID WHERE a.ComicID=? ORDER BY %s' % sortcolumn
@@ -1237,10 +1245,18 @@ class WebInterface(object):
         elif iSortCol_0 == '4':
             sortcolumn = 'issues'
 
-        if sortcolumn == 'issues':
-            filtered.sort(key=lambda x: (x[sortcolumn] is None, x[sortcolumn] == '', x[sortcolumn]), reverse=sSortDir_0 == "desc")
-        else:
-            filtered.sort(key=lambda x: (x[sortcolumn] is None, x[sortcolumn] == '', x[sortcolumn]), reverse=sSortDir_0 == "desc")
+        def sortvalue(v):
+            # Issue counts and years sort as numbers (9 before 10), names ignore case.
+            if sortcolumn in ('issues', 'comicyear'):
+                try:
+                    return (0, int(v), '')
+                except (TypeError, ValueError):
+                    return (1, 0, str(v).lower())
+            return (0, 0, str(v).lower())
+        # Results with nothing in the column stay at the bottom whichever way it's sorted.
+        blank = [x for x in filtered if x.get(sortcolumn) in (None, '', 'None')]
+        filtered = sorted((x for x in filtered if x.get(sortcolumn) not in (None, '', 'None')),
+                          key=lambda x: sortvalue(x[sortcolumn]), reverse=sSortDir_0 == "desc") + blank
 
         logger.info('# of results: %s' % len(filtered))
         total_display_records = len(filtered)
@@ -2171,8 +2187,10 @@ class WebInterface(object):
         raise cherrypy.HTTPRedirect("comicDetails?ComicID=%s" % ComicID)
     resumeSeries.exposed = True
 
-    def deleteSeries(self, ComicID, delete_dir=None):
+    def deleteSeries(self, ComicID, delete_dir=None, ajax=None):
+        # ajax=1 (the Ledger page) gets a JSON answer instead of a redirect to the home page.
         myDB = db.DBConnection()
+        deleted = False
         comic = myDB.selectone('SELECT * from comics WHERE ComicID=?', [ComicID]).fetchone()
         try:
             if comic['ComicName'] is None:
@@ -2215,6 +2233,10 @@ class WebInterface(object):
                 dspline = '%s %s (%s)' % (ComicName, seriesvol, seriesyear)
             logger.info('Successful deletion of %s from your watchlist' % (dspline))
             helpers.ComicSort(sequence='update')
+            deleted = True
+        if ajax:
+            cherrypy.response.headers['Content-Type'] = 'application/json'
+            return json.dumps({'ok': deleted})
         raise cherrypy.HTTPRedirect("home")
     deleteSeries.exposed = True
 
@@ -2274,6 +2296,81 @@ class WebInterface(object):
         return value
 
     description_edit.exposed = True
+
+    SERIES_EDITIONS = ('TPB', 'HC', 'GN', 'Digital', 'One-Shot', 'Print')
+    SERIES_AGE_RATINGS = ('All Ages', '9+', '12+', '15+', '17+', 'Adult')
+
+    def series_detail_edit(self, ComicID, field, value=''):
+        """Change one field on the Details tab of a series page. Edits to fields that come from ComicVine
+        are kept when the series is refreshed; an empty value drops the edit."""
+        cherrypy.response.headers['Content-Type'] = 'application/json'
+        if cherrypy.request.method != 'POST':
+            raise cherrypy.HTTPError(405)
+        myDB = db.DBConnection()
+        comic = myDB.selectone('SELECT * FROM comics WHERE ComicID=?', [ComicID]).fetchone()
+        if comic is None:
+            return json.dumps({'ok': False, 'error': 'That series isn\'t in your library.'})
+        value = (value or '').strip()
+        new = {}
+        note = None
+        if field == 'publisher':
+            if value:
+                new = {'ComicPublisher': value, 'Corrected_Publisher': value}
+            else:
+                new = {'Corrected_Publisher': None}
+                note = "ComicVine's publisher comes back on the next refresh."
+        elif field == 'imprint':
+            new = {'PublisherImprint': value or 'None', 'Corrected_Imprint': value or None}
+        elif field == 'year':
+            if value and not (value.isdigit() and len(value) == 4):
+                return json.dumps({'ok': False, 'error': 'The year needs four digits, like 2016.'})
+            if value:
+                new = {'ComicYear': value, 'Corrected_SeriesYear': value}
+            else:
+                new = {'Corrected_SeriesYear': None}
+                note = "ComicVine's year comes back on the next refresh."
+        elif field == 'volume':
+            if value.isdigit():
+                value = 'v' + value
+            if value and not (value[:1].lower() == 'v' and value[1:].isdigit()):
+                return json.dumps({'ok': False, 'error': 'The volume needs to be v and a number, like v2.'})
+            new = {'ComicVersion': value.lower() or None}
+        elif field == 'edition':
+            if value and value not in self.SERIES_EDITIONS:
+                return json.dumps({'ok': False, 'error': 'Pick an edition from the list.'})
+            new = {'Corrected_Type': value or None}
+        elif field == 'age_rating':
+            if value and value not in self.SERIES_AGE_RATINGS:
+                return json.dumps({'ok': False, 'error': 'Pick an age rating from the list.'})
+            new = {'AgeRating': value or None}
+        elif field == 'description':
+            new = {'DescriptionEdit': value or None}
+        else:
+            return json.dumps({'ok': False, 'error': 'That field can\'t be edited.'})
+        myDB.upsert('comics', new, {'ComicID': ComicID})
+        logger.info('[SERIES-EDIT] %s (%s): %s set to %s' % (comic['ComicName'], ComicID, field, value or 'nothing'))
+        return json.dumps(dict(self._series_detail_values(ComicID, myDB, field), ok=True, note=note))
+    series_detail_edit.exposed = True
+
+    def _series_detail_values(self, ComicID, myDB, field):
+        """What the Details tab shows for one field after an edit: value, whether it's a kept edit, and the text in the input."""
+        c = myDB.selectone('SELECT * FROM comics WHERE ComicID=?', [ComicID]).fetchone()
+        blank = lambda v: '' if v in (None, 'None') else str(v)
+        if field == 'publisher':
+            return {'value': blank(c['ComicPublisher']), 'edited': bool(c['Corrected_Publisher'])}
+        if field == 'imprint':
+            return {'value': blank(c['PublisherImprint']), 'edited': bool(c['Corrected_Imprint'])}
+        if field == 'year':
+            return {'value': blank(c['ComicYear']), 'edited': bool(c['Corrected_SeriesYear'])}
+        if field == 'volume':
+            return {'value': blank(c['ComicVersion']), 'edited': False}
+        if field == 'edition':
+            cv_type = blank(c['Type']) or 'Print'
+            edited = c['Corrected_Type'] not in (None, '', 'None') and c['Corrected_Type'] != cv_type
+            return {'value': c['Corrected_Type'] if edited else cv_type, 'input': c['Corrected_Type'] if edited else '', 'edited': edited}
+        if field == 'age_rating':
+            return {'value': blank(c['AgeRating']), 'edited': False}
+        return {'value': blank(c['DescriptionEdit']) or blank(c['Description']), 'edited': bool(c['DescriptionEdit'])}
 
     def issue_edit(self, id, value):
         #logger.fdebug('id: ' + str(id))
@@ -4091,13 +4188,9 @@ class WebInterface(object):
         if cherrypy.request.method != 'POST':
             raise cherrypy.HTTPError(405)
         cherrypy.response.headers['Content-Type'] = 'application/json'
+        # Their series are rechecked first, so issues whose files are already in the library become Downloaded.
         shown = set(str(issueids or '').split(','))
-        myDB = db.DBConnection()
-        issues = [i for i in downloadqueue.stuck_snatched(myDB) if i['issueid'] in shown]
-        done = downloadqueue.unsnatch(myDB, [i['issueid'] for i in issues])
-        if done:
-            names = ['%s #%s' % (i['series'], i['issue']) for i in issues if i['issueid'] in done]
-            logger.info('[SNATCHED-RESET] Put %s stuck Snatched issues back to Wanted: %s' % (len(done), ', '.join(names)))
+        done = downloadqueue.clear_stuck(db.DBConnection(), issueids=shown)
         if not done:
             message = 'No snatched issues were stuck'
         else:
@@ -4491,7 +4584,7 @@ class WebInterface(object):
         raise cherrypy.HTTPRedirect("home?select=1")
     manageComics.exposed = True
 
-    def manageIssues(self, status='Skipped', q='', page=1, **kwargs):
+    def manageIssues(self, status='Skipped', q='', page=1, sort='series', dir='asc', **kwargs):
         """Issues with one status, a page at a time: a library can hold tens of thousands.
         Wanted issues have their own page (tiers, searching), so this covers every other status."""
         if status == 'Wanted':
@@ -4505,6 +4598,15 @@ class WebInterface(object):
             page = 1
         per_page = 100
         q = (q or '').strip()
+        # Column headers sort the whole list, not just the page shown.
+        ORDERS = {'series': 'ComicName COLLATE NOCASE {d}, Int_IssueNumber',
+                  'issue': 'Int_IssueNumber {d}, ComicName COLLATE NOCASE',
+                  # Missing dates (blank or 0000-00-00) go last either way.
+                  'cover': "(IFNULL(IssueDate, '') IN ('', '0000-00-00')), IssueDate {d}, ComicName COLLATE NOCASE, Int_IssueNumber",
+                  'store': "(IFNULL(ReleaseDate, '') IN ('', '0000-00-00')), ReleaseDate {d}, ComicName COLLATE NOCASE, Int_IssueNumber"}
+        if sort not in ORDERS:
+            sort = 'series'
+        dir = 'desc' if dir == 'desc' else 'asc'
         myDB = db.DBConnection()
 
         counts = {x: 0 for x in STATUSES}
@@ -4529,10 +4631,10 @@ class WebInterface(object):
         total = myDB.selectone('SELECT COUNT(*) FROM (%s)' % union, params).fetchone()[0]
         pages = max((total + per_page - 1) // per_page, 1)
         page = min(page, pages)
-        issues = myDB.select('SELECT * FROM (%s) ORDER BY ComicName COLLATE NOCASE, Int_IssueNumber LIMIT ? OFFSET ?' % union,
+        issues = myDB.select('SELECT * FROM (%s) ORDER BY %s LIMIT ? OFFSET ?' % (union, ORDERS[sort].format(d=dir.upper())),
                              params + [per_page, (page - 1) * per_page])
         return serve_template(templatename="manageissues.html", title="Manage issues", issues=issues, status=status, statuses=STATUSES,
-                              counts=counts, q=q, page=page, pages=pages, total=total, per_page=per_page)
+                              counts=counts, q=q, page=page, pages=pages, total=total, per_page=per_page, sort=sort, dir=dir)
     manageIssues.exposed = True
 
     def manageFailed(self):
@@ -4604,6 +4706,19 @@ class WebInterface(object):
         return self._attention_json({'series': attention.search(q)})
     attention_search.exposed = True
 
+    def attention_find(self, q=''):
+        return self._attention_json(attention.find_series(q))
+    attention_find.exposed = True
+
+    def attention_add_series(self, comicid, name=None, year=None):
+        self._attention_post()
+        return self._attention_json(attention.add_series(comicid, name, year))
+    attention_add_series.exposed = True
+
+    def attention_series_state(self, comicid):
+        return self._attention_json(attention.series_state(comicid))
+    attention_series_state.exposed = True
+
     def attention_issues(self, comicid):
         return self._attention_json({'issues': attention.issues(comicid)})
     attention_issues.exposed = True
@@ -4634,6 +4749,15 @@ class WebInterface(object):
         return self._attention_json({'ok': True, 'note': 'Hidden until the file changes.'})
     attention_ignore.exposed = True
 
+    def attention_groups(self):
+        return self._attention_json({'groups': attention.groups()})
+    attention_groups.exposed = True
+
+    def attention_group(self, key, action):
+        self._attention_post()
+        return self._attention_json(attention.group_action(key, action))
+    attention_group.exposed = True
+
     def attention_status(self):
         return self._attention_json(attention.status())
     attention_status.exposed = True
@@ -4647,6 +4771,29 @@ class WebInterface(object):
         self._attention_post()
         return self._attention_json({'ok': attention.stop_refile(), 'note': 'Stopping after the folder being filed now.'})
     attention_refile_stop.exposed = True
+
+    def match_files(self, comicid):
+        return self._attention_json(matching.files(comicid))
+    match_files.exposed = True
+
+    def match_cover(self, comicid, name, r=None):   # r: a retry after the server was busy
+        return self._attention_image(matching.cover(comicid, name))
+    match_cover.exposed = True
+
+    def match_file(self, comicid, issueid, name):
+        self._attention_post()
+        return self._attention_json(matching.match(comicid, issueid, name))
+    match_file.exposed = True
+
+    def match_undo(self, comicid, issueid):
+        self._attention_post()
+        return self._attention_json(matching.unmatch(comicid, issueid))
+    match_undo.exposed = True
+
+    def match_move(self, comicid, newid):
+        self._attention_post()
+        return self._attention_json(matching.move_to(comicid, newid))
+    match_move.exposed = True
 
     def cblimport(self):
         return serve_template(templatename="cblimport.html", title="CBL Import")
@@ -4873,6 +5020,7 @@ class WebInterface(object):
             cline = myDB.selectone("SELECT ComicName, ComicYear FROM comics WHERE ComicID=?", [ComicID]).fetchone()
             if cline:
                 updater.forceRescan(ComicID)
+                downloadqueue.clear_stuck(myDB, comicid=ComicID, rechecked=True)
                 mylar.GLOBAL_MESSAGES = {'status': 'success', 'comicname': cline['ComicName'], 'seriesyear': cline['ComicYear'], 'comicid': ComicID, 'tables': 'both', 'message': 'Recheck Files completed for %s (%s)' % (cline['ComicName'], cline['ComicYear'])}
 
     forceRescan.exposed = True
@@ -4890,7 +5038,10 @@ class WebInterface(object):
         cherrypy.response.headers['Content-Type'] = 'application/json'
         if view == 'collected':
             return json.dumps(ledger.collected_data())
-        return json.dumps(ledger.missing_data(mylar.CONFIG.LEDGER_CUTOFF or None))
+        d = ledger.missing_data(mylar.CONFIG.LEDGER_CUTOFF or None)
+        # Same default as the series page's Remove series dialog.
+        d['delete_dir'] = bool(mylar.CONFIG.DELETE_REMOVE_DIR)
+        return json.dumps(d)
     ledger_data.exposed = True
 
     def ledger_build(self, force=0, **kwargs):
@@ -5095,7 +5246,17 @@ class WebInterface(object):
         #below sort is for multi-sort columns, maybe make them user configurable - not sure how to pass mutli-sort thru otherwise
         #filtered.sort(key= itemgetter(sortcolumn2, sortcolumn), reverse=sSortDir_0 == "desc")
 
-        filtered.sort(key=lambda x: (x[sortcolumn] is None, x[sortcolumn] == '', x[sortcolumn]), reverse=sSortDir_0 == "asc")
+        def sortvalue(v):
+            # Issue numbers sort as numbers (2 before 10); anything that isn't a number sorts after them.
+            if sortcolumn == 'Issue_Number':
+                try:
+                    return (0, float(v), '')
+                except (TypeError, ValueError):
+                    return (1, 0, str(v).lower())
+            return (0, 0, str(v).lower() if sortcolumn != 'DateAdded' else str(v))
+        # Rows with nothing in the column stay at the bottom whichever way it's sorted.
+        blank = [x for x in filtered if x[sortcolumn] in (None, '')]
+        filtered = sorted((x for x in filtered if x[sortcolumn] not in (None, '')), key=lambda x: sortvalue(x[sortcolumn]), reverse=sSortDir_0 == "desc") + blank
         if iDisplayLength != -1:
             trows = filtered[iDisplayStart:(iDisplayStart + iDisplayLength)]
         else:
@@ -7160,11 +7321,14 @@ class WebInterface(object):
                                            'description':   results['description'],
                                            'comicimage':    results['comicimage'],
                                            'issues':        results['issues'],
+                                           'type':          results.get('type'),
                                            'ogcname':       ogcname,
                                            'comicyear':     results['comicyear']})
 
-        if len(search_matches) == 1:
-            sr = search_matches[0]
+        # Collected editions (TPB, HC, Omnibus) are only picked automatically for a TPB, HC or GN series.
+        files_collected = sum(editions.collected(p, ComicName) for p in comicstoIMP) * 2 > len(comicstoIMP)
+        sr = editions.auto_pick(search_matches, files_collected)
+        if sr is not None:
             logger.info('[IMPORT] There is only one result...automagik-mode enabled for %s :: %s' % (sr['series'], sr['comicid']))
             resultset = 1
         else:
@@ -7200,11 +7364,12 @@ class WebInterface(object):
                                                    'description':   results['description'],
                                                    'comicimage':    results['comicimage'],
                                                    'issues':        results['issues'],
+                                                   'type':          results.get('type'),
                                                    'ogcname':       ogcname,
                                                    'comicyear':     results['comicyear']})
 
-                if len(search_matches) == 1:
-                    sr = search_matches[0]
+                sr = editions.auto_pick(search_matches, files_collected)
+                if sr is not None:
                     logger.info('[IMPORT] There is only one result...automagik-mode enabled for %s :: %s' % (sr['series'], sr['comicid']))
                     resultset = 1
                 else:
@@ -7601,6 +7766,8 @@ class WebInterface(object):
                     "airdcpp_username": mylar.CONFIG.AIRDCPP_USERNAME,
                     "airdcpp_password": mylar.CONFIG.AIRDCPP_PASSWORD,
                     "airdcpp_download_dir": mylar.CONFIG.AIRDCPP_DOWNLOAD_DIR,
+                    "airdcpp_folder_mode": mylar.CONFIG.AIRDCPP_FOLDER_MODE,
+                    "airdcpp_remote_dir": mylar.CONFIG.AIRDCPP_REMOTE_DIR,
                     "airdcpp_hubs": mylar.CONFIG.AIRDCPP_HUBS,
                     "airdcpp_announce_hub": mylar.CONFIG.AIRDCPP_ANNOUNCE_HUB,
                     "airdcpp_announce_bots": mylar.CONFIG.AIRDCPP_ANNOUNCE_BOTS,
@@ -7744,7 +7911,6 @@ class WebInterface(object):
                     "setdefaultvolume": helpers.checked(mylar.CONFIG.SETDEFAULTVOLUME),
                     "cmtagger_path": mylar.CONFIG.CMTAGGER_PATH,
                     "ct_tag_cr": helpers.checked(mylar.CONFIG.CT_TAG_CR),
-                    "ct_tag_cbl": helpers.checked(mylar.CONFIG.CT_TAG_CBL),
                     "ct_cbz_overwrite": helpers.checked(mylar.CONFIG.CT_CBZ_OVERWRITE),
                     "ct_tag_mode": ct_tag_mode(),
                     "cmtag_volume": helpers.checked(mylar.CONFIG.CMTAG_VOLUME),
@@ -7882,8 +8048,11 @@ class WebInterface(object):
             newValues['UseFuzzy'] = str(fuzzy_year)
 
         if corrected_seriesyear is not None:
-            newValues['Corrected_SeriesYear'] = str(corrected_seriesyear)
-            newValues['ComicYear'] = str(corrected_seriesyear)
+            if str(corrected_seriesyear).strip().isdigit():
+                newValues['Corrected_SeriesYear'] = str(corrected_seriesyear).strip()
+                newValues['ComicYear'] = str(corrected_seriesyear).strip()
+            elif str(corrected_seriesyear).strip() == '':
+                newValues['Corrected_SeriesYear'] = None
 
         if comic_version is None or comic_version == 'None':
             newValues['ComicVersion'] = None
@@ -7933,6 +8102,9 @@ class WebInterface(object):
                 newValues['PublisherImprint'] = publisher_imprint
         else:
             newValues['PublisherImprint'] = 'None'
+        if newValues['PublisherImprint'] != (orig_imprint or 'None'):
+            # keep a changed imprint when the series is refreshed from ComicVine
+            newValues['Corrected_Imprint'] = None if newValues['PublisherImprint'] == 'None' else newValues['PublisherImprint']
 
         #logger.fdebug('orig_type:%s -- force_type: %s' % (orig_type, force_type))
         #logger.fdebug('orig_corr_type: %s-- corrected_type: %s' % (orig_corr_type, newValues['Corrected_Type']))
@@ -8252,6 +8424,7 @@ class WebInterface(object):
             out['download_counts'] = dl.get('counts') or {}
         except Exception:
             out['download'] = None
+        out['queue_count'] = downloadqueue.active_count()
         out['search'] = search.search_status()
         out.update(monitor_status=mylar.MONITOR_STATUS, monitor_enabled=bool(mylar.CONFIG.ENABLE_CHECK_FOLDER),
                    monitor_folder=mylar.CONFIG.CHECK_FOLDER or '', interval=mylar.CONFIG.DOWNLOAD_SCAN_INTERVAL,
@@ -8974,7 +9147,7 @@ class WebInterface(object):
 
             metaresponse = cmtagmylar.run(dirName, issueid=issueid, filename=filename, comversion=vol_label, manualmeta=True, readingorder=readingorder, agerating=agerating)
         except ImportError:
-            logger.warn(module + ' comictaggerlib not found on system. Ensure the ENTIRE lib directory is located within mylar/lib/comictaggerlib/ directory.')
+            logger.warn(module + ' unable to load the tagging module.')
             metaresponse = "fail"
 
         if metaresponse == "fail":
@@ -9068,11 +9241,10 @@ class WebInterface(object):
             logger.warn('No issues physically exist for me to (re)-tag.')
             return
         
-        if mylar.CONFIG.CV_BATCH_LIMIT_PROTECTION and len(groupinfo) > mylar.CONFIG.CV_BATCH_LIMIT_THRESHOLD:
-            warningMessage = f"CV Batch Limit Protection ({mylar.CONFIG.CV_BATCH_LIMIT_THRESHOLD}) has been triggered trying to tag {len(groupinfo)} issues.  This will likely breach ComicVine API Limits."
-            logger.warn(f"[SERIES-METATAGGER][{comicinfo['ComicName']} ({comicinfo['ComicYear']})] {warningMessage}")
-            mylar.GLOBAL_MESSAGES = {'status': 'failure', 'comicname': cinfo['ComicName'], 'seriesyear': cinfo['ComicYear'], 'comicid': ComicID, 'tables': 'both', 'message': warningMessage}
-            return
+        from . import cmtagmylar
+        if len(groupinfo) > cmtagmylar.HOURLY_TAGS:
+            # tagging keeps under ComicVine's hourly limit itself (cmtagmylar.pace)
+            logger.info(f"[SERIES-METATAGGER][{comicinfo['ComicName']} ({comicinfo['ComicYear']})] Tagging {len(groupinfo)} issues. Issues ComicTagger hasn't cached are paced to stay under ComicVine's hourly limit, so this can take a while.")
         
         issueinfo = []
         for ginfo in groupinfo:
@@ -9118,11 +9290,10 @@ class WebInterface(object):
             logger.warn('No issues physically exist within the series directory for me to (re)-tag.')
             return
 
-        if mylar.CONFIG.CV_BATCH_LIMIT_PROTECTION and len(groupinfo) > mylar.CONFIG.CV_BATCH_LIMIT_THRESHOLD:
-            warningMessage = f"CV Batch Limit Protection ({mylar.CONFIG.CV_BATCH_LIMIT_THRESHOLD}) has been triggered trying to tag {len(groupinfo)} issues.  This will likely breach ComicVine API Limits."
-            logger.warn(f"[SERIES-METATAGGER][{comicinfo['ComicName']} ({comicinfo['ComicYear']})] {warningMessage}")
-            mylar.GLOBAL_MESSAGES = {'status': 'failure', 'comicname': cinfo['ComicName'], 'seriesyear': cinfo['ComicYear'], 'comicid': ComicID, 'tables': 'both', 'message': warningMessage}
-            return
+        from . import cmtagmylar
+        if len(groupinfo) > cmtagmylar.HOURLY_TAGS:
+            # tagging keeps under ComicVine's hourly limit itself (cmtagmylar.pace)
+            logger.info(f"[SERIES-METATAGGER][{comicinfo['ComicName']} ({comicinfo['ComicYear']})] Tagging {len(groupinfo)} issues. Issues ComicTagger hasn't cached are paced to stay under ComicVine's hourly limit, so this can take a while.")
 
         issueinfo = []
         for ginfo in groupinfo:

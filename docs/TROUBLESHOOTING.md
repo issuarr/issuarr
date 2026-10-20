@@ -24,11 +24,17 @@ The warning `Failed to convert cbr to cbz - check permissions on folder ...` is 
 - **unrar.** cbr files are RAR archives and need `unrar`. The Docker image includes it. On a source install, check that `unrar` runs from the same user and `PATH` Issuarr uses.
 - **The cache folder.** By default it is `cache` in the data folder (`/config/mylar/cache` in Docker), or whatever `cache_dir` in `config.ini` says. A `config.ini` restored from another machine can point `cache_dir` at a path that doesn't exist or isn't writable here. The user Issuarr runs as (`PUID`/`PGID` in Docker) must be able to create and delete folders there. If it is on a network share, try a local folder.
 - **The library folder.** Issuarr writes the tagged file into the series folder, so it needs write access to the folder, not only to the file.
-- **The file itself.** `file is not expected size` or `Failed the read` in the log means the archive is damaged or incomplete. Issuarr marks it as bad and doesn't file it.
+- **The file itself.** When ComicTagger can't read the archive because it is damaged or incomplete (a CRC error or a truncated file), Issuarr marks it as bad and doesn't file it. A file that isn't a comic archive at all is filed untagged.
 
 ## A series' files aren't found after moving
 
 Issuarr stores the full path of every series folder. If the library now has a different path (a new machine, a new Docker volume path, Windows to Linux), see [Moving to a new machine or new paths](MIGRATING.md#moving-to-a-new-machine-or-new-paths).
+
+## A file is matched to the wrong issue, or not at all
+
+**Recheck files** matches each file in a series folder by its name, and when the name doesn't say which issue it is, by the ComicVine issue ID in its tags. When that still gets it wrong, open the series and choose **Match files…** from the series menu (the ⋯ button), or **Match a file…** from an issue's own ⋯ menu, and pick the issue. Each file's own cover is shown next to the issue's ComicVine cover so you can compare them, and the search box narrows the list by file name, issue number or title. Files in **Downloads > Needs attention** that look like the series are listed too, and picking an issue for one files it. Issuarr keeps a match through later rechecks until you press **Undo** or the file is removed.
+
+If the whole series was added as the wrong ComicVine series (another edition or another country's printing, say), choose **Wrong series…** from the series menu instead. Search ComicVine, pick the right series by its cover and details, and Issuarr adds it, moves the files into its folder and rechecks them. A file whose name is already taken in the new folder stays where it was. Afterwards you can remove the wrong series from your library, which leaves its folder in place.
 
 ## Importing comics that aren't in your library yet
 

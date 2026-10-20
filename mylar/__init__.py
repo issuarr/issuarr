@@ -509,6 +509,11 @@ def start():
             SCHED.add_job(func=webp.gradual_tick, id='webp', name='WebP Gradual', max_instances=1, coalesce=True,
                           trigger=IntervalTrigger(hours=0, minutes=webp.GRADUAL_TICK, timezone='UTC'))
 
+            # Snatched issues whose download was lost or removed, or whose files were moved into the library by hand
+            from mylar import downloadqueue
+            SCHED.add_job(func=downloadqueue.clear_stuck_tick, id='snatched', name='Stuck Snatched', max_instances=1, coalesce=True,
+                          trigger=IntervalTrigger(hours=0, minutes=downloadqueue.CLEAR_EVERY, timezone='UTC'))
+
             #load up the previous runs from the job sql table so we know stuff...
             monitors = helpers.job_management(startup=True)
 
@@ -822,7 +827,7 @@ def dbcheck():
         except sqlite3.OperationalError:
             logger.warn('Unable to update readinglist table to new storyarc table format.')
 
-    c.execute('CREATE TABLE IF NOT EXISTS comics (ComicID TEXT UNIQUE, ComicName TEXT, ComicSortName TEXT, ComicYear TEXT, DateAdded TEXT, Status TEXT, IncludeExtras INTEGER, Have INTEGER, Total INTEGER, ComicImage TEXT, FirstImageSize INTEGER, ComicPublisher TEXT, PublisherImprint TEXT, ComicLocation TEXT, ComicPublished TEXT, NewPublish TEXT, LatestIssue TEXT, intLatestIssue INT, LatestDate TEXT, Description TEXT, DescriptionEdit TEXT, QUALalt_vers TEXT, QUALtype TEXT, QUALscanner TEXT, QUALquality TEXT, LastUpdated TEXT, AlternateSearch TEXT, UseFuzzy TEXT, ComicVersion TEXT, SortOrder INTEGER, DetailURL TEXT, ForceContinuing INTEGER, ComicName_Filesafe TEXT, AlternateFileName TEXT, ComicImageURL TEXT, ComicImageALTURL TEXT, DynamicComicName TEXT, AllowPacks TEXT, Type TEXT, Corrected_SeriesYear TEXT, Corrected_Type TEXT, TorrentID_32P TEXT, LatestIssueID TEXT, Collects CLOB, IgnoreType INTEGER, AgeRating TEXT, FilesUpdated TEXT, seriesjsonPresent INT, dirlocked INTEGER, cv_removed INTEGER)')
+    c.execute('CREATE TABLE IF NOT EXISTS comics (ComicID TEXT UNIQUE, ComicName TEXT, ComicSortName TEXT, ComicYear TEXT, DateAdded TEXT, Status TEXT, IncludeExtras INTEGER, Have INTEGER, Total INTEGER, ComicImage TEXT, FirstImageSize INTEGER, ComicPublisher TEXT, PublisherImprint TEXT, ComicLocation TEXT, ComicPublished TEXT, NewPublish TEXT, LatestIssue TEXT, intLatestIssue INT, LatestDate TEXT, Description TEXT, DescriptionEdit TEXT, QUALalt_vers TEXT, QUALtype TEXT, QUALscanner TEXT, QUALquality TEXT, LastUpdated TEXT, AlternateSearch TEXT, UseFuzzy TEXT, ComicVersion TEXT, SortOrder INTEGER, DetailURL TEXT, ForceContinuing INTEGER, ComicName_Filesafe TEXT, AlternateFileName TEXT, ComicImageURL TEXT, ComicImageALTURL TEXT, DynamicComicName TEXT, AllowPacks TEXT, Type TEXT, Corrected_SeriesYear TEXT, Corrected_Type TEXT, Corrected_Publisher TEXT, Corrected_Imprint TEXT, TorrentID_32P TEXT, LatestIssueID TEXT, Collects CLOB, IgnoreType INTEGER, AgeRating TEXT, FilesUpdated TEXT, seriesjsonPresent INT, dirlocked INTEGER, cv_removed INTEGER)')
     c.execute('CREATE TABLE IF NOT EXISTS issues (IssueID TEXT, ComicName TEXT, IssueName TEXT, Issue_Number TEXT, DateAdded TEXT, Status TEXT, Type TEXT, ComicID TEXT, ArtworkURL Text, ReleaseDate TEXT, Location TEXT, IssueDate TEXT, DigitalDate TEXT, Int_IssueNumber INT, ComicSize TEXT, AltIssueNumber TEXT, IssueDate_Edit TEXT, ImageURL TEXT, ImageURL_ALT TEXT, forced_file INT)')
     c.execute('CREATE TABLE IF NOT EXISTS snatched (IssueID TEXT, ComicName TEXT, Issue_Number TEXT, Size INTEGER, DateAdded TEXT, Status TEXT, FolderName TEXT, ComicID TEXT, Provider TEXT, Hash TEXT, crc TEXT)')
     c.execute('CREATE TABLE IF NOT EXISTS upcoming (ComicName TEXT, IssueNumber TEXT, ComicID TEXT, IssueID TEXT, IssueDate TEXT, Status TEXT, DisplayComicName TEXT)')
@@ -978,6 +983,17 @@ def dbcheck():
         c.execute('SELECT Corrected_Type from comics')
     except sqlite3.OperationalError:
         c.execute('ALTER TABLE comics ADD COLUMN Corrected_Type TEXT')
+
+    # publisher and imprint typed in on the series page, kept when the series is refreshed from ComicVine
+    try:
+        c.execute('SELECT Corrected_Publisher from comics')
+    except sqlite3.OperationalError:
+        c.execute('ALTER TABLE comics ADD COLUMN Corrected_Publisher TEXT')
+
+    try:
+        c.execute('SELECT Corrected_Imprint from comics')
+    except sqlite3.OperationalError:
+        c.execute('ALTER TABLE comics ADD COLUMN Corrected_Imprint TEXT')
 
     try:
         c.execute('SELECT TorrentID_32P from comics')

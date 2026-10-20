@@ -253,3 +253,12 @@ def test_source_says_who_downloads_and_jd2_promises_no_host(myDB, monkeypatch):
     assert rows['jd2'] == ('JDownloader 2', 'Mediafire or another mirror')
     assert rows['jd2-only'] == ('JDownloader 2', 'Any mirror')
     assert rows['jd2-old'] == ('JDownloader 2', 'Any mirror')
+
+
+@pytest.mark.unit
+def test_active_count_adds_direct_and_client_downloads(myDB):
+    snatch(myDB, '1', 'Snatched', 'DOGnzb', '2026-10-11 10:00:00', 'Snatched')
+    for i, status in enumerate(('Queued', 'Downloading', 'Completed', 'Failed')):
+        myDB.action("INSERT INTO ddl_info (ID, status) VALUES (?, ?)", [str(i), status])
+    downloadqueue._ACTIVE[:] = [0.0, 0]
+    assert downloadqueue.active_count() == 3

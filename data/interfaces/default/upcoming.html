@@ -134,7 +134,7 @@
                             <td><a href="comicDetails?ComicID=${m['comicid'] | u}">${m['comicname'] | h}</a></td>
                             <td class="mono nowrap">#${m['issuenumber'] | h}</td>
                             <td><span class="status ${'is-failed' if m['status'] == 'Mismatched' else 'is-snatched'}">${m['mismatch_type'] or m['status'] | h}</span></td>
-                            <td class="nowrap"><a href="pullist?${urlencode({'week': m['pullweek'], 'year': m['pullyear']}) | h}#${quote('%s_%s' % (m['comicname'], m['issuenumber'])) | h}">Week ${m['pullweek'] | h}, ${m['pullyear'] | h}</a></td>
+                            <td class="nowrap" data-sort="${'%s-%02d' % (m['pullyear'], int(m['pullweek'])) if str(m['pullweek']).isdigit() else '' | h}"><a href="pullist?${urlencode({'week': m['pullweek'], 'year': m['pullyear']}) | h}#${quote('%s_%s' % (m['comicname'], m['issuenumber'])) | h}">Week ${m['pullweek'] | h}, ${m['pullyear'] | h}</a></td>
                         </tr>
                     %endfor
                     </tbody>

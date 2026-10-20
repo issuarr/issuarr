@@ -34,7 +34,7 @@ import subprocess
 from subprocess import CalledProcessError, check_output
 
 import mylar
-from mylar import logger, helpers
+from mylar import logger, helpers, editions
 
 
 if 'windows' not in platform.system().lower():
@@ -453,19 +453,17 @@ class FileChecker(object):
 
             elif x  == ')' or x == '(':
                 pass
-            elif x == 'p' or x == 'ctc' or x == 'px':
-                try:
-                    if spf[wrdcnt-1].isdigit():
-                        logger.debug('THIS SHOULD BE : %s%s' % (spf[wrdcnt-1], x))
-                        newline = '%s%s' % (spf[wrdcnt-1], x)
-                        spf[wrdcnt -1] = newline
-                        #wrdcnt =-1
-                    elif spf[wrdcnt-1][-1] == 'p' and spf[wrdcnt-1][:-1].isdigit() and x == 'ctc':
-                        logger.fdebug('THIS SHOULD BE : %s%s' % (spf[wrdcnt-1], x))
-                        newline = '%s%s' % (spf[wrdcnt-1], x)
-                        spf[wrdcnt -1] = newline
-                        #wrdcnt =-1
-                except Exception as e:
+            elif x.lower() == 'ctc':
+                # a scan tag: kept with a page count ('36p ctc'), dropped after an issue number ('659 ctc'),
+                # which would otherwise read as issue '659ctc'
+                if spf and re.match(r'^\d+(c11\d+)?p$', spf[-1], re.I):
+                    logger.fdebug('THIS SHOULD BE : %s%s' % (spf[-1], x))
+                    spf[-1] = '%s%s' % (spf[-1], x)
+            elif x == 'p' or x == 'px':
+                if spf and spf[-1].isdigit():
+                    logger.debug('THIS SHOULD BE : %s%s' % (spf[-1], x))
+                    spf[-1] = '%s%s' % (spf[-1], x)
+                else:
                     spf.append(x)
             else:
                 spf.append(x)
@@ -860,27 +858,26 @@ class FileChecker(object):
                         elif sf.lower() == 'of' and lastissue_label is not None and lastissue_position == int(split_file.index(sf))-1:
                             logger.fdebug('MINI-SERIES DETECTED')
                         else:
-                            if any([re.sub(r'[\(\)]', '', sf.lower()).strip() == 'tpb', re.sub(r'[\(\)]', '', sf.lower()).strip() == 'digital tpb']):
-                                logger.fdebug('TRADE PAPERBACK DETECTED. NOT DETECTING ISSUE NUMBER - ASSUMING VOLUME')
-                                booktype = 'TPB'
-                                try:
-                                    if volume_found['volume'] is not None:
-                                        possible_issuenumbers.append({'number':       volume_found['volume'],
-                                                                      'position':     volume_found['position'],
-                                                                      'mod_position': self.char_file_position(modfilename, volume_found['volume'], lastmod_position),
-                                                                      'validcountchk': validcountchk})
-                                except:
+                            edition = re.sub(r'[\(\)]', '', sf.lower()).strip()   # '(HC)' as well as 'HC'
+                            if edition in ('tpb', 'digital tpb', 'gn', 'graphic novel', 'hc', 'hardcover'):
+                                booktype = 'TPB' if 'tpb' in edition else 'GN' if edition in ('gn', 'graphic novel') else 'HC'
+                                logger.fdebug('%s DETECTED. NOT DETECTING ISSUE NUMBER - ASSUMING VOLUME'
+                                              % {'TPB': 'TRADE PAPERBACK', 'GN': 'GRAPHIC NOVEL', 'HC': 'HARDCOVER'}[booktype])
+                                if volume_found.get('volume') is not None:
+                                    # the volume is the book's number ("Batman Vol. 3 (HC)")
+                                    possible_issuenumbers.append({'number':       volume_found['volume'],
+                                                                  'position':     volume_found['position'],
+                                                                  'mod_position': self.char_file_position(modfilename, volume_found['volume'], lastmod_position),
+                                                                  'validcountchk': validcountchk})
+                                elif booktype == 'TPB' and not [x for x in possible_issuenumbers if len(x['number']) < 4 and not
+                                                                re.search(r'(?<!\d)%s(?!\d)' % re.escape(x['number']), self.watchcomic or '')]:
+                                    # no volume and no number before the label ("Batman TPB (2013)"): the first one.
+                                    # A number before it is the book's number ("Batman 3 (TPB) (2013)"), unless it's
+                                    # part of the title ("Spider-Man 2099 (TPB)").
                                     possible_issuenumbers.append({'number':       '1',
                                                                   'position':      split_file.index(sf, lastissue_position), #modfilename.find(sf)})
                                                                   'mod_position':  self.char_file_position(modfilename, sf, lastmod_position),
                                                                   'validcountchk': validcountchk})
-
-                            elif any([sf.lower() == 'gn', sf.lower() == 'graphic novel']):
-                                logger.fdebug('GRAPHIC NOVEL DETECTED. NOT DETECTING ISSUE NUMBER - ASSUMING VOLUME')
-                                booktype = 'GN'
-                            elif any([sf.lower() == 'hc', sf.lower() == 'hardcover']):
-                                logger.fdebug('HARDCOVER DETECTED. NOT DETECTING ISSUE NUMBER - ASSUMING VOLUME')
-                                booktype = 'HC'
                             else:
                                 if 'could not convert string to float' not in str(e):
                                     logger.fdebug('[%s] Error detecting issue # - ignoring this result : %s' % (e, sf))
@@ -1305,6 +1302,7 @@ class FileChecker(object):
         if issue_volume is not None and series_name.lower().endswith(' ' + issue_volume.lower()) and not (
                 self.watchcomic is not None and self.watchcomic.strip().lower().endswith(issue_volume.lower())):
             series_name = series_name[:-len(issue_volume)].strip()
+        series_name = editions.strip_format(series_name, self.watchcomic)
 
         logger.fdebug('series title possibly: %s' % series_name)
         if splitvalue is not None:
@@ -1731,7 +1729,9 @@ class FileChecker(object):
             #logger.fdebug('watch dynamic handlers recognized : ' + str(watchdynamic_handlers_match))
             watchdynamic_replacements_match = [x for x in self.dynamic_replacements if x.lower() in self.watchcomic.lower()]
             #logger.fdebug('watch dynamic replacements recognized : ' + str(watchdynamic_replacements_match))
-            mod_watchcomic = re.sub(r'[\s\s+\_\.]', '%$', self.watchcomic)
+            # 'versus' and 'vs'/'vs.' are used interchangeably in titles ('DC versus Marvel' / 'DC vs. Marvel')
+            mod_watchcomic = re.sub(r'(?i)\bversus\b', 'vs', self.watchcomic)
+            mod_watchcomic = re.sub(r'[\s\s+\_\.]', '%$', mod_watchcomic)
             mod_watchcomic = re.sub(r'[\#]', '', mod_watchcomic)
             mod_find = []
             wdrm_find = []
@@ -1758,6 +1758,7 @@ class FileChecker(object):
 
         series_name = re.sub(r'[\u2014|\u2013|\u2e3a|\u2e3b]', ' - ', series_name)
         series_name = re.sub('\u2019', " ' ", series_name)
+        series_name = re.sub(r'(?i)\bversus\b', 'vs', series_name)
         seriesdynamic_handlers_match = [x for x in self.dynamic_handlers if x.lower() in series_name.lower()]
         #logger.fdebug('series dynamic handlers recognized : ' + str(seriesdynamic_handlers_match))
         seriesdynamic_replacements_match = [x for x in self.dynamic_replacements if x.lower() in series_name.lower()]

@@ -29,7 +29,7 @@ import pathlib
 from xml.dom.minidom import parseString
 import mylar
 
-from mylar import logger, db, helpers, updater, notifiers, filechecker, weeklypull, getimage, archives, autoadd, webp, attention
+from mylar import logger, db, helpers, updater, notifiers, filechecker, weeklypull, getimage, archives, autoadd, webp, attention, editions
 
 PP_LOCK = threading.RLock()
 
@@ -514,6 +514,31 @@ class PostProcessor(object):
             archives.JOBS[archives.JOBS.index(job)] = self.job
             logger.fdebug('[POST-PROCESSING] Searches of %s series wait for this run; the rest carry on.' % len(ids))
 
+    def _att_owned(self, dupthis, path, comicid, issueid):
+        """The duplicate check kept the copy in the library and left this one where it is: say so
+        in Needs attention, rather than "couldn't tell which series"."""
+        try:
+            if not dupthis or dupthis.get('action') != 'dupe_file' or not path or not os.path.isfile(path):
+                return
+            row = db.DBConnection().selectone('SELECT c.ComicName, c.ComicYear, i.Issue_Number FROM issues i JOIN comics c ON '
+                                              'c.ComicID=i.ComicID WHERE i.IssueID=?', [issueid]).fetchone()
+            label = '%s (%s) #%s' % (row['ComicName'], row['ComicYear'], row['Issue_Number']) if row else 'That issue'
+            attention.record(path, 'owned', '%s is already in your library, and that copy was kept.' % label, comicid)
+        except Exception as e:
+            logger.fdebug('[POST-PROCESSING] Could not note %s as already owned: %s' % (path, e))
+
+    def _clear_pack(self):
+        """A direct-download pack has been filed: what's left in it goes to the trash, not to
+        Needs attention. Single-issue downloads and torrents are left alone."""
+        if self.ddl is not True:
+            return
+        if not (self.pack or self.issueid is None or getattr(self, '_unpacked_pack', False)):
+            return
+        try:
+            archives.clear_pack(self.nzb_folder)
+        except Exception as e:
+            logger.warn('[PACK] Unable to clear what\'s left of %s: %s' % (self.nzb_folder, e))
+
     def _widen_job(self):
         job = getattr(self, 'job', None)
         if job in archives.JOBS:
@@ -526,7 +551,9 @@ class PostProcessor(object):
         source, source_name = self.nzb_folder, self.nzb_name
         archives.busy('Post-processing %s' % ('the monitored folder' if source_name == 'Manual Run' else source_name))
         try:
-            return self._process_main()
+            result = self._process_main()
+            self._clear_pack()
+            return result
         finally:
             archives.cleanup(self.extracted)
             if source_name == 'Manual Run' and mylar.CONFIG.CHECK_FOLDER and source and \
@@ -625,6 +652,7 @@ class PostProcessor(object):
                 self.nzb_folder = newpath
                 self.nzb_name = os.path.basename(newpath)
                 if kind == 'pack':
+                    self._unpacked_pack = True
                     logger.info('%s Post-processing the comics extracted from %s against the whole watchlist' % (module, newpath))
                     self.nzb_name = 'Manual Run'
                     self.issueid = None
@@ -691,7 +719,9 @@ class PostProcessor(object):
                 manual_arclist = []
                 oneoff_issuelist = []
                 manual_list = []
-                for fl in filelist['comiclist']:
+                checking = len(filelist['comiclist'])
+                for checked, fl in enumerate(filelist['comiclist'], 1):
+                    archives.progress('Checking file %s of %s against the watchlist' % (checked, checking))
                     self._att_start(fl, (len(manual_list), len(manual_arclist), len(oneoff_issuelist)))
                     if all([fl['series_name'] is not None, fl['series_name'] != '']) and mylar.CONFIG.IGNORE_COVERS is True:
                         cvchk = re.sub(r'[\s\s+\_\.]', '', fl['series_name']).lower()
@@ -1053,6 +1083,8 @@ class PostProcessor(object):
                                     logger.fdebug('Series is 100%s complete, but specific issue %s matched up to a %s status. Let\'s Go!' % ('%', tmp_iss, dbcheck[0]))
                                 else:
                                     logger.fdebug('Series is 100%s complete, however status is not Wanted (or Snatched), but %s. Set to Wanted for this to post-process on the next run.' % ('%', dbcheck[0]))
+                                    if dbcheck[0] in ('Downloaded', 'Archived'):
+                                        self._att_why('owned', '%s (%s) #%s is already in your library.' % (wv['ComicName'], wv['ComicYear'], fl['issue_number']), wv['ComicID'])
                                     continue
                             else:
                                 logger.warn('%s [%s] is either Paused or in an Ended status with 100%s completion. Ignoring for match.' % (wv['ComicName'], wv['ComicYear'], '%'))
@@ -1192,6 +1224,11 @@ class PostProcessor(object):
                         watchmatch = wm.matchIT(fl)
                         
                         if watchmatch['process_status'] == 'fail':
+                            nm+=1
+                            continue
+                        elif editions.singles(cs['WatchValues']['Type']) and editions.collected(fl['comicfilename'], cs['ComicName']):
+                            logger.fdebug('%s %s is a collected edition - not filing it as an issue of %s.' % (module, fl['comicfilename'], cs['ComicName']))
+                            self._att_why('series', 'The name says it is a collected edition (such as a TPB or HC), and %s (%s) is a series of single issues.' % (cs['ComicName'], cs['WatchValues']['SeriesYear']))
                             nm+=1
                             continue
                         else:
@@ -2150,7 +2187,7 @@ class PostProcessor(object):
                                         from . import cmtagmylar
                                         metaresponse = cmtagmylar.run(self.nzb_folder, issueid=issueid, comversion=vol_label, filename=ofilename, readingorder=readingorder, agerating=None)
                                     except ImportError:
-                                        logger.warn('%s comictaggerlib not found on system. Ensure the ENTIRE lib directory is located within mylar/lib/comictaggerlib/' % module)
+                                        logger.warn('%s unable to load the tagging module.' % module)
                                         metaresponse = "fail"
 
                                     if metaresponse == "fail":
@@ -2482,6 +2519,7 @@ class PostProcessor(object):
 
                 for ml in manual_list:
                     i+=1
+                    archives.progress('Filing %s of %s matched issues' % (i, len(manual_list)))
                     comicid = ml['ComicID']
                     issueid = ml['IssueID']
                     issuenumOG = ml['IssueNumber']
@@ -2511,6 +2549,7 @@ class PostProcessor(object):
                                 logger.warn('Unable to move duplicate file - skipping post-processing of this file.')
                                 continue
 
+                    self._att_owned(dupthis, ml['ComicLocation'], comicid, issueid)
                     if any([dupthis['action'] == "write", dupthis['action'] == 'dupe_src']):
                         stat = ' [%s/%s]' % (i, len(manual_list))
                         self.Process_next(comicid, issueid, issuenumOG, ml, stat)
@@ -2765,7 +2804,7 @@ class PostProcessor(object):
                                 tmp_ppdir = os.path.join(odir, ofilename)
                             metaresponse = cmtagmylar.run(location, issueid=issueid, comversion=vol_label, filename=tmp_ppdir, readingorder=readingorder, agerating=None)
                         except ImportError:
-                            logger.warn('%s comictaggerlib not found on system. Ensure the ENTIRE lib directory is located within mylar/lib/comictaggerlib/' % module)
+                            logger.warn('%s unable to load the tagging module.' % module)
                             metaresponse = "fail"
 
                         if metaresponse == "fail":
@@ -2953,6 +2992,7 @@ class PostProcessor(object):
 
             for ml in manual_list:
                 i+=1
+                archives.progress('Filing %s of %s matched issues' % (i, len(manual_list)))
                 comicid = ml['ComicID']
                 issueid = ml['IssueID']
                 issuenumOG = ml['IssueNumber']
@@ -2983,6 +3023,7 @@ class PostProcessor(object):
                             logger.warn('Unable to move duplicate file - skipping post-processing of this file.')
                             continue
 
+                self._att_owned(dupthis, ml['ComicLocation'], comicid, issueid)
                 if any([dupthis['action'] == "write", dupthis['action'] == 'dupe_src']):
                     stat = ' [%s/%s]' % (i, len(manual_list))
                     self.Process_next(comicid, issueid, issuenumOG, ml, stat)
@@ -3016,6 +3057,7 @@ class PostProcessor(object):
                                                    "comicid": comicid})
                             return self.queue.put(self.valreturn)
 
+            self._att_owned(dupthis, self.nzb_folder, comicid, issueid)
             if dupthis['action'] == "write" or dupthis['action'] == 'dupe_src':
                 if manual_list is None:
                     return self.Process_next(comicid, issueid, issuenumOG)
@@ -3221,7 +3263,7 @@ class PostProcessor(object):
                         pcheck = cmtagmylar.run(self.nzb_folder, issueid=issueid, comversion=vol_label, manual="yes", filename=ml['ComicLocation'], readingorder=readingorder, agerating=agerating)
 
                 except ImportError:
-                    logger.fdebug('%s comictaggerlib not found on system. Ensure the ENTIRE lib directory is located within mylar/lib/comictaggerlib/' % module)
+                    logger.fdebug('%s unable to load the tagging module.' % module)
                     logger.fdebug('%s continuing with PostProcessing, but I am not using metadata.' % module)
                     pcheck = "fail"
 

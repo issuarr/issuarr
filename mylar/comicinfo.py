@@ -50,6 +50,25 @@ def read_raw(path):
     return None
 
 
+# Where tagged files keep their ComicVine issue ID: the notes ComicTagger writes ("[Issue ID 123]"),
+# the [CVDB123] form, and the ComicVine page link.
+_CV_NOTES = re.compile(r'\[(?:Issue ID |CVDB)(\d+)\]', re.I)
+_CV_WEB = re.compile(r'comicvine\.gamespot\.com/[^\s]*?/4000-(\d+)', re.I)
+
+
+def cv_issue_id(path):
+    """The ComicVine issue ID a tagged file says it is, or None."""
+    raw = read_raw(path)
+    if raw is None:
+        return None
+    try:
+        root = ET.fromstring(raw)
+    except ET.ParseError:
+        return None
+    m = _CV_NOTES.search(root.findtext('Notes') or '') or _CV_WEB.search(root.findtext('Web') or '')
+    return m.group(1) if m else None
+
+
 def _decode(raw):
     if raw.startswith((b'\xff\xfe', b'\xfe\xff')):
         return raw.decode('utf-16'), 'utf-16'
@@ -110,23 +129,74 @@ def merge(original, tagged, mode='fill'):
     if not added and not replaced:
         return original, [], []
     if append:
-        close = text.rfind('</ComicInfo>')
-        if close < 0:
+        text = _append(text, append)
+        if text is None:
             return original, [], []
-        indent = '  '
-        prev = re.search(r'\n([ \t]+)<', text)
-        if prev:
-            indent = prev.group(1)
-        before = text[:close].rstrip(' \t')
-        if not before.endswith('\n'):
-            before += '\n'
-        text = before + ''.join('%s%s\n' % (indent, a) for a in append) + text[close:]
+    out = _encode(text, enc)
+    if out is None:
+        return original, [], []
+    return out, added, replaced
+
+
+def _append(text, elements):
+    close = text.rfind('</ComicInfo>')
+    if close < 0:
+        return None
+    indent = '  '
+    prev = re.search(r'\n([ \t]+)<', text)
+    if prev:
+        indent = prev.group(1)
+    before = text[:close].rstrip(' \t')
+    if not before.endswith('\n'):
+        before += '\n'
+    return before + ''.join('%s%s\n' % (indent, a) for a in elements) + text[close:]
+
+
+def _encode(text, enc):
     out = text.encode('utf-8') if enc == 'utf-8' else (b'\xef\xbb\xbf' + text.encode('utf-8') if enc == 'utf-8-sig' else text.encode(enc))
     try:
         ET.fromstring(out)
     except ET.ParseError:
-        return original, [], []
-    return out, added, replaced
+        return None
+    return out
+
+
+def adjust(path, fields=None, notes_format=None):
+    """Set fields ComicTagger can't write (such as StoryArcNumber) in a tagged file's
+    ComicInfo.xml, and switch the notes to the [CVDBnnn] form when that is chosen."""
+    raw = read_raw(path)
+    if raw is None:
+        return False
+    try:
+        root = ET.fromstring(raw)
+        text, enc = _decode(raw)
+    except (ET.ParseError, UnicodeDecodeError, ValueError):
+        return False
+    fields = dict(fields or {})
+    if notes_format == 'CVDB':
+        notes = root.findtext('Notes') or ''
+        cvdb = re.sub(r'\[Issue ID (\d+)\]', r'[CVDB\1]', notes)
+        if cvdb != notes:
+            fields['Notes'] = cvdb
+    append = []
+    for tag, value in fields.items():
+        if value is None:
+            continue
+        el = ET.Element(tag)
+        el.text = str(value)
+        m = _span(text, tag)
+        if m:
+            text = text[:m.start()] + _element_text(tag, el) + text[m.end():]
+        else:
+            append.append(_element_text(tag, el))
+    if append:
+        text = _append(text, append)
+        if text is None:
+            return False
+    out = _encode(text, enc)
+    if out is None or out == raw:
+        return out is not None
+    return write(path, out)
 
 
 def write(path, data):

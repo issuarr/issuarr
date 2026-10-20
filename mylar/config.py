@@ -416,6 +416,8 @@ _CONFIG_DEFINITIONS = OrderedDict({
     'AIRDCPP_USERNAME': (str, 'DCPP', ""),
     'AIRDCPP_PASSWORD': (str, 'DCPP', ""),
     'AIRDCPP_DOWNLOAD_DIR': (str, 'DCPP', ""),
+    'AIRDCPP_FOLDER_MODE': (str, 'DCPP', 'issuarr'),
+    'AIRDCPP_REMOTE_DIR': (str, 'DCPP', ""),
     'AIRDCPP_HUBS': (str, 'DCPP', ""),
     'AIRDCPP_VERSION': (str, 'DCPP', ""),
     'AIRDCPP_ANNOUNCE_HUB': (str, 'DCPP', ""),
@@ -1583,13 +1585,24 @@ class Config(object):
                 self.OPDS_ENDPOINT = self.OPDS_ENDPOINT[:-1]
             config.set('OPDS', 'opds_endpoint', self.OPDS_ENDPOINT.strip())
 
-        #comictagger - force to use included version if option is enabled.
-        import comictaggerlib.ctversion as ctversion
-        logger.info('[COMICTAGGER] Version detected: %s' % ctversion.version)
-        #if any([self.ENABLE_META, self.CBR2CBZ_ONLY]):
+        #comictagger is installed from requirements.txt and run through comictagger.py in PROG_DIR
+        try:
+            import comictaggerlib.ctversion as ctversion
+            logger.info('[COMICTAGGER] Version detected: %s' % ctversion.version)
+        except ImportError:
+            logger.warn('[COMICTAGGER] ComicTagger is not installed, so tagging and CBR to CBZ conversion will fail. Run: pip install -r requirements.txt')
         mylar.CMTAGGER_PATH = mylar.PROG_DIR
 
-        if not ([self.CT_NOTES_FORMAT == 'CVDB', self.CT_NOTES_FORMAT == 'Issue ID']):
+        #ComicTagger dropped ComicBookLover tags, so anyone who only wrote those now gets ComicInfo.xml
+        if self.CT_TAG_CBL:
+            if not self.CT_TAG_CR:
+                logger.info('[COMICTAGGER] ComicBookLover tags are no longer supported. Writing ComicRack tags (ComicInfo.xml) instead.')
+                setattr(self, 'CT_TAG_CR', True)
+                config.set('Metatagging', 'ct_tag_cr', 'True')
+            setattr(self, 'CT_TAG_CBL', False)
+            config.set('Metatagging', 'ct_tag_cbl', 'False')
+
+        if self.CT_NOTES_FORMAT not in ('CVDB', 'Issue ID'):
             setattr(self, 'CT_NOTES_FORMAT', 'Issue ID')
             config.set('Metatagging', 'ct_notes_format', self.CT_NOTES_FORMAT)
 
@@ -1634,55 +1647,11 @@ class Config(object):
             else:
                 logger.fdebug('Successfully created ComicTagger Settings location.')
 
-        #make sure the user_agent is running a current version and write it to the .ComicTagger file for use with CT
+        #replace the browser user agents older versions used as the default
         if '42.0.2311.135' in self.CV_USER_AGENT:
             self.CV_USER_AGENT = 'comictagger image fetcher'
         if '122.0.0.0' in self.CV_USER_AGENT:
             self.CV_USER_AGENT = 'comictagger image fetcher'
-
-        ct_settingsfile = os.path.join(self.CT_SETTINGSPATH, 'settings')
-        if os.path.exists(ct_settingsfile):
-            ct_config = configparser.ConfigParser()
-            def readline_generator(f):
-                line = f.readline()
-                while line:
-                    yield line
-                    line = f.readline()
-
-            ct_config.read_file(
-                readline_generator(codecs.open(ct_settingsfile, "r", "utf8")))
-
-            tmp_agent = None
-            if ct_config.has_option('comicvine', 'cv_user_agent'):
-                tmp_agent = ct_config.get('comicvine', 'cv_user_agent')
-
-            if tmp_agent != self.CV_USER_AGENT:
-                #update
-                try:
-                    with codecs.open(ct_settingsfile, 'r', 'utf8') as ct_read:
-                        ct_lines = ct_read.readlines()
-
-                    process_next = False
-                    cv_line = f'cv_user_agent = {self.CV_USER_AGENT}\n'
-                    with codecs.open(ct_settingsfile, encoding='utf8', mode='w+') as ct_file:
-                        for line in ct_lines:
-                            if 'cv_user_agent' in line:
-                                line = cv_line
-
-                            elif '[comicvine]' not in line and process_next:
-                                ct_file.write(cv_line)
-                                process_next = False
-
-                            if tmp_agent is None and '[comicvine]' in line:
-                                process_next = True
-
-                            ct_file.write(line)
-
-                    logger.fdebug('Updated CT Settings with new CV user agent string.')
-                except IOError as e:
-                    logger.warn("Error writing configuration file: %s" % e)
-            else:
-                logger.info('[CV_USER_AGENT] Agent already identical in comictagger session.')
 
         #make sure queues are running here...
         if startup is False:
