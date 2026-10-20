@@ -1049,6 +1049,56 @@ def stuck_snatched(myDB, hours=STUCK_HOURS, now=None):
     return out
 
 
+CLEAR_EVERY = 60   # minutes between the scheduler's looks for stuck Snatched issues
+
+
+def clear_stuck(myDB=None, issueids=None, comicid=None, rechecked=False, rescan=None):
+    """Snatched issues nothing is getting any more (stuck_snatched) stop being Snatched. Their series
+    are rechecked first, so a file already in the series folder (a pack moved there by hand) makes
+    its issue Downloaded; the rest go back to Wanted. issueids or comicid narrow it down, and
+    rechecked says comicid's folder was just looked at. Returns the ids put back to Wanted."""
+    from mylar import autoadd, updater
+    if autoadd.running():
+        return []   # filing holds every series, so nothing is stuck yet
+    myDB = myDB or db.DBConnection()
+    shown = set(str(i) for i in issueids) if issueids is not None else None
+
+    def pick():
+        return [i for i in stuck_snatched(myDB)
+                if (shown is None or i['issueid'] in shown) and (comicid is None or str(i['comicid']) == str(comicid))]
+
+    stuck = pick()
+    if not stuck:
+        return []
+    rescan = rescan or (lambda cid: updater.forceRescan(cid, module='[SNATCHED-CHECK]'))
+    for cid in dict.fromkeys(str(i['comicid']) for i in stuck):
+        if rechecked and cid == str(comicid):
+            continue
+        try:
+            rescan(cid)
+        except Exception as e:
+            logger.warn('[SNATCHED-CHECK] Could not recheck the files of series %s: %s' % (cid, e))
+    left = {i['issueid']: i for i in pick() if i['issueid'] in {s['issueid'] for s in stuck}}
+    found = len(stuck) - len(left)
+    if found:
+        logger.info('[SNATCHED-CHECK] %s Snatched %s already in the series folder, now Downloaded.'
+                    % (found, 'issue was' if found == 1 else 'issues were'))
+    done = unsnatch(myDB, list(left))
+    if done:
+        names = ['%s #%s' % (left[i]['series'], left[i]['issue']) for i in done]
+        logger.info('[SNATCHED-CHECK] Put %s Snatched %s back to Wanted: nothing is downloading or filing %s - %s'
+                    % (len(done), 'issue' if len(done) == 1 else 'issues', 'it' if len(done) == 1 else 'them', ', '.join(names)))
+    return done
+
+
+def clear_stuck_tick():
+    """The scheduler's look for stuck Snatched issues."""
+    try:
+        clear_stuck()
+    except Exception as e:
+        logger.warn('[SNATCHED-CHECK] Checking for stuck Snatched issues failed: %s' % e)
+
+
 def _issue_key(n):
     m = re.match(r'-?\d+(?:\.\d+)?', str(n or ''))
     return (0, float(m.group(0)), str(n)) if m else (1, 0.0, str(n or ''))
