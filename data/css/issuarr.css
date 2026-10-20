@@ -583,10 +583,22 @@ table.dt tr.is-picked td { background: color-mix(in srgb, var(--text) 8%, var(--
 .series-details { display: flex; flex-direction: column; gap: 16px; }
 .series-details .path { margin-top: 4px; overflow-wrap: anywhere; color: var(--text-2); }
 .series-details .kv dd .muted { margin-top: 4px; font-size: 13.5px; }
-.series-description .panel-head { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 10px 12px; align-items: center; }
-.series-description .description_edit { grid-column: 1 / -1; grid-row: 2; color: var(--text-2); line-height: 1.6; white-space: normal; max-width: 80ch; }
-.series-description #jeditable-activate { grid-column: 2; grid-row: 1; }
-.series-description form textarea { width: 100% !important; min-height: 180px; box-sizing: border-box; padding: 10px 12px; }
+.series-description .panel-head { display: flex; align-items: center; gap: 10px; }
+.series-description .panel-head .panel-title { margin-right: auto; }
+.series-description .sf-val { margin: 0; color: var(--text-2); line-height: 1.6; white-space: pre-line; max-width: 80ch; }
+.series-description .sf-more { margin-top: 6px; padding: 0; border: 0; background: none; cursor: pointer; font: inherit; font-size: 14px; }
+/* Details fields edited in place */
+.series-fields .sf { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 8px; }
+.series-fields .sf > .muted { flex-basis: 100%; }
+.series-fields .sf-edit { min-height: 26px; padding: 0 8px; font-size: 12.5px; color: var(--muted); }
+.sf-val.is-empty { color: var(--muted); font-style: italic; }
+.sf-tag { padding: 1px 7px; border: 1px solid var(--line); border-radius: 999px; color: var(--muted); font-size: 11.5px; line-height: 1.5; }
+.sf.is-editing > .sf-val, .sf.is-editing > .sf-tag, .sf.is-editing > .sf-more { display: none; }
+.sf-form { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 8px; width: 100%; }
+.sf-form .sf-input:not(.set-num) { flex: 1 1 220px; min-width: 0; max-width: 420px; }
+.sf-form .sf-input.set-num { width: 110px; font-family: var(--font-mono); }
+.sf-form textarea.sf-input { flex-basis: 100%; max-width: 80ch; min-height: 180px; box-sizing: border-box; padding: 10px 12px; line-height: 1.5; }
+.sf-acts { display: inline-flex; gap: 6px; }
 
 .issues-toolbar { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 10px 16px; margin: 0 0 14px; }
 .issues-toolbar #checkboxControls { position: static; float: none; margin: 0; }

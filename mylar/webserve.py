@@ -720,8 +720,12 @@ class WebInterface(object):
                         description = description_load
                     else:
                         description = comic['Description']
+            elif comic['DescriptionEdit'] is not None:
+                description = comic['DescriptionEdit']
             else:
                 description = comic['Description']
+            if description in ('None', ''):
+                description = None
 
             if comic['Collects'] is not None:
                 issues_list = json.loads(comic['Collects'])
@@ -2292,6 +2296,81 @@ class WebInterface(object):
         return value
 
     description_edit.exposed = True
+
+    SERIES_EDITIONS = ('TPB', 'HC', 'GN', 'Digital', 'One-Shot', 'Print')
+    SERIES_AGE_RATINGS = ('All Ages', '9+', '12+', '15+', '17+', 'Adult')
+
+    def series_detail_edit(self, ComicID, field, value=''):
+        """Change one field on the Details tab of a series page. Edits to fields that come from ComicVine
+        are kept when the series is refreshed; an empty value drops the edit."""
+        cherrypy.response.headers['Content-Type'] = 'application/json'
+        if cherrypy.request.method != 'POST':
+            raise cherrypy.HTTPError(405)
+        myDB = db.DBConnection()
+        comic = myDB.selectone('SELECT * FROM comics WHERE ComicID=?', [ComicID]).fetchone()
+        if comic is None:
+            return json.dumps({'ok': False, 'error': 'That series isn\'t in your library.'})
+        value = (value or '').strip()
+        new = {}
+        note = None
+        if field == 'publisher':
+            if value:
+                new = {'ComicPublisher': value, 'Corrected_Publisher': value}
+            else:
+                new = {'Corrected_Publisher': None}
+                note = "ComicVine's publisher comes back on the next refresh."
+        elif field == 'imprint':
+            new = {'PublisherImprint': value or 'None', 'Corrected_Imprint': value or None}
+        elif field == 'year':
+            if value and not (value.isdigit() and len(value) == 4):
+                return json.dumps({'ok': False, 'error': 'The year needs four digits, like 2016.'})
+            if value:
+                new = {'ComicYear': value, 'Corrected_SeriesYear': value}
+            else:
+                new = {'Corrected_SeriesYear': None}
+                note = "ComicVine's year comes back on the next refresh."
+        elif field == 'volume':
+            if value.isdigit():
+                value = 'v' + value
+            if value and not (value[:1].lower() == 'v' and value[1:].isdigit()):
+                return json.dumps({'ok': False, 'error': 'The volume needs to be v and a number, like v2.'})
+            new = {'ComicVersion': value.lower() or None}
+        elif field == 'edition':
+            if value and value not in self.SERIES_EDITIONS:
+                return json.dumps({'ok': False, 'error': 'Pick an edition from the list.'})
+            new = {'Corrected_Type': value or None}
+        elif field == 'age_rating':
+            if value and value not in self.SERIES_AGE_RATINGS:
+                return json.dumps({'ok': False, 'error': 'Pick an age rating from the list.'})
+            new = {'AgeRating': value or None}
+        elif field == 'description':
+            new = {'DescriptionEdit': value or None}
+        else:
+            return json.dumps({'ok': False, 'error': 'That field can\'t be edited.'})
+        myDB.upsert('comics', new, {'ComicID': ComicID})
+        logger.info('[SERIES-EDIT] %s (%s): %s set to %s' % (comic['ComicName'], ComicID, field, value or 'nothing'))
+        return json.dumps(dict(self._series_detail_values(ComicID, myDB, field), ok=True, note=note))
+    series_detail_edit.exposed = True
+
+    def _series_detail_values(self, ComicID, myDB, field):
+        """What the Details tab shows for one field after an edit: value, whether it's a kept edit, and the text in the input."""
+        c = myDB.selectone('SELECT * FROM comics WHERE ComicID=?', [ComicID]).fetchone()
+        blank = lambda v: '' if v in (None, 'None') else str(v)
+        if field == 'publisher':
+            return {'value': blank(c['ComicPublisher']), 'edited': bool(c['Corrected_Publisher'])}
+        if field == 'imprint':
+            return {'value': blank(c['PublisherImprint']), 'edited': bool(c['Corrected_Imprint'])}
+        if field == 'year':
+            return {'value': blank(c['ComicYear']), 'edited': bool(c['Corrected_SeriesYear'])}
+        if field == 'volume':
+            return {'value': blank(c['ComicVersion']), 'edited': False}
+        if field == 'edition':
+            cv_type = blank(c['Type']) or 'Print'
+            edited = c['Corrected_Type'] not in (None, '', 'None') and c['Corrected_Type'] != cv_type
+            return {'value': c['Corrected_Type'] if edited else cv_type, 'input': c['Corrected_Type'] if edited else '', 'edited': edited}
+        if field == 'age_rating':
+            return {'value': blank(c['AgeRating']), 'edited': False}
+        return {'value': blank(c['DescriptionEdit']) or blank(c['Description']), 'edited': bool(c['DescriptionEdit'])}
 
     def issue_edit(self, id, value):
         #logger.fdebug('id: ' + str(id))
@@ -7972,8 +8051,11 @@ class WebInterface(object):
             newValues['UseFuzzy'] = str(fuzzy_year)
 
         if corrected_seriesyear is not None:
-            newValues['Corrected_SeriesYear'] = str(corrected_seriesyear)
-            newValues['ComicYear'] = str(corrected_seriesyear)
+            if str(corrected_seriesyear).strip().isdigit():
+                newValues['Corrected_SeriesYear'] = str(corrected_seriesyear).strip()
+                newValues['ComicYear'] = str(corrected_seriesyear).strip()
+            elif str(corrected_seriesyear).strip() == '':
+                newValues['Corrected_SeriesYear'] = None
 
         if comic_version is None or comic_version == 'None':
             newValues['ComicVersion'] = None
@@ -8023,6 +8105,9 @@ class WebInterface(object):
                 newValues['PublisherImprint'] = publisher_imprint
         else:
             newValues['PublisherImprint'] = 'None'
+        if newValues['PublisherImprint'] != (orig_imprint or 'None'):
+            # keep a changed imprint when the series is refreshed from ComicVine
+            newValues['Corrected_Imprint'] = None if newValues['PublisherImprint'] == 'None' else newValues['PublisherImprint']
 
         #logger.fdebug('orig_type:%s -- force_type: %s' % (orig_type, force_type))
         #logger.fdebug('orig_corr_type: %s-- corrected_type: %s' % (orig_corr_type, newValues['Corrected_Type']))
