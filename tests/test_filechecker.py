@@ -156,3 +156,55 @@ def test_scan_tag_after_the_issue_number_is_ignored(monkeypatch, filename, issue
     assert parsed['process_status'] == 'match'
     assert parsed['series_name'] == "Detective Comics"
     assert parsed['justthedigits'] == issue
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize("watchcomic,filename", [
+    ("Predator vs. Wolverine", "Predator Versus Wolverine 001 (2023).cbz"),
+    ("Predator vs. Wolverine", "Predator vs Wolverine 001 (2023).cbz"),
+    ("DC versus Marvel", "DC vs. Marvel 001 (1996).cbz"),
+    ("DC versus Marvel", "DC Versus Marvel 001 (1996).cbz"),
+])
+def test_versus_and_vs_are_the_same_word(monkeypatch, watchcomic, filename):
+    # titles use 'versus', 'vs' and 'vs.' interchangeably, so a file named one way matches a series named another
+    monkeypatch.setattr(mylar, "LOG_LEVEL", 0, raising=False)
+    monkeypatch.setattr(mylar, "CONFIG", mylar.config.Config("./nothing"))
+    monkeypatch.setattr(mylar.CONFIG, "IGNORE_SEARCH_WORDS", [], raising=False)
+    monkeypatch.setattr(mylar.CONFIG, "CUSTOM_ISSUE_EXCEPTIONS", [], raising=False)
+    monkeypatch.setattr(mylar.CONFIG, "ANNUALS_ON", False, raising=False)
+    fc_obj = filechecker.FileChecker(dir='/dummypath/', watchcomic=watchcomic)
+    parsed = fc_obj.parseit('/dummypath/', filename)
+    assert parsed['process_status'] == 'match'
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize("watchcomic,filename,issue,booktype", [
+    # the book's number before the label: it was lost to an assumed volume 1
+    ("Batman", "Batman 3 (TPB) (2013).cbz", "3", "TPB"),
+    # (HC) and (GN) in brackets, and a Vol. number with them: it was read as no number at all
+    ("Batman", "Batman Vol. 3 (HC) (2013).cbz", "3", "HC"),
+    ("Batman", "Batman Vol. 03 - Death of the Family (2013) (HC) (Digital).cbz", "03", "HC"),
+    ("Batman", "Batman 3 (HC) (2013).cbz", "3", "HC"),
+    ("Batman", "Batman 003 (2016) (GN).cbz", "003", "GN"),
+    # unchanged
+    ("Batman", "Batman TPB 3 (2013).cbz", "3", "TPB"),
+    ("Batman", "Batman v3 (TPB) (2013).cbz", "3", "TPB"),
+    ("Batman", "Batman TPB (2013).cbz", "1", "TPB"),
+    ("Batman", "Batman (TPB) (2013).cbz", "1", "TPB"),
+    ("Saga", "Saga Vol 07 (2017) (Digital TPB).cbz", "07", "TPB"),
+    ("100 Bullets", "100 Bullets (TPB) (2000).cbz", "1", "TPB"),
+    ("Spider-Man 2099", "Spider-Man 2099 (TPB) (2019).cbz", "1", "TPB"),
+    ("Cyberpunk 2077", "Cyberpunk 2077 (TPB) (2020).cbz", "1", "TPB"),
+])
+def test_collected_edition_number_next_to_its_label(monkeypatch, watchcomic, filename, issue, booktype):
+    # In a TPB, HC or GN series the book's number is its issue; a file read without one counts as #1.
+    monkeypatch.setattr(mylar, "LOG_LEVEL", 0, raising=False)
+    monkeypatch.setattr(mylar, "CONFIG", mylar.config.Config("./nothing"))
+    monkeypatch.setattr(mylar.CONFIG, "IGNORE_SEARCH_WORDS", [], raising=False)
+    monkeypatch.setattr(mylar.CONFIG, "CUSTOM_ISSUE_EXCEPTIONS", [], raising=False)
+    monkeypatch.setattr(mylar.CONFIG, "ANNUALS_ON", False, raising=False)
+    fc_obj = filechecker.FileChecker(dir='/dummypath/', watchcomic=watchcomic)
+    parsed = fc_obj.parseit('/dummypath/', filename)
+    assert parsed['process_status'] == 'match'
+    assert parsed['justthedigits'] == issue
+    assert parsed['booktype'] == booktype

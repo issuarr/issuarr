@@ -21,7 +21,7 @@ import time
 from wsgiref.handlers import format_date_time
 
 import mylar
-from mylar import logger, filechecker, helpers, search
+from mylar import logger, editions, filechecker, helpers, search
 
 
 COMPLETE = re.compile(r'\s*[-:]?\s*(?:the\s+)?complete(?:\s+(?:collection|series|saga|run))?\s*$', re.I)
@@ -117,6 +117,34 @@ def with_extra_words(parsed, watchcomic, year):
     if out.get('dynamic_name'):
         out['dynamic_name'] = filechecker.FileChecker().dynamic_replace(watchcomic)['mod_seriesname']
     return out
+
+
+
+def edition_fits(booktype, parsed_booktype, ignore_booktype=False, title=None):
+    """Whether a result's edition (parsed_booktype, as the parser reads it) suits a series of
+    booktype. title is the result's name."""
+    return bool(
+        all([booktype is None, parsed_booktype == 'issue'])
+        or all([booktype == 'Print', parsed_booktype == 'issue'])
+        # Digital-first series are posted like any other issue ("Wonder Woman - Agent of Peace #17 (2020)").
+        or all([booktype == 'Digital', parsed_booktype == 'issue'])
+        or all(
+            [booktype == 'One-Shot', any(
+                [parsed_booktype == 'issue',
+                'One-Shot' in parsed_booktype
+                 ]
+            )
+            ]
+        )
+        or all(
+            [booktype != parsed_booktype, ignore_booktype is True]
+        )
+        or re.sub('None', 'issue', str(booktype)) in parsed_booktype
+        # A collected edition is posted as a TPB, HC, Omnibus or Collection whatever ComicVine calls it.
+        # The series is one itself, so the words count even when they are in its name (an Epic Collection).
+        or all([booktype in editions.COLLECTED_TYPES,
+                parsed_booktype in editions.COLLECTED_TYPES + ('TPB/GN/HC/One-Shot',) or editions.collected(title)])
+    )
 
 
 class search_check(object):
@@ -573,23 +601,8 @@ class search_check(object):
             'booktype: %s / parsed_booktype: %s [ignore_booktype: %s]'
             % (booktype, parsed_comic['booktype'], ignore_booktype)
         )
-        if parsed_comic['parse_status'] == 'success' and (
-            all([booktype is None, parsed_comic['booktype'] == 'issue'])
-            or all([booktype == 'Print', parsed_comic['booktype'] == 'issue'])
-            # Digital-first series are posted like any other issue ("Wonder Woman - Agent of Peace #17 (2020)").
-            or all([booktype == 'Digital', parsed_comic['booktype'] == 'issue'])
-            or all(
-                [booktype == 'One-Shot', any(
-                    [parsed_comic['booktype'] == 'issue',
-                    'One-Shot' in parsed_comic['booktype']
-                     ]
-                )
-                ]
-            )
-            or all(
-                [booktype != parsed_comic['booktype'], ignore_booktype is True]
-            )
-            or re.sub('None', 'issue', str(booktype)) in parsed_comic['booktype']
+        if parsed_comic['parse_status'] == 'success' and edition_fits(
+            booktype, parsed_comic['booktype'], ignore_booktype, ComicTitle
         ):
             try:
                 fcomic = filechecker.FileChecker(watchcomic=ComicName)
