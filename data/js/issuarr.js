@@ -311,6 +311,20 @@
       if (s.busy) return 'Checking RSS feeds' + waiting;
       return n ? n + ' queued for search' : '';
     }
+    // Live counts next to Downloads and Wanted, before the Needs attention count if there is one.
+    function liveCount(sel, n, title) {
+      var link = doc.querySelector(sel);
+      if (!link) return;
+      var b = link.querySelector('.nav-badge.is-live');
+      if (!n) { if (b) b.remove(); return; }
+      if (!b) {
+        b = doc.createElement('span');
+        b.className = 'nav-badge is-live';
+        link.insertBefore(b, link.querySelector('.nav-badge.is-attention'));
+      }
+      b.textContent = n;
+      b.title = title;
+    }
     function poll() {
       if (doc.hidden) return;
       fetch('pp_activity', { credentials: 'same-origin', headers: { 'Accept': 'application/json' } })
@@ -325,6 +339,15 @@
           show(rows.webp, webpText(d.webp));
           if (rows.webp) rows.webp.title = d.webp && d.webp.current ? d.webp.current : '';
           show(rows.mon, d.monitor_enabled ? 'Folder Monitor: ' + (d.monitor_status || 'on') : '');
+          if (d.queue_count != null) {
+            var q = d.queue_count;
+            liveCount('#sidebar .nav-link[href="queueManage"]', q, q + ' downloading or queued');
+            liveCount('#sidebar .nav-child[href="queueManage"]', q, q + ' downloading or queued');
+          }
+          if (d.search) {
+            var s = (d.search.current ? 1 : 0) + (d.search.waiting || []).length;
+            liveCount('#sidebar .nav-link[href="wanted"]', s, s + ' in the search queue');
+          }
           refreshIdle();
         })
         .catch(function () { if (timer) { clearInterval(timer); timer = null; } });

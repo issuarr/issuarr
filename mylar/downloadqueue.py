@@ -346,6 +346,25 @@ def client_snatches(myDB):
     return out
 
 
+_ACTIVE = [0.0, 0]    # (counted at, count) for the sidebar's Downloads count
+
+
+def active_count(max_age=15):
+    """How many downloads are queued or running, direct and in download clients, for the
+    sidebar. Read from the database only, and kept for a few seconds."""
+    if time.time() - _ACTIVE[0] < max_age:
+        return _ACTIVE[1]
+    try:
+        myDB = db.DBConnection()
+        ddl = myDB.selectone("SELECT count(*) FROM ddl_info WHERE status IN ('Queued', 'Downloading')").fetchone()[0]
+        n = int(ddl or 0) + len(client_snatches(myDB))
+    except Exception as e:
+        logger.fdebug('[QUEUE] Unable to count active downloads: %s' % e)
+        n = _ACTIVE[1]
+    _ACTIVE[:] = [time.time(), n]
+    return n
+
+
 # ---- client job ids -------------------------------------------------------
 
 HOSTS = {'GC-Main': 'GetComics', 'GC-Mirror': 'GetComics mirror', 'GC-Pixel': 'Pixeldrain', 'GC-Mega': 'Mega',
