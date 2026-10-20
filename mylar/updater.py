@@ -122,9 +122,9 @@ def dbUpdate(ComicIDList=None, calledfrom=None, sched=False):
         if comic['Corrected_Type'] is not None:
             fixed_type = comic['Corrected_Type']
 
-        if comic['Corrected_SeriesYear'] is not None:
+        if comic['Corrected_SeriesYear'] is not None and str(comic['Corrected_SeriesYear']).isdigit():
             csyear = comic['Corrected_SeriesYear']
-            if int(csyear) != int(comic['ComicYear']):
+            if str(csyear) != str(comic['ComicYear']):
                 comic['ComicYear'] = csyear
                 dspyear = csyear
 
@@ -461,7 +461,7 @@ def dbUpdate(ComicIDList=None, calledfrom=None, sched=False):
                         sm.update_metadata()
 
                 else:
-                    chkstatus = mylar.importer.addComictoDB(ComicID, mismatch, annload=annload, csyear=csyear)
+                    chkstatus = mylar.importer.addComictoDB(ComicID, mismatch, annload=annload, csyear=csyear, fixed_type=fixed_type)
                     #if cchk:
                     #    #delete the data here if it's all valid.
                     #    #logger.fdebug("Deleting all old issue data to make sure new data is clean...")

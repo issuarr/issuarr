@@ -54,8 +54,10 @@
             _status_cls = {'Active': 'is-idle', 'Paused': 'is-ignored', 'Loading': 'is-snatched is-running'}.get(_status, 'is-failed')
 
             _imprint = comic['PublisherImprint'] if comic['PublisherImprint'] not in (None, 'None', '') else None
-            _meta = [x for x in [comic['ComicPublisher'], _imprint, comic['ComicPublished'], display_type,
-                                 (comic['AgeRating'] if comic['AgeRating'] not in (None, 'None') else None)] if x]
+            _age = comic['AgeRating'] if comic['AgeRating'] not in (None, 'None', '') else None
+            # (field, text): the field lets the Details tab update the line after an edit
+            _meta = [('publisher', comic['ComicPublisher']), ('imprint', _imprint), ('published', comic['ComicPublished']),
+                     ('edition', display_type), ('age_rating', _age)]
             _version = comic['ComicVersion'] if comic['ComicVersion'] not in (None, 'None', '', 'v1') else None
             _bar_title = '%s of %s on disk%s' % (_have, _total, (', %s wanted' % _wanted) if _wanted else '')
             # The server sends blank.gif as a GIF data URI when there is no cover; draw the tinted title card instead.
@@ -75,7 +77,7 @@
             </div>
             <div class="series-main">
                 <div class="series-topline">
-                    <p class="page-crumb"><a href="home">Library</a>${' / %s' % (comic['ComicPublisher'] or '') | h}</p>
+                    <p class="page-crumb"><a href="home">Library</a><span data-meta="crumb">${' / %s' % (comic['ComicPublisher'] or '') | h}</span></p>
                     <div class="series-step">
                         % if series.get('Previous'):
                         <a class="btn btn-ghost btn-sm" href="comicDetails?ComicID=${series['Previous'] | u}" title="Previous series in your library" aria-label="Previous series"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M15 6l-6 6 6 6"/></svg></a>
@@ -86,17 +88,13 @@
                     </div>
                 </div>
                 <h1 class="series-title"><span id="series_line">${comic['ComicName'] or 'Adding series' | h}</span>
-                    % if comic['ComicYear']:
-                    <span class="series-year">${comic['ComicYear'] | h}</span>
-                    % endif
-                    % if _version:
-                    <span class="series-year">${_version | h}</span>
-                    % endif
+                    <span class="series-year" data-meta="year" ${'' if comic['ComicYear'] else 'hidden'}>${comic['ComicYear'] or '' | h}</span>
+                    <span class="series-year" data-meta="volume" ${'' if _version else 'hidden'}>${_version or '' | h}</span>
                 </h1>
                 <p class="series-meta">
                     <span class="status ${_status_cls}">${_status | h}</span>
-                    % for m in _meta:
-                    <span>${m | h}</span>
+                    % for k, m in _meta:
+                    <span data-meta="${k}" ${'' if m else 'hidden'}>${m or '' | h}</span>
                     % endfor
                 </p>
                 <p class="notice" id="series_status" style="display:none"></p>
@@ -216,20 +214,36 @@
             <input type="hidden" name="status_hidden" id="status_hidden" value="${comicConfig['Status'] | h}" />
             <input type="hidden" id="og_com_location" value="${comic['ComicLocation'] | h}">
             <div class="grid-2">
+                <%
+                    def _ed(v):
+                        return '' if v in (None, 'None') else v
+                    _cv_type = comic['Type'] if comic['Type'] not in (None, 'None', '') else 'Print'
+                    _edition_edited = comic['Corrected_Type'] not in (None, '', 'None') and comic['Corrected_Type'] != _cv_type
+                    # field, label, kind, value, text shown when empty, kept through a ComicVine refresh
+                    _fields = [
+                        ('publisher', 'Publisher', 'text', _ed(comic['ComicPublisher']), 'Not set', bool(comic['Corrected_Publisher'])),
+                        ('imprint', 'Imprint', 'text', _ed(comic['PublisherImprint']), 'None', bool(comic['Corrected_Imprint'])),
+                        ('year', 'Year', 'year', _ed(comic['ComicYear']), 'Not set', bool(comic['Corrected_SeriesYear'])),
+                        ('volume', 'Volume', 'volume', _ed(comic['ComicVersion']), 'Not set', False),
+                        ('edition', 'Edition', 'edition', comic['Corrected_Type'] if _edition_edited else '', display_type, _edition_edited),
+                        ('age_rating', 'Age rating', 'age_rating', _ed(comic['AgeRating']), 'Not rated', False),
+                    ]
+                %>
                 <section class="panel">
                     <h2 class="panel-title">About</h2>
-                    <dl class="kv">
-                        <dt>Published</dt><dd>${comic['ComicPublished'] or 'Unknown' | h}</dd>
-                        <dt>Publisher</dt><dd>${comic['ComicPublisher'] or 'Unknown' | h}</dd>
-                        % if _imprint:
-                        <dt>Imprint</dt><dd>${_imprint | h}</dd>
-                        % endif
-                        <dt>Edition</dt><dd>${display_type | h}
-                            % if line:
+                    <dl class="kv series-fields" data-comicid="${comic['ComicID'] | h}" data-cvtype="${_cv_type | h}">
+                        % for _f, _label, _kind, _val, _empty, _kept in _fields:
+                        <dt id="sf-${_f}-label">${_label}</dt>
+                        <dd class="sf" data-field="${_f}" data-kind="${_kind}" data-value="${_val | h}" data-empty="${_empty | h}">
+                            <span class="sf-val ${'' if _val or _f == 'edition' else 'is-empty'}">${(display_type if _f == 'edition' else (_val or _empty)) | h}</span>
+                            <span class="sf-tag" title="Your edit. Refreshing from ComicVine keeps it." ${'' if _kept else 'hidden'}>edited</span>
+                            <button type="button" class="btn btn-sm btn-ghost sf-edit" aria-describedby="sf-${_f}-label">Edit</button>
+                            % if _f == 'edition' and line:
                             <div class="muted">Collects ${line}</div>
                             % endif
                         </dd>
-                        <dt>Age rating</dt><dd>${comic['AgeRating'] if comic['AgeRating'] not in (None, 'None') else 'Not rated' | h}</dd>
+                        % endfor
+                        <dt>Published</dt><dd>${comic['ComicPublished'] or 'Unknown' | h}</dd>
                         <dt>Issues on ComicVine</dt><dd class="mono">${comic['Total'] | h}</dd>
                         <dt>Last updated</dt><dd class="mono">${comic['LastUpdated'] or 'Never' | h}</dd>
                         <dt>ComicVine ID</dt><dd class="mono">
@@ -259,19 +273,15 @@
                     </dl>
                 </section>
             </div>
-            %if comicConfig['description']:
-                <%
-                     comicDescription = re.sub(r'[\n\r]', '</br>', comicConfig['description']).strip()
-                     if len(comicDescription) > 300:
-                         cdescription = '%s <span id="dots">...</span><span id="more">%s</span><a href="#" onclick="moreMore(); return false;" class="read-more" id="readMore"> more</a>' % (comicDescription[:300], comicDescription[300:])
-                     else:
-                         cdescription = comicDescription
-                %>
-                <section class="panel series-description">
-                    <div class="panel-head"><h2 class="panel-title">Description</h2>
-                    <span class="description_edit" id="d${comic['ComicID']}">${cdescription}</span><button type="button" class="btn btn-sm" id="jeditable-activate" title="Edit the description">Edit</button></div>
-                </section>
-            %endif
+            <section class="panel series-description">
+                <div class="panel-head"><h2 class="panel-title" id="sf-description-label">Description</h2>
+                    <span class="sf-tag" title="Your edit. Refreshing from ComicVine keeps it." ${'' if comic['DescriptionEdit'] else 'hidden'}>edited</span>
+                    <button type="button" class="btn btn-sm sf-edit" aria-describedby="sf-description-label">Edit</button></div>
+                <div class="sf sf-desc" data-field="description" data-kind="description" data-value="${comicConfig['description'] or '' | h}" data-empty="No description yet.">
+                    <p class="sf-val ${'' if comicConfig['description'] else 'is-empty'}">${comicConfig['description'] or 'No description yet.' | h}</p>
+                    <button type="button" class="read-more sf-more" hidden>More</button>
+                </div>
+            </section>
 	</div>
         <div id="tabs-2">
         <%
@@ -511,6 +521,7 @@
         <script src="js/libs/full_numbers_no_ellipses.js"></script>
         <script src="js/libs/dataTables.rowGroup.min.js"></script>
         <script src="js/matching.js?v=${mylar.CURRENT_VERSION}"></script>
+        <script src="js/series-details.js?v=${mylar.CURRENT_VERSION}"></script>
         <style>
         .ui-autocomplete-loading {
           background: white url('images/loader_black.gif') right center no-repeat;
@@ -561,60 +572,6 @@
             more.push('<a id="' + p + 'listbox" name="' + p + 'listbox" href="#issue-box" class="btn btn-ghost issue-window" title="Details read from ComicVine or the file">Issue details</a>');
             return '<span class="issue-acts">' + first + '<details class="menu row-menu"><summary class="btn btn-sm btn-ghost" aria-label="More for #' + escHtml(full[0]) + '">⋯</summary>' +
                    '<div class="menu-list">' + more.join('') + '</div></details></span>';
-        }
-        $(document).ready(function() {
-            $("#jeditable-activate").click(function() {
-               $(this).prev().click();
-               $('.description_edit').trigger('custom_event');
-            });
-            $('.description_edit').editable('description_edit', {
-                loadurl: 'get_description',
-                type: 'textarea',
-                submit: '<button class="button btn btn-success" type="submit">Ok</button>',
-                cancel: '<button class="button btn btn-danger" type="cancel">Cancel</button>',
-                event: 'custom_event',
-                height: ($("span#edit").height() + 200) + "px",
-                width: ($("span#edit").width() + 350) + "px",
-                tooltip: '',
-                onreset: function(settings, original){
-                    //alert('reset:'+JSON.stringify(original));
-                    $("#jeditable-activate.hidden").removeClass('hidden');
-                    return($(this).html(original.revert));
-                },
-                onedit: function(){
-                    $(this).siblings("#jeditable-activate").addClass('hidden');
-                },
-                callback : function(value, settings) {
-                    $("#jeditable-activate.hidden").removeClass('hidden');
-                    console.log(this);
-                    console.log(value);
-                    console.log(settings);
-                    const regex = /\\n|\\r\\n|\\n\\r|\\r/g;
-                    value.replace(regex, '<br>');
-                    if (value.length > 300){
-                      spanline = value.substr(0,300)+'<span id="dots">...</span><span id="more">'+value.substr(301)+'</span><a href="#" onclick="moreMore(); return false;" class="read-more" id="readMore"> more</a>';
-                    } else {
-                      spanline = value;
-                    }
-                    return($(this).html(spanline));
-                }
-            });
-        });
-
-        // ... more
-        function moreMore() {
-           var dots = document.getElementById("dots");
-           var moreText = document.getElementById("more");
-           var optText = document.getElementById("readMore");
-           if (dots.style.display == "none"){
-             dots.style.display = "inline";
-             optText.innerHTML = " more";
-             moreText.style.display = "none";
-           } else {
-             dots.style.display = "none";
-             optText.innerHTML = "  less";
-             moreText.style.display = "inline";
-           }
         }
         </script>
         <script>
