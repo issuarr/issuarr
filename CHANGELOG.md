@@ -8,6 +8,44 @@ Releases come from the `main` branch and are the `latest` Docker image. Changes 
 
 Nothing yet.
 
+## 0.9.0 (20 October 2026)
+
+### Matching and tagging
+
+- ComicTagger is upgraded from the bundled 1.3.5 to 1.6, installed as a package. Running Issuarr without Docker now needs Python 3.10 or newer. ([`52173b6`](https://github.com/issuarr/issuarr/commit/52173b6))
+- Tagging stays under ComicVine's hourly limit and waits out a back-off instead of failing files, and tags now include the imprint. ([`d19bd20`](https://github.com/issuarr/issuarr/commit/d19bd20))
+- The series menu has "Match files…" and each issue has "Match a file…", to say which file is which issue by hand, with the file's cover beside ComicVine's and a search box. Recheck files also reads the ComicVine issue id that tagging writes into a file. ([`5f64d3f`](https://github.com/issuarr/issuarr/commit/5f64d3f), [`fac0d3f`](https://github.com/issuarr/issuarr/commit/fac0d3f))
+- "Wrong series…" in the series menu moves a series' files to the right ComicVine series and rechecks both. ([`093c588`](https://github.com/issuarr/issuarr/commit/093c588))
+- A series' details (publisher, imprint, year, volume, edition, age rating, description) can be edited in place on its Details tab, including empty ones. ([`4304957`](https://github.com/issuarr/issuarr/commit/4304957))
+- Trades and hardcovers (TPB, HC, GN, Omnibus and similar) are kept out of single-issue series, and a TPB series takes any collected edition in search results. ([`139a9a3`](https://github.com/issuarr/issuarr/commit/139a9a3), [`acedc3a`](https://github.com/issuarr/issuarr/commit/acedc3a))
+- "versus" and "vs." count as the same word when matching names, and "Accept any edition in search results" says what it does. ([`acedc3a`](https://github.com/issuarr/issuarr/commit/acedc3a))
+
+### Searching and downloads
+
+- A pack is only grabbed when its years fit the series, and the same pack isn't grabbed twice. ([`2cfaab9`](https://github.com/issuarr/issuarr/commit/2cfaab9))
+- Snatched clears once nothing is downloading the issue, and "NNN ctc" file names are read. ([`9e0bda1`](https://github.com/issuarr/issuarr/commit/9e0bda1))
+- AirDC++ can choose its own download folder (Settings > Search providers > AirDC++), and the found file's folder is kept exactly. ([`086b8cd`](https://github.com/issuarr/issuarr/commit/086b8cd), [`56fde75`](https://github.com/issuarr/issuarr/commit/56fde75))
+- The sidebar's Downloads, Queue and Wanted counts include queued and running downloads and the search queue. ([`24b21b5`](https://github.com/issuarr/issuarr/commit/24b21b5))
+
+### Filing and Needs attention
+
+- Needs attention has a By folder view that acts on a whole collection at once. ([`56732c0`](https://github.com/issuarr/issuarr/commit/56732c0))
+- Files you already own say so ("You already have this issue") and get an Already have tab, instead of "couldn't tell which series". ([`0422305`](https://github.com/issuarr/issuarr/commit/0422305))
+- The issue picker can search ComicVine and add the series there and then. ([`8833fbb`](https://github.com/issuarr/issuarr/commit/8833fbb))
+- What's left over after a pack is filed goes to the Needs attention trash. ([`ad35423`](https://github.com/issuarr/issuarr/commit/ad35423))
+- Running now shows how far a filing run has got. ([`7cb7e60`](https://github.com/issuarr/issuarr/commit/7cb7e60))
+
+### WebP conversion
+
+- Converting a large comic streams its pages instead of loading the whole comic into memory. ([`511bdb7`](https://github.com/issuarr/issuarr/commit/511bdb7))
+
+### Ledger and screens
+
+- Series can be removed from Ledger > By series, by ticking them and using the selection bar. ([`ef7708b`](https://github.com/issuarr/issuarr/commit/ef7708b), [`e23db27`](https://github.com/issuarr/issuarr/commit/e23db27))
+- The Ledger's totals bar follows the tiles and filters and counts complete series. ([`153c54b`](https://github.com/issuarr/issuarr/commit/153c54b))
+- Every list table sorts by clicking its column headers, the way each column reads. ([`223300d`](https://github.com/issuarr/issuarr/commit/223300d), [`dfa078f`](https://github.com/issuarr/issuarr/commit/dfa078f), [`ebbdba1`](https://github.com/issuarr/issuarr/commit/ebbdba1))
+- "More" menus open upward when they would be cut off, and Service status fits inside the sidebar. ([`226b634`](https://github.com/issuarr/issuarr/commit/226b634), [`025ae5a`](https://github.com/issuarr/issuarr/commit/025ae5a))
+
 ## 0.8.3 (12 October 2026)
 
 ### Searching
