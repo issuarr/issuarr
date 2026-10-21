@@ -48,3 +48,9 @@ def test_a_one_issue_trade_links_to_the_other_volumes_of_the_same_series(lib):
     d = ledger.related('V7')
     assert d['trade'] and [g['cid'] for g in d['groups']] == ['S']
     assert [(t['cid'], t['this']) for t in d['groups'][0]['trades']] == [('V1', False), ('V7', True)]
+
+
+@pytest.mark.unit
+def test_a_trade_page_says_what_it_collects_in_the_heading(lib):
+    g = ledger.related('V7')['groups'][0]
+    assert g['collects'] == '#7-9' and not g['whole']
