@@ -218,6 +218,7 @@
 						%endif
 						%endfor
 						%endif
+						<span id="client_status" title="Download clients that are turned on"></span>
 						%if mylar.CONFIG.ENABLE_DDL:
 						<br><span id="pd_usage" title="Pixeldrain transfer used in the last day"></span>
 						%endif
@@ -305,6 +306,7 @@
 	<script>var importStatusInitial = ${_ist};</script>
 	<script src="js/importstatus.js?v=${mylar.CURRENT_VERSION}"></script>
 	<script src="js/pixeldrain-usage.js?v=${mylar.CURRENT_VERSION}"></script>
+	<script src="js/client-status.js?v=${mylar.CURRENT_VERSION}"></script>
 	<script src="js/issuarr.js?v=${mylar.CURRENT_VERSION}"></script>
         <script>
         //var reconnectFrequencySeconds = 1;
