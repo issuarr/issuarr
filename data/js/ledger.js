@@ -33,7 +33,8 @@
   // Per series, how its missing issues split by status (all kinds, before any filter).
   // Which whole series each trade helps replace, for the Replaces a whole series filter.
   function prepTrades(d) {
-    d.whole = d.whole || []; d.wholeBy = {};
+    d.whole = d.whole || []; d.wholeBy = {}; d.byIid = {};
+    d.trades.forEach(function (t) { d.byIid[t.iid] = t; });
     d.whole.forEach(function (w, wi) { Object.keys(w.cover).forEach(function (t) { (d.wholeBy[t] = d.wholeBy[t] || []).push(wi); }); });
   }
   function wholeName(w) { return w.name + ' (' + w.year + ')'; }
@@ -362,8 +363,13 @@
     var list = C.wholeBy[t.iid];
     if (!list) return '';
     return '<br><small class="lg-whole">Replaces ' + list.map(function (wi) {
-      var w = C.whole[wi], more = Object.keys(w.cover).length - 1;
-      return '<b>' + esc(wholeName(w)) + '</b>' + (more ? ' with ' + more + ' other trade' + (more === 1 ? '' : 's') : '');
+      // The other trades it takes, by name, so "together with" can't be read as trades this one includes.
+      var w = C.whole[wi], others = Object.keys(w.cover).filter(function (k) { return k !== t.iid; }).map(function (k) {
+        var o = C.byIid[k]; return o ? o.name + ' (' + o.year + ') #' + o.num : 'another trade';
+      });
+      var names = esc(others.slice(0, 3).join(', ')) + (others.length > 3 ? ' and ' + (others.length - 3) + ' more' : '');
+      if (w.cover[t.iid].length >= w.issues) return '<b>' + esc(wholeName(w)) + '</b> on its own' + (others.length ? ' (also collected in ' + names + ')' : '');
+      return '<b>' + esc(wholeName(w)) + '</b> together with ' + names;
     }).join(', ') + '</small>';
   }
 
