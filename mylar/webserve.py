@@ -8083,11 +8083,11 @@ class WebInterface(object):
             newValues['Corrected_Type'] = 'One-Shot'
         elif force_type == 'Print':
             newValues['Corrected_Type'] = 'Print'
+        elif force_type == '':
+            # "As ComicVine lists it" was picked, so drop the override
+            newValues['Corrected_Type'] = None
         else:
-            if orig_corr_type is not None:
-                newValues['Corrected_Type'] = orig_corr_type
-            else:
-                newValues['Corrected_Type'] = None
+            newValues['Corrected_Type'] = orig_corr_type
 
         if any([ignore_type == '0', ignore_type is None, ignore_type == 'None']):
             newValues['IgnoreType'] = 0
