@@ -94,6 +94,8 @@
 .lg-table td.lg-chk input:focus-visible { outline: 2px solid var(--focus); outline-offset: 2px; }
 .lg-mono { font-family: var(--font-mono); font-size: 13px; white-space: nowrap; }
 .lg-dim { color: var(--muted); }
+.lg-whole { color: var(--muted); }
+.lg-whole b { color: var(--lg-done); font-weight: 600; }
 .lg-strong { color: var(--text); font-weight: 700; }
 .lg-title-cell { max-width: 340px; }
 .lg-cbar-cell { min-width: 200px; }

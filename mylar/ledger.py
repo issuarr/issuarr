@@ -462,7 +462,8 @@ def collected_data():
     myDB = db.DBConnection()
     status, comics = _lookups(myDB)
     out = []
-    for x in _trades(myDB, status, comics):
+    trades = _trades(myDB, status, comics)
+    for x in trades:
         r, t, c = x['row'], x['trade'], x['comic']
         lacking = [[f, comics[status[f]['ComicID']]['ComicName'], comics[status[f]['ComicID']]['ComicYear'], status[f]['Issue_Number'], status[f]['Status']]
                    for f in x['found'] if f not in x['own']]
@@ -472,7 +473,53 @@ def collected_data():
                     'ondisk': sum(1 for f in x['own'] if status[f]['Location']),
                     'unresolved': sum(len(u['nums']) for u in x['unresolved']), 'lacking': lacking, 'coverage': x['coverage'],
                     'extras': sorted({_extra_name(u, x['found'], status, comics) for u in x['other']})})
-    return {'trades': out, 'build': status_summary(myDB)}
+    whole = _whole_series(myDB, status, comics, trades)
+    return {'trades': out, 'whole': whole, 'delete_dir': bool(mylar.CONFIG.DELETE_REMOVE_DIR), 'build': status_summary(myDB)}
+
+
+def _whole_series(myDB, status, comics, trades):
+    """Single-issue series whose whole issue list, owned or not, is collected in trades you have on disk.
+    Each entry's 'cover' maps a trade to the issues of the series it holds, so the page can tell
+    whether a selection of trades covers the series by itself."""
+    clocs = {r['ComicID']: r['ComicLocation'] for r in myDB.select('SELECT ComicID, ComicLocation FROM comics')}
+    issues = defaultdict(set)
+    for iid, r in status.items():
+        issues[r['ComicID']].add(iid)
+    annuals = {r['ComicID'] for r in myDB.select('SELECT DISTINCT ComicID FROM annuals WHERE coalesce(Deleted, 0)=0')}
+    cover = defaultdict(lambda: defaultdict(list))
+    for x in trades:
+        t = x['trade']
+        if t['Status'] not in OWNED or not t['Location']:
+            continue
+        for f in x['found']:
+            cid = status[f]['ComicID']
+            if (comics[cid]['Corrected_Type'] or comics[cid]['Type']) in TRADE_TYPES:
+                continue
+            cover[cid][x['row']['TradeIssueID']].append(f)
+    on_disk = {}
+
+    def trade_file(iid):
+        if iid not in on_disk:
+            cid = status[iid]['ComicID']
+            on_disk[iid] = os.path.isfile(os.path.join(clocs.get(cid) or '', status[iid]['Location']))
+        return on_disk[iid]
+
+    out = []
+    for cid, by_trade in cover.items():
+        # Annuals tracked under the series would be removed with it, and no trade's contents point at them.
+        if cid in annuals:
+            continue
+        by_trade = {t: f for t, f in by_trade.items() if trade_file(t)}
+        if not by_trade or not issues[cid] <= {f for fs in by_trade.values() for f in fs}:
+            continue
+        c, folder = comics[cid], os.path.normpath(clocs.get(cid) or '')
+        # A folder that another series also lives in (often the trades themselves) is never offered for deletion.
+        shared = any(o != cid and l and (os.path.normpath(l) == folder or os.path.normpath(l).startswith(folder + os.sep))
+                     for o, l in clocs.items()) if clocs.get(cid) else True
+        out.append({'cid': cid, 'name': c['ComicName'], 'year': c['ComicYear'], 'type': c['Corrected_Type'] or c['Type'],
+                    'issues': len(issues[cid]), 'have': sum(1 for f in issues[cid] if status[f]['Status'] in OWNED),
+                    'shared': shared, 'cover': {t: sorted(f) for t, f in by_trade.items()}})
+    return sorted(out, key=lambda w: (w['name'].lower(), str(w['year'])))
 
 
 def status_summary(myDB=None):
