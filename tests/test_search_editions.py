@@ -63,3 +63,13 @@ def test_accept_any_edition_takes_everything():
 def test_a_collected_volume_must_be_from_the_wanted_year(booktype, result_year, wanted_year, fits):
     from mylar.search_filer import volume_year_fits
     assert volume_year_fits(booktype, result_year, wanted_year) is fits
+
+
+@pytest.mark.unit
+def test_a_post_a_few_days_before_the_store_date_is_not_skipped():
+    # 'Adventure Time Quadruple Feature #2' went up 2026-08-10; ComicVine's store date is 2026-08-12
+    import datetime
+    from mylar.search_filer import EARLY_POST_DAYS
+    store, posted = datetime.date(2026, 8, 12), datetime.date(2026, 8, 10)
+    assert posted >= store - datetime.timedelta(days=EARLY_POST_DAYS)
+    assert EARLY_POST_DAYS < 30  # still far short of an earlier run's issue with the same number
