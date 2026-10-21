@@ -71,3 +71,38 @@ def test_without_jd2_a_host_only_jd2_handles_is_never_picked():
 def test_with_jd2_a_host_only_jd2_handles_can_still_be_picked():
     single = pick_hosts(object(), ['GC-Pixel'])
     assert single[1]['source'] == 'vikingfile'
+
+
+SUBTITLE_PAGE = '''<ul>
+<li>Batwoman Vol. 4 &#8211; This Blood is Thick (2014) (181 MB)<strong> :</strong><br /><strong><a href="https://getcomics.org/dls/v4main"><span>Main Server</span></a> | <a href="https://getcomics.org/dls/v4mega"><span>Mega</span></a></strong></li>
+<li>Batwoman Vol. 5 &#8211; Webs (2014) (316 MB)<strong> :</strong><br /><strong><a href="https://getcomics.org/dls/v5main"><span>Main Server</span></a> | <a href="https://getcomics.org/dls/v5mega"><span>Mega</span></a></strong></li>
+</ul>'''
+
+RANGE_PAGE = '''<ul>
+<li>Action Comics #957 &#8211; 968 (2016-2017) (459 MB)<strong> :</strong><br /><strong><a href="https://getcomics.org/dls/r1main"><span>Main Server</span></a></strong></li>
+<li>Action Comics #969 &#8211; 980 (2017) (483 MB)<strong> :</strong><br /><strong><a href="https://getcomics.org/dls/r2main"><span>Main Server</span></a></strong></li>
+</ul>'''
+
+
+def pick_page(page, name, issue):
+    gc = getcomics.GC.__new__(getcomics.GC)
+    gc.jd2 = None
+    return gc._single_item(BeautifulSoup(page, 'html.parser'), [{'ComicName': name, 'IssueNumber': issue, 'IssueID': '1'}])
+
+
+@pytest.mark.unit
+def test_volume_with_a_subtitle_is_picked():
+    # 'Batwoman Vol. 1 - 6 (TPB)' lists each volume as 'Batwoman Vol. 5 - Webs (2014) (316 MB)'
+    _, chosen = pick_page(SUBTITLE_PAGE, 'Batwoman', '5')
+    assert chosen['series'] == 'Batwoman Vol. 5' and chosen['year'] == '2014'
+    assert chosen['size'] == '316 MB' and chosen['pack'] is False and chosen['issues'] == '5'
+
+
+@pytest.mark.unit
+def test_issue_inside_a_listed_range_picks_that_range_as_a_pack():
+    _, chosen = pick_page(RANGE_PAGE, 'Action Comics', '972')
+    assert chosen['links'].endswith('r2main') and chosen['pack'] is True
+    assert chosen['issues'] == '969 - 980' and chosen['range'] == (969.0, 980.0)
+    _, chosen = pick_page(RANGE_PAGE, 'Action Comics', '957')
+    assert chosen['links'].endswith('r1main') and chosen['year'] == '2016'
+    assert pick_page(RANGE_PAGE, 'Action Comics', '981') is None
