@@ -120,6 +120,12 @@ def with_extra_words(parsed, watchcomic, year):
 
 
 
+# A post can go up a few days before the store date ComicVine has for the issue (dates there are
+# often a few days off, and digital copies can come out early). 'Adventure Time Quadruple Feature
+# #2' was posted 2026-08-10 for a store date of 2026-08-12 and was skipped every search.
+EARLY_POST_DAYS = 7
+
+
 def volume_year_fits(booktype, result_year, wanted_year):
     """A collected edition's 'Vol. 1' is its number, not a series volume, so the volume label can't stand
     in for the year: many series have a Vol. 1 trade. When the result has a year, it has to be within a
@@ -443,7 +449,7 @@ class search_check(object):
                 issue_converted = datetime.datetime.strptime(
                     usedate.rstrip(), '%Y-%m-%d'
                 )
-                issue_convert = issue_converted + datetime.timedelta(days=-1)
+                issue_convert = issue_converted - datetime.timedelta(days=EARLY_POST_DAYS)
                 # to get past different locale's os-dependent dates, let's
                 # convert it to a generic datetime format
                 try:
