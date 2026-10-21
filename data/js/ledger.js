@@ -4,9 +4,10 @@
   var MH = ['Owned issues on both sides', 'Series has files Mylar can\'t match', 'Past your last owned issue', 'Before your first owned issue', 'Released after your cutoff date', 'Series where you have every issue'];
   var COMPLETE = 5;
   var CK = ['fills_gaps', 'covered', 'partly', 'not_in_library', 'unknown'];
-  var CC = ['--lg-c-fills', '--lg-c-dupe', '--lg-c-part', '--lg-c-out', '--lg-c-unknown'];
-  var CL = ['Fills gaps', 'Duplicates singles', 'Partly covered', 'Not in library', 'No contents info'];
-  var CH = ['Collects issues you don\'t have as singles', 'You own every tracked issue it collects', 'Its own series has issues Mylar doesn\'t track', 'Collects series you don\'t track', 'No source lists what it collects'];
+  var CC = ['--lg-c-fills', '--lg-c-dupe', '--lg-c-part', '--lg-c-out', '--lg-c-unknown', '--lg-done'];
+  var CL = ['Fills gaps', 'Duplicates singles', 'Partly covered', 'Not in library', 'No contents info', 'Replaces a whole series'];
+  var CH = ['Collects issues you don\'t have as singles', 'You own every tracked issue it collects', 'Its own series has issues Mylar doesn\'t track', 'Collects series you don\'t track', 'No source lists what it collects', 'Your trades collect every issue of a single-issue series you track, gaps included'];
+  var WHOLE = 5;
   var BOOK = '<svg class="lg-ico" viewBox="0 0 16 16" aria-hidden="true"><path d="M8 4.2C6.6 3 4.4 2.6 1.5 2.8v9.6c2.9-.2 5.1.2 6.5 1.4 1.4-1.2 3.6-1.6 6.5-1.4V2.8c-2.9-.2-5.1.2-6.5 1.4zM8 4.2v9.6"/></svg>';
 
   var st = {
@@ -26,10 +27,17 @@
 
   function load(view, cb) {
     $id('lg-count').textContent = 'Loading…';
-    $.getJSON('ledger_data', { view: view }, function (d) { if (view === 'missing') prep(d); cb(d); });
+    $.getJSON('ledger_data', { view: view }, function (d) { if (view === 'missing') prep(d); else prepTrades(d); cb(d); });
   }
 
   // Per series, how its missing issues split by status (all kinds, before any filter).
+  // Which whole series each trade helps replace, for the Replaces a whole series filter.
+  function prepTrades(d) {
+    d.whole = d.whole || []; d.wholeBy = {};
+    d.whole.forEach(function (w, wi) { Object.keys(w.cover).forEach(function (t) { (d.wholeBy[t] = d.wholeBy[t] || []).push(wi); }); });
+  }
+  function wholeName(w) { return w.name + ' (' + w.year + ')'; }
+
   function prep(d) {
     d.sc = {};
     d.rows.forEach(function (r) {
@@ -102,7 +110,7 @@
     if (st.tab === 'missing') {
       counts = [0, 0, 0, 0, 0, M.complete.length]; M.rows.forEach(function (r) { counts[r[0]]++; if (r[7] === 'Wanted') wanted[r[0]]++; }); L = ML; H = MH; K = MK;
     } else {
-      counts = [0, 0, 0, 0, 0]; C.trades.forEach(function (t) { counts[CK.indexOf(t.coverage)]++; }); L = CL; H = CH; K = CC;
+      counts = [0, 0, 0, 0, 0, 0]; C.trades.forEach(function (t) { counts[CK.indexOf(t.coverage)]++; if (C.wholeBy[t.iid]) counts[WHOLE]++; }); L = CL; H = CH; K = CC;
     }
     $id('lg-tiles').innerHTML = L.map(function (l, i) {
       if (st.tab === 'missing' && i === 4 && !M.cutoff) return '';
@@ -113,6 +121,8 @@
   $('#lg-tiles').on('click', '.lg-tile', function () {
     var k = +this.getAttribute('data-k'), a = st.kinds[st.tab], p = a.indexOf(k);
     if (p >= 0) a.splice(p, 1); else a.push(k);
+    // Replaces a whole series is a filter of its own, not one more kind of coverage to add to the list.
+    if (st.tab === 'collected' && p < 0) { st.kinds.collected = a = k === WHOLE ? [WHOLE] : a.filter(function (x) { return x !== WHOLE; }); tiles(); }
     this.setAttribute('aria-pressed', p < 0); st.limit = 300; save();
     if (st.tab === 'missing' && k === COMPLETE && p < 0 && st.by === 'issue') { setBy('series'); return; }
     render();
@@ -322,7 +332,7 @@
   function renderTrades() {
     var keys = st.kinds.collected, s = st.sort || { key: 'cov', dir: 1 };
     var f = C.trades.filter(function (t) {
-      if (keys.indexOf(CK.indexOf(t.coverage)) < 0) return false;
+      if (keys.indexOf(WHOLE) >= 0 ? !C.wholeBy[t.iid] : keys.indexOf(CK.indexOf(t.coverage)) < 0) return false;
       if (st.pub && (t.pub || '?') !== st.pub) return false;
       if (st.q && (t.name + ' ' + t.collects).toLowerCase().indexOf(st.q) < 0) return false;
       return true;
@@ -335,7 +345,7 @@
       var i = CK.indexOf(t.coverage), open = st.open[t.iid];
       var row = '<tr class="' + (st.sel[t.iid] ? 'lg-on' : '') + '"><td class="lg-chk"><input type="checkbox" data-id="' + t.iid + '"' + (st.sel[t.iid] ? ' checked' : '') + ' aria-label="Select trade"></td>' +
         '<td><span class="lg-pill" style="--c:var(' + CC[i] + ')">' + CL[i] + '</span></td>' +
-        '<td><a href="comicDetails?ComicID=' + t.cid + '">' + esc(t.name) + '</a> <span class="lg-dim">(' + esc(t.year) + ') #' + esc(t.num) + '</span><br><small class="lg-dim">' + esc(t.type) + ' · ' + esc(t.pub) + '</small></td>' +
+        '<td><a href="comicDetails?ComicID=' + t.cid + '">' + esc(t.name) + '</a> <span class="lg-dim">(' + esc(t.year) + ') #' + esc(t.num) + '</span><br><small class="lg-dim">' + esc(t.type) + ' · ' + esc(t.pub) + '</small>' + wholeLine(t) + '</td>' +
         '<td class="lg-dim lg-title-cell">' + (esc(t.collects) || '—') + (t.extras && t.extras.length ? '<br><small>Tie-ins not tracked: ' + esc(t.extras.join(', ')) + '</small>' : '') + '</td>' +
         '<td class="num lg-mono">' + (t.found ? t.own + ' / ' + t.found : '—') + (t.unresolved ? '<br><small class="lg-dim">+' + t.unresolved + ' not tracked</small>' : '') + '</td>' +
         '<td class="num lg-mono">' + (t.lacking.length ? '<button class="lg-link" data-open="' + t.iid + '" aria-expanded="' + !!open + '">' + t.lacking.length + '</button>' : '') + '</td>' +
@@ -345,7 +355,16 @@
     }).join('') : '<tr><td class="lg-empty" colspan="7">' + (C.trades.length ? 'No trades match these filters.' : 'Trade contents haven\'t been read yet. Use the button above.') + '</td></tr>');
     $id('lg-count').textContent = fmt(Math.min(st.limit, f.length)) + ' of ' + fmt(f.length) + ' trades';
     $id('lg-more').hidden = f.length <= st.limit;
-    $id('lg-note').textContent = KEYS + ' Contents come from each trade\'s ComicVine description and the summary saved in the trade file. Trades neither describes can\'t be checked. Select trades to want or skip the trade itself, want or ignore the singles it collects that you\'re missing, or move the singles it duplicates out of your library.';
+    $id('lg-note').textContent = KEYS + ' Contents come from each trade\'s ComicVine description and the summary saved in the trade file. Trades neither describes can\'t be checked. Select trades to want or skip the trade itself, want or ignore the singles it collects that you\'re missing, move the singles it duplicates out of your library, or remove the single-issue series the selected trades replace in full. A series only counts as replaced when trades you have on disk collect every issue Issuarr tracks for it; series with annuals tracked under them are left out.';
+  }
+
+  function wholeLine(t) {
+    var list = C.wholeBy[t.iid];
+    if (!list) return '';
+    return '<br><small class="lg-whole">Replaces ' + list.map(function (wi) {
+      var w = C.whole[wi], more = Object.keys(w.cover).length - 1;
+      return '<b>' + esc(wholeName(w)) + '</b>' + (more ? ' with ' + more + ' other trade' + (more === 1 ? '' : 's') : '');
+    }).join(', ') + '</small>';
   }
 
   $('#lg-table').on('click', '[data-open]', function () { var k = this.getAttribute('data-open'); st.open[k] = !st.open[k]; render(); });
@@ -387,6 +406,15 @@
   }
   function selSeries() { return st.tab === 'missing' && st.by === 'series' && M ? Object.keys(st.ssel).filter(function (k) { return M.series[k]; }) : []; }
   function selTrades() { return C ? C.trades.filter(function (t) { return st.sel[t.iid]; }) : []; }
+  // Whole series the selected trades cover between them, without needing trades left unselected.
+  function selWhole() {
+    if (!C || st.tab !== 'collected') return [];
+    return C.whole.filter(function (w) {
+      var got = {};
+      Object.keys(w.cover).forEach(function (t) { if (st.sel[t]) w.cover[t].forEach(function (f) { got[f] = 1; }); });
+      return Object.keys(got).length >= w.issues;
+    });
+  }
   function lackingIds(list) { var o = {}; list.forEach(function (t) { t.lacking.forEach(function (l) { o[l[0]] = 1; }); }); return Object.keys(o); }
 
   function selBar() {
@@ -410,7 +438,10 @@
         btn('lack:Wanted', 'Want them', lack.length, 'You have every single these trades collect') +
         btn('lack:Ignored', 'Ignore them', lack.length, 'You have every single these trades collect') + '</span>' +
         '<span class="lg-grp"><small>Singles it duplicates</small>' +
-        btn('remove', 'Remove them…', dupes, owned.length ? 'No single issue files of these trades are left in your library' : 'Only trades you have can replace singles') + '</span>';
+        btn('remove', 'Remove them…', dupes, owned.length ? 'No single issue files of these trades are left in your library' : 'Only trades you have can replace singles') + '</span>' +
+        '<span class="lg-grp"><small>Single-issue series they replace</small>' +
+        btn('whole:remove', 'Remove series…', selWhole().length, sel.some(function (t) { return C.wholeBy[t.iid]; })
+          ? 'Select every trade that collects the series' : 'None of these trades collects a whole series') + '</span>';
     }
     html += '<button type="button" class="btn btn-sm btn-ghost" data-do="clear">Clear selection</button>';
     if (st.confirm) html += '<div class="lg-confirm">' + st.confirm + '</div>';
@@ -428,7 +459,7 @@
   function reload(then) {
     st.sel = {}; st.ssel = {}; st.confirm = null;
     if (st.tab === 'missing') load('missing', function (d) { M = d; tiles(); render(); if (then) then(); });
-    else load('collected', function (d) { C = d; M = null; tiles(); render(); });
+    else load('collected', function (d) { C = d; M = null; tiles(); render(); if (then) then(); });
   }
   function size(b) { return b > 1e9 ? (b / 1e9).toFixed(1) + ' GB' : Math.round(b / 1e6) + ' MB'; }
   $('#lg-actions').on('click', '[data-do]', function () {
@@ -448,6 +479,19 @@
       selBar(); return;
     }
     if (d === 'series:go') return removeSeries(selSeries().map(function (k) { return M.series[k][5]; }), $id('lg-del-files').checked);
+    if (d === 'whole:remove') {
+      var ws = selWhole(), wn = ws.map(wholeName), kept = ws.filter(function (w) { return w.shared; }).length;
+      st.confirm = 'Remove <b>' + (wn.length === 1 ? esc(wn[0]) : fmt(wn.length) + ' single-issue series') + '</b> and ' + (wn.length === 1 ? 'its issue list' : 'their issue lists') + ' from Issuarr? The trades stay.' +
+        (wn.length > 1 ? '<br><small>' + esc(wn.slice(0, 20).join(', ')) + (wn.length > 20 ? ' and ' + fmt(wn.length - 20) + ' more' : '') + '</small>' : '') +
+        '<br><label class="lg-del-files"><input type="checkbox" id="lg-del-files"' + (C.delete_dir ? ' checked' : '') + '> Also delete the series folder' + (wn.length === 1 ? '' : 's') + ' and the single issue files in ' + (wn.length === 1 ? 'it' : 'them') + '</label>' +
+        '<br><small>Unticked, the files stay on disk and Issuarr stops tracking them.' + (kept ? ' ' + (kept === 1 && wn.length === 1 ? 'This series shares its folder' : fmt(kept) + ' of these share a folder') + ' with a trade or another series, so ' + (kept === 1 ? 'that folder is' : 'those folders are') + ' kept either way.' : '') + '</small><br>' +
+        '<button type="button" class="btn btn-sm btn-danger" data-do="whole:go">Remove ' + (wn.length === 1 ? 'series' : fmt(wn.length) + ' series') + '</button><button type="button" class="btn btn-sm btn-ghost" data-do="cancel">Cancel</button>';
+      selBar(); return;
+    }
+    if (d === 'whole:go') {
+      var wsel = selWhole();
+      return removeSeries(wsel.map(function (w) { return w.cid; }), $id('lg-del-files').checked, wsel.filter(function (w) { return w.shared; }).map(function (w) { return w.cid; }));
+    }
     var ids = selTrades().filter(isOwned).map(function (t) { return t.iid; }).join(',');
     if (d === 'remove') {
       $('.lg-actions button').prop('disabled', true);
@@ -472,7 +516,8 @@
   });
 
   // One series at a time, so a big selection doesn't pile requests onto the server.
-  function removeSeries(cids, files) {
+  // keep: series whose folder holds other series too, so it is never deleted with them.
+  function removeSeries(cids, files, keep) {
     var failed = 0, total = cids.length;
     $('.lg-actions button, .lg-actions input').prop('disabled', true);
     (function next() {
@@ -483,7 +528,8 @@
         return;
       }
       $id('lg-selcount').textContent = 'Removing series ' + fmt(total - cids.length + 1) + ' of ' + fmt(total) + '…';
-      $.post('deleteSeries', { ComicID: cids.shift(), delete_dir: files ? 1 : '', ajax: 1 }, function (r) { if (!r.ok) failed++; }, 'json')
+      var cid = cids.shift();
+      $.post('deleteSeries', { ComicID: cid, delete_dir: files && (keep || []).indexOf(cid) < 0 ? 1 : '', ajax: 1 }, function (r) { if (!r.ok) failed++; }, 'json')
         .fail(function () { failed++; }).always(next);
     })();
   }
