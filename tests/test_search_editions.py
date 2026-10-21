@@ -49,3 +49,17 @@ def test_a_collected_series_still_turns_single_issues_away():
 def test_accept_any_edition_takes_everything():
     assert edition_fits('Print', 'TPB', ignore_booktype=True)
     assert edition_fits('One-Shot', 'HC', ignore_booktype=True)
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize('booktype,result_year,wanted_year,fits', [
+    ('TPB', '2012', 2015, False),   # 'Birds of Prey Vol. 1 - Trouble in Mind (2012)' for the 2015 trades' Volume 1
+    ('TPB', '2014', 2014, True),    # 'Batwoman Vol. 5 - Webs (2014)'
+    ('TPB', '2016', 2015, True),    # released the year after its cover date
+    ('HC', '2010', 2015, False),
+    ('TPB', None, 2015, True),      # no year on the result: the volume label still decides
+    ('Print', '2012', 2015, True),  # only collected editions use 'Vol. N' as their number
+])
+def test_a_collected_volume_must_be_from_the_wanted_year(booktype, result_year, wanted_year, fits):
+    from mylar.search_filer import volume_year_fits
+    assert volume_year_fits(booktype, result_year, wanted_year) is fits
