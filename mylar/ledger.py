@@ -8,7 +8,7 @@ import threading
 import zipfile
 import xml.etree.ElementTree as ET
 
-from collections import defaultdict
+from collections import Counter, defaultdict
 
 import mylar
 from mylar import db, logger
@@ -664,7 +664,9 @@ def related(comicid):
         s = comics[sid]
         groups.append({'cid': sid, 'name': s['ComicName'], 'year': s['ComicYear'], 'issues': len(rows),
                        'this': sid == comicid, 'trades': items, 'collects': _spans(collects, labels),
-                       'whole': len(collects) == len(rows)})
+                       'whole': len(collects) == len(rows),
+                       # how the single issues this trade collects stand in the series
+                       'singles': dict(Counter(status[rows[k]['IssueID']]['Status'] or 'Skipped' for k in collects))})
     ids = [i['iid'] for g in groups for i in g['trades']]
     titles = {}
     for k in range(0, len(ids), 500):

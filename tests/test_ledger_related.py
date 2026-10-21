@@ -53,4 +53,4 @@ def test_a_one_issue_trade_links_to_the_other_volumes_of_the_same_series(lib):
 @pytest.mark.unit
 def test_a_trade_page_says_what_it_collects_in_the_heading(lib):
     g = ledger.related('V7')['groups'][0]
-    assert g['collects'] == '#7-9' and not g['whole']
+    assert g['collects'] == '#7-9' and not g['whole'] and g['singles'] == {'Downloaded': 3}
