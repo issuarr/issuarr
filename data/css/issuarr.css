@@ -427,6 +427,7 @@ table.dt td.actions .btn { min-width: 92px; }
   padding: 6px; background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius); box-shadow: 0 16px 40px rgba(0, 0, 0, .35);
 }
 .menu.menu-up > .menu-list { top: auto; bottom: calc(100% + 6px); }
+.menu.menu-fixed > .menu-list { position: fixed; right: auto; bottom: auto; max-height: calc(100vh - 12px); overflow-y: auto; }
 .menu-list .btn { justify-content: flex-start; width: 100%; }
 .menu-list hr { border: 0; border-top: 1px solid var(--line); margin: 4px 2px; }
 
