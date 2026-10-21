@@ -1100,41 +1100,36 @@ class GC(object):
                     if not link_matched and site_lp == 'mega':
                         sub_site_chk = [y for y in tmp_sites if 'mega' in y]
                         if sub_site_chk:
-                            try:
-                               kk = tmp_links[site_position['SD-Digital:mega']]
-                               logger.info('[MEGA] SD-Digital preference detected...attempting %s' % kk['series'])
-                               link_matched = True
-                            except KeyError:
-                                kk = tmp_links[site_position['normal:mega']]
-                                logger.info('[MEGA] mega preference detected...attempting %s' % kk['series'])
+                            # SD first, then an unlabelled post, then HD: a post can have only HD-Digital links
+                            key = next((k for k in ('SD-Digital:mega', 'normal:mega', 'HD-Digital:mega', 'HD-Upscaled:mega') if k in site_position), None)
+                            if key is not None:
+                                kk = tmp_links[site_position[key]]
+                                logger.info('[MEGA] %s preference detected...attempting %s' % (key, kk['series']))
                                 link_matched = True
 
                     elif not link_matched and site_lp == 'pixeldrain':
                         sub_site_chk = [y for y in tmp_sites if 'pixel' in y]
                         if sub_site_chk:
-                            try:
-                                kk = tmp_links[site_position['SD-Digital:pixeldrain']]
-                                logger.info('[PixelDrain] SD-Digital preference detected...attempting %s' % kk['series'])
-                                link_matched = True
-                            except KeyError:
-                                kk = tmp_links[site_position['normal:pixeldrain']]
-                                logger.info('[PixelDrain] PixelDrain preference detected...attempting %s' % kk['series'])
+                            # SD first, then an unlabelled post, then HD: a post can have only HD-Digital links
+                            key = next((k for k in ('SD-Digital:pixeldrain', 'normal:pixeldrain', 'HD-Digital:pixeldrain', 'HD-Upscaled:pixeldrain') if k in site_position), None)
+                            if key is not None:
+                                kk = tmp_links[site_position[key]]
+                                logger.info('[PixelDrain] %s preference detected...attempting %s' % (key, kk['series']))
                                 link_matched = True
 
                     elif not link_matched and site_lp == 'mediafire':
                         sub_site_chk = [y for y in tmp_sites if 'mediafire' in y]
                         if sub_site_chk:
-                            try:
-                                kk = tmp_links[site_position['SD-Digital:mediafire']]
-                                logger.info('[mediafire] SD-Digital preference detected...attempting %s' % kk['series'])
-                                link_matched = True
-                            except KeyError:
-                                kk = tmp_links[site_position['normal:mediafire']]
-                                logger.info('[mediafire] mediafire preference detected...attempting %s' % kk['series'])
+                            # SD first, then an unlabelled post, then HD: a post can have only HD-Digital links
+                            key = next((k for k in ('SD-Digital:mediafire', 'normal:mediafire', 'HD-Digital:mediafire', 'HD-Upscaled:mediafire') if k in site_position), None)
+                            if key is not None:
+                                kk = tmp_links[site_position[key]]
+                                logger.info('[mediafire] %s preference detected...attempting %s' % (key, kk['series']))
                                 link_matched = True
 
                     elif not link_matched and site_lp == 'main':
-                        for main_key in ('SD-Digital:download now', 'SD-Digital:mirror download', 'normal:download now', 'normal:mirror download'):
+                        for main_key in ('SD-Digital:download now', 'SD-Digital:mirror download', 'normal:download now', 'normal:mirror download',
+                                         'HD-Digital:download now', 'HD-Digital:mirror download', 'HD-Upscaled:download now', 'HD-Upscaled:mirror download'):
                             if main_key in site_position:
                                 kk = tmp_links[site_position[main_key]]
                                 logger.info('[MAIN-SERVER] %s preference detected...attempting %s' % (main_key, kk['series']))
