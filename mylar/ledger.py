@@ -606,3 +606,69 @@ def remove_singles(trade_ids):
                 logger.warn('[LEDGER] Rescan of %s failed: %s' % (cid, e))
     threading.Thread(target=rescan, name='LEDGER-RESCAN', daemon=True).start()
     return {'ok': not failed, 'moved': moved, 'failed': failed, 'skipped': skipped, 'dest': root, 'undo': undo}
+
+
+
+def _spans(positions, labels):
+    """Places in the series' own issue order as runs: [3, 4, 5, 7] with labels ['40', ...] reads #43-45, #47."""
+    pos, out, start = sorted(set(positions)), [], None
+    for k, p in enumerate(pos):
+        if start is None:
+            start = p
+        if k + 1 == len(pos) or pos[k + 1] != p + 1:
+            out.append('#%s' % labels[p] if start == p else '#%s-%s' % (labels[start], labels[p]))
+            start = None
+    return ', '.join(out)
+
+
+def related(comicid):
+    """The series page's Related TPBs. For a single-issue series: every trade that collects any of its issues.
+    For a trade: the single-issue series it collects, each with all the trades that collect it, so trades
+    that ComicVine files as separate one-issue series (a lone Vol. 7) still sit next to their other volumes."""
+    myDB = db.DBConnection()
+    status, comics = _lookups(myDB)
+    c = comics.get(comicid)
+    if c is None:
+        return {'groups': [], 'trade': False, 'stored': 0}
+    trades = _trades(myDB, status, comics)
+    is_trade = (c['Corrected_Type'] or c['Type']) in TRADE_TYPES
+    mine, series = set(), [comicid]
+    if is_trade:
+        mine, series = {i for i, r in status.items() if r['ComicID'] == comicid}, []
+        for x in trades:
+            if x['row']['TradeIssueID'] in mine:
+                for f in x['found']:
+                    sid = status[f]['ComicID']
+                    if sid not in series and (comics[sid]['Corrected_Type'] or comics[sid]['Type']) not in TRADE_TYPES:
+                        series.append(sid)
+    groups = []
+    for sid in series:
+        rows = myDB.select('SELECT IssueID, Issue_Number FROM issues WHERE ComicID=? ORDER BY Int_IssueNumber, IssueDate', [sid])
+        order = {r['IssueID']: k for k, r in enumerate(rows)}
+        labels = [r['Issue_Number'] for r in rows]
+        items = []
+        for x in trades:
+            got = [order[f] for f in x['found'] if f in order]
+            if not got:
+                continue
+            t, tc, iid = x['trade'], x['comic'], x['row']['TradeIssueID']
+            items.append({'iid': iid, 'cid': x['row']['TradeComicID'], 'name': tc['ComicName'], 'year': tc['ComicYear'],
+                          'num': t['Issue_Number'], 'type': tc['Corrected_Type'] or tc['Type'], 'status': t['Status'],
+                          'issues': _spans(got, labels), 'count': len(set(got)), 'whole': len(set(got)) == len(rows),
+                          'this': iid in mine, 'first': min(got)})
+        if not items:
+            continue
+        items.sort(key=lambda i: (i['first'], -i['count'], i['name'].lower(), str(i['year'])))
+        s = comics[sid]
+        groups.append({'cid': sid, 'name': s['ComicName'], 'year': s['ComicYear'], 'issues': len(rows),
+                       'this': sid == comicid, 'trades': items})
+    ids = [i['iid'] for g in groups for i in g['trades']]
+    titles = {}
+    for k in range(0, len(ids), 500):
+        part = ids[k:k + 500]
+        titles.update({r['IssueID']: r['IssueName'] for r in myDB.select(
+            'SELECT IssueID, IssueName FROM issues WHERE IssueID IN (%s)' % ','.join('?' * len(part)), part)})
+    for g in groups:
+        for i in g['trades']:
+            i['title'] = titles.get(i['iid']) or ''
+    return {'groups': groups, 'trade': is_trade, 'stored': status_summary(myDB)['stored']}

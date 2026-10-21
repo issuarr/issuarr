@@ -505,6 +505,7 @@
              </div>
          %endif
      </div>
+     <section class="related-tpbs" id="related-tpbs" data-comicid="${comic['ComicID'] | h}" aria-label="Related TPBs" hidden></section>
   </div>
  </div>
 </%def>
@@ -522,6 +523,7 @@
         <script src="js/libs/dataTables.rowGroup.min.js"></script>
         <script src="js/matching.js?v=${mylar.CURRENT_VERSION}"></script>
         <script src="js/series-details.js?v=${mylar.CURRENT_VERSION}"></script>
+        <script src="js/related-tpbs.js?v=${mylar.CURRENT_VERSION}"></script>
         <style>
         .ui-autocomplete-loading {
           background: white url('images/loader_black.gif') right center no-repeat;
