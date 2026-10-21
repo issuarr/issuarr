@@ -198,27 +198,33 @@ def jd2_queue_monitor(queue):
                             continue
                         if mylar.CONFIG.POST_PROCESSING is True:
                             dest_root = getattr(mylar.CONFIG, 'JD2_DEST_DIR', None) or None
-                            folder_name = (
+                            # the folder JD2 really used; it can name the package after the post's own folder
+                            folder_name = jd2_folder(jd2_client, job_id, record_id) or (
                                 "%s - %s" % (item.get('filename'), record_id)
                                 if item.get('filename')
                                 else "%s (%s) - %s" % (series, year, record_id)
                             )
                             nzb_folder = os.path.join(dest_root, folder_name)
+                            pack = ddl.is_pack(dict(item, id=record_id), myDB)
+                            # a pack that came as many files is filed as a whole folder against the series;
+                            # one that came as a single zip is unpacked by post-processing as before
+                            whole_folder = bool(pack) and ((status_payload or {}).get('files') or 1) > 1
+                            nzb_name = folder_name if whole_folder else (job_filename or 'Manual Run')
 
                             if nzb_folder:
                                 try:
                                     mylar.PP_QUEUE.put({
-                                        'nzb_name': job_filename or 'Manual Run',
+                                        'nzb_name': nzb_name,
                                         'nzb_folder': nzb_folder,
                                         'failed': False,
-                                        'issueid': item.get('issueid'),
+                                        'issueid': None if whole_folder else item.get('issueid'),
                                         'comicid': item.get('comicid'),
                                         'apicall': True,
                                         'ddl': True,
-                                        'pack': ddl.is_pack(dict(item, id=record_id), myDB),
+                                        'pack': pack,
                                         'download_info': {'provider': 'JD2', 'id': record_id, 'job_id': job_id},
                                     })
-                                    logger.info('[JD2-QUEUE] Submitted %s for post-processing (folder: %s).', job_filename, nzb_folder)
+                                    logger.info('[JD2-QUEUE] Submitted %s for post-processing (folder: %s).', nzb_name, nzb_folder)
                                     jd2_client.remove(job_id, record_id)
                                 except Exception as err:
                                     logger.warn('[JD2-QUEUE] Unable to enqueue %s for post-processing: %s', job_filename, err)
@@ -256,6 +262,11 @@ def jd2_queue_monitor(queue):
         else:
             HOLDING[0] = None
             time.sleep(10)
+
+
+def jd2_folder(jd2_client, job_id, record_id):
+    folder = getattr(jd2_client, 'folder', None)
+    return folder(job_id, record_id) if folder else None
 
 
 COMIC_FILES = ('.cbz', '.cbr', '.cb7', '.cbt', '.pdf', '.zip', '.rar', '.7z')

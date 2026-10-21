@@ -1434,6 +1434,13 @@ class GC(object):
 
                 for entry in other_links:
                     jd2_priority_links.setdefault(entry['links'], jd2_priority_map.get(entry['source'], 'LOWEST'))
+                if x.get('pack') and len(jd2_priority_links) > 1:
+                    # A pack's hosts aren't mirrors JD2 can match up (a zip on one, the single issues on
+                    # another), so JD2 downloaded the whole pack once per host. Send the best host only;
+                    # if it fails, the DDL failover tries the others.
+                    rank = lambda kv: jd2_priority_list.index(kv[1]) if kv[1] in jd2_priority_list else len(jd2_priority_list)
+                    best = min(jd2_priority_links.items(), key=rank)
+                    jd2_priority_links = dict([best])
                 if link_type not in ('GC-Main', 'GC-Mirror') and 'GC-Main' not in (link_type_failure or []) and ddlsources.is_enabled('main'):
                     main_entry = next((e for e in (tmp_links or []) if isinstance(e, dict) and (e.get('site') or '').lower() in ('main server', 'download now', 'mirror download') and e.get('links')), None)
                     if main_entry is not None:

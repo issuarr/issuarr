@@ -174,7 +174,7 @@ class JDownloader2(object):
 
     def _links(self, endpoint, query):
         extra = {'availability': True} if endpoint.startswith('linkgrabber') else {'finished': True, 'bytesLoaded': True}
-        query = dict(query, status=True, packageUUID=True, jobUUID=True, uuid=True, name=True, maxResults=1000, startAt=0, **extra)
+        query = dict(query, status=True, packageUUID=True, jobUUID=True, uuid=True, name=True, host=True, maxResults=1000, startAt=0, **extra)
         r = self.session.get(self._url(endpoint), params={'queryParams': json.dumps(query)}, timeout=self.timeout)
         r.raise_for_status()
         data = (r.json() or {}).get('data') or []
@@ -214,9 +214,20 @@ class JDownloader2(object):
         grabber = found['linkgrabberv2'][0]
         if not links and not grabber:
             return {'found': False, 'status': None, 'data': None}
-        done = [l for l in links if l.get('finished') is True or any(d in str(l.get('status') or '').lower() for d in self.DONE)]
-        if done:
-            return {'found': True, 'status': 'Finished', 'data': done[0]}
+        is_done = lambda l: l.get('finished') is True or any(d in str(l.get('status') or '').lower() for d in self.DONE)
+        is_dead = lambda l: any(d in str(l.get('status') or '').lower() for d in self.DEAD)
+        # Each file host is one mirror of the post. A mirror can be one file or every file of a pack
+        # (a zip on one host, the single issues on another), so the job is done once one host has
+        # finished all of its files - not when the first file of a pack lands.
+        hosts = {}
+        for l in links:
+            hosts.setdefault(l.get('host'), []).append(l)
+        # files of a host still in the link grabber haven't started yet (a big folder is still being added)
+        waiting = {l.get('host') for l in grabber if not any(d in str(l.get('availability') or '').lower() for d in self.DEAD)}
+        for host, host_links in hosts.items():
+            done = [l for l in host_links if is_done(l)]
+            if done and host not in waiting and all(is_done(l) or is_dead(l) for l in host_links):
+                return {'found': True, 'status': 'Finished', 'data': done[0], 'files': len(done)}
         states = [str(l.get('status') or '').lower() for l in links] + [str(l.get('availability') or '').lower() for l in grabber]
         if all(st and any(d in st for d in self.DEAD) for st in states):
             reasons = {str(l.get('status')) for l in links} | {str(l.get('availability')) for l in grabber}
@@ -225,6 +236,24 @@ class JDownloader2(object):
         # bytes downloaded so far across the package, so the monitor can tell a slow download from a stuck one
         loaded = [l['bytesLoaded'] for l in links if isinstance(l.get('bytesLoaded'), (int, float))]
         return {'found': True, 'status': first.get('status') or 'Queued', 'data': first, 'loaded': sum(loaded) if loaded else None}
+
+    def folder(self, job_id: str, record_id: Optional[str] = None) -> Optional[str]:
+        """Name of the folder JD2 saved the job's package in. JD2 can rename a package after the post's
+        own folder name, so it isn't always the name Issuarr asked for."""
+        try:
+            packages = self._job_links(job_id, record_id)['downloadsV2'][1]
+            if not packages:
+                return None
+            r = self.session.get(self._url('downloadsV2/queryPackages'),
+                                 params={'queryParams': json.dumps({'uuid': True, 'name': True, 'saveTo': True, 'packageUUIDs': packages})},
+                                 timeout=self.timeout)
+            r.raise_for_status()
+            for p in (r.json() or {}).get('data') or []:
+                if isinstance(p, dict) and p.get('uuid') in packages and p.get('saveTo'):
+                    return os.path.basename(str(p['saveTo']).replace('\\', '/').rstrip('/'))
+        except Exception as err:
+            logger.warn('[JD2] Unable to look up the folder of job %s: %s', job_id, err)
+        return None
 
     def remove(self, job_id: str, record_id: Optional[str] = None) -> None:
         if not job_id and not record_id:
