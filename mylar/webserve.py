@@ -5158,6 +5158,13 @@ class WebInterface(object):
         return json.dumps(ddlsources.pixeldrain_status(force=helpers.str_to_bool(force), key=key))
     pixeldrain_status.exposed = True
 
+    def client_status(self, force=0, **kwargs):
+        # the sidebar's Service status: the download clients that are turned on, and whether they answer
+        cherrypy.response.headers['Content-Type'] = 'application/json'
+        from mylar import clientstatus
+        return json.dumps({'clients': clientstatus.status(force=helpers.str_to_bool(force))})
+    client_status.exposed = True
+
     def ledger_cutoff(self, cutoff='', **kwargs):
         cherrypy.response.headers['Content-Type'] = 'application/json'
         cutoff = cutoff.strip()
