@@ -797,20 +797,28 @@ class GC(object):
         soup = BeautifulSoup(open(title + '.html', encoding='utf-8'), 'html.parser')
 
         single = self._single_item(soup, comicinfo, link_type_failure)
+        if single and single[1]['pack'] and not (isinstance(pack_issuelist, dict) and pack_issuelist.get('issues')):
+            single = None  # a range of issues needs the pack's issue list to file them
         if single:
             entries, chosen = single
             logger.info('[DDL] %s is listed on its own (%s) - downloading just that instead of the whole post, via %s.' % (chosen['series'], chosen['size'], chosen['site']))
             if isinstance(pack_issuelist, dict) and pack_issuelist.get('issues'):
-                keep_id = str(self.issueid or comicinfo[0]['IssueID'])
-                keep = [x for x in pack_issuelist['issues'] if str(x.get('issueid')) == keep_id]
+                if chosen['pack']:
+                    first, last = chosen['range']
+                    keep = [x for x in pack_issuelist['issues'] if first <= (self._issue_number(x.get('issuenumber')) or -1) <= last]
+                else:
+                    keep_id = str(self.issueid or comicinfo[0]['IssueID'])
+                    keep = [x for x in pack_issuelist['issues'] if str(x.get('issueid')) == keep_id]
                 for x in pack_issuelist['issues']:
                     if x not in keep:
                         mylar.PACK_ISSUEIDS_DONT_QUEUE.pop(x.get('issueid'), None)
                 pack_issuelist['issues'][:] = keep
+            if chosen['pack']:
+                packinfo = dict(packinfo, pack_numbers=chosen['issues'])
             if chosen['source'] == 'torrent':
                 return self._send_torrent(chosen, id, mainlink, comicinfo, packinfo, link_type_failure)
             others = [dict(e) for e in entries if e is not chosen and e['source'] not in ddlsources.BUILTIN and e['source'] != 'torrent']
-            return self._queue_links([chosen], entries, others, id, mainlink, comicinfo, None, link_type_failure, myDB)
+            return self._queue_links([chosen], entries, others, id, mainlink, comicinfo, packinfo if chosen['pack'] else None, link_type_failure, myDB)
 
         i = 0
         possible_more = None
@@ -1485,6 +1493,13 @@ class GC(object):
             pass
         return {'success': True, 'site': 'GC-Torrent', 'torrent': sent}
 
+    @staticmethod
+    def _issue_number(v):
+        try:
+            return float(re.sub(r'^0+(?=\d)', '', str(v).strip()))
+        except (TypeError, ValueError):
+            return None
+
     def _single_item(self, soup, comicinfo, link_type_failure=None):
         try:
             name = comicinfo[0]['ComicName']
@@ -1492,23 +1507,25 @@ class GC(object):
         except Exception:
             return None
         norm = lambda v: re.sub(r'[^a-z0-9]', '', re.sub(r'^the\s+', '', (v or '').lower().replace('&', 'and')))
-        def number(v):
-            try:
-                return float(re.sub(r'^0+(?=\d)', '', v))
-            except (TypeError, ValueError):
-                return None
+        number = self._issue_number
         want = number(wanted)
         if want is None:
             return None
-        pattern = re.compile(r'^(?P<title>.+?(?:#|\bVol(?:ume)?\.?\s*)(?P<num>\d+(?:\.\d+)?))\s*(?:\((?P<year>\d{4})\))?\s*\((?P<size>[\d.,]+\s*[KMGT]B)\)', re.I)
+        # 'Name Vol. 4 (2008) (575 MB)', 'Name Vol. 5 - Webs (2014) (316 MB)' or a range 'Name #957 - 968 (2016-2017) (459 MB)'
+        pattern = re.compile(r'^(?P<title>(?P<name>.+?)(?:#|\bVol(?:ume)?\.?\s*)(?P<num>\d+(?:\.\d+)?)(?:\s*-\s*#?(?P<last>\d+(?:\.\d+)?))?)'
+                             r'(?:\s+-\s+[^()]+?)?\s*(?:\((?P<year>\d{4})(?:\s*-\s*\d{4})?\))?\s*\((?P<size>[\d.,]+\s*[KMGT]B)\)', re.I)
         for li in soup.find_all('li'):
             text = re.sub(r'\s+', ' ', li.get_text(' ', strip=True).replace('\u2013', '-'))
             m = pattern.match(text)
-            if not m or number(m.group('num')) != want:
+            if not m:
+                continue
+            first, last = number(m.group('num')), number(m.group('last'))
+            if not (want == first or (last is not None and first <= want <= last)):
                 continue
             title = m.group('title').strip()
-            if norm(name) not in norm(re.sub(r'(#|\bVol(?:ume)?\.?)\s*\d+(\.\d+)?$', '', title)):
+            if norm(name) not in norm(m.group('name')):
                 continue
+            issues = m.group('num') if last is None else '%s - %s' % (m.group('num'), m.group('last'))
             entries = []
             for a in li.find_all('a'):
                 site = a.get_text(' ', strip=True)
@@ -1525,7 +1542,8 @@ class GC(object):
                 if link_type_failure and any(src[:4] in str(t).lower() or (src == 'main' and 'main' in str(t).lower()) for t in link_type_failure):
                     continue
                 entries.append({'series': title, 'site': 'Main Server' if src == 'main' else site, 'year': m.group('year') or '',
-                                'issues': m.group('num'), 'size': m.group('size'), 'links': href, 'pack': False, 'source': src})
+                                'issues': issues, 'size': m.group('size'), 'links': href, 'pack': last is not None,
+                                'range': (first, last), 'source': src})
             if not entries:
                 continue
             size = ddlsources.size_bytes(m.group('size'))
