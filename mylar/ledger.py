@@ -622,7 +622,7 @@ def _spans(positions, labels):
 
 
 def related(comicid):
-    """The series page's Related TPBs. For a single-issue series: every trade that collects any of its issues.
+    """The series page's Related issues and TPBs. For a single-issue series: every trade that collects any of its issues.
     For a trade: the single-issue series it collects, each with all the trades that collect it, so trades
     that ComicVine files as separate one-issue series (a lone Vol. 7) still sit next to their other volumes."""
     myDB = db.DBConnection()

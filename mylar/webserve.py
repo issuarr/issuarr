@@ -5148,7 +5148,7 @@ class WebInterface(object):
     webp_reset.exposed = True
 
     def ledger_related(self, ComicID, **kwargs):
-        # the series page's Related TPBs
+        # the series page's Related issues and TPBs
         cherrypy.response.headers['Content-Type'] = 'application/json'
         return json.dumps(ledger.related(ComicID))
     ledger_related.exposed = True

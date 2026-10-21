@@ -1,4 +1,4 @@
-/* Series page: Related TPBs. Trades that collect this series' issues, or, on a trade, the other trades
+/* Series page: Related issues and TPBs. Trades that collect this series' issues, or, on a trade, the other trades
    that collect the same series, so volumes ComicVine files as separate one-issue series link to each other. */
 (function () {
   'use strict';
@@ -21,10 +21,10 @@
     if (!d.groups.length) {
       if (d.stored) return;
       box.hidden = false;
-      box.innerHTML = '<h2 class="rt-title">Related TPBs</h2><p class="rt-dim">Trade contents haven\'t been read yet. Use <a href="ledger#trades">Library › Trades</a> to read them.</p>';
+      box.innerHTML = '<h2 class="rt-title">Related issues and TPBs</h2><p class="rt-dim">Trade contents haven\'t been read yet. Use <a href="ledger#trades">Library › Trades</a> to read them.</p>';
       return;
     }
-    var html = '<h2 class="rt-title">Related TPBs</h2>';
+    var html = '<h2 class="rt-title">Related issues and TPBs</h2>';
     d.groups.forEach(function (g) {
       if (d.trade) html += '<h3 class="rt-series">Collects from <a href="comicDetails?ComicID=' + encodeURIComponent(g.cid) + '">' + esc(g.name) + ' (' + esc(g.year) + ')</a> <span class="rt-dim">' + g.issues + ' issue' + (g.issues === 1 ? '' : 's') + ' tracked</span></h3>';
       html += '<div class="rt-tablebox"><table class="rt-table"><thead><tr><th>Trade</th><th>Format</th><th>' + (d.trade ? 'Issues of ' + esc(g.name) : 'Issues it collects') + '</th><th>Status</th></tr></thead><tbody>' +

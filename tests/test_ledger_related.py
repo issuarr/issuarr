@@ -1,4 +1,4 @@
-"""Series page: Related TPBs links trades through the single-issue series they collect."""
+"""Series page: Related issues and TPBs links trades through the single-issue series they collect."""
 import pytest
 
 from mylar import ledger
