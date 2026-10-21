@@ -2212,6 +2212,9 @@ class WebInterface(object):
             myDB.action('DELETE from upcoming WHERE ComicID=?', [ComicID])
             myDB.action('DELETE from readlist WHERE ComicID=?', [ComicID])
             myDB.action("UPDATE weekly SET Status='Skipped' WHERE ComicID=? AND Status='Wanted'", [ComicID])
+            dropped = search.drop_series(ComicID)
+            if dropped:
+                logger.info('Removed %s queued searches for %s.' % (dropped, ComicName))
             if delete_dir: #mylar.CONFIG.DELETE_REMOVE_DIR:
                 logger.fdebug('Remove directory on series removal enabled.')
                 if seriesdir is not None:
