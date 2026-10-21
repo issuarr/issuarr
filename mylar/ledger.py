@@ -8,7 +8,7 @@ import threading
 import zipfile
 import xml.etree.ElementTree as ET
 
-from collections import defaultdict
+from collections import Counter, defaultdict
 
 import mylar
 from mylar import db, logger
@@ -622,7 +622,7 @@ def _spans(positions, labels):
 
 
 def related(comicid):
-    """The series page's Related TPBs. For a single-issue series: every trade that collects any of its issues.
+    """The series page's Related issues and TPBs. For a single-issue series: every trade that collects any of its issues.
     For a trade: the single-issue series it collects, each with all the trades that collect it, so trades
     that ComicVine files as separate one-issue series (a lone Vol. 7) still sit next to their other volumes."""
     myDB = db.DBConnection()
@@ -646,12 +646,14 @@ def related(comicid):
         rows = myDB.select('SELECT IssueID, Issue_Number FROM issues WHERE ComicID=? ORDER BY Int_IssueNumber, IssueDate', [sid])
         order = {r['IssueID']: k for k, r in enumerate(rows)}
         labels = [r['Issue_Number'] for r in rows]
-        items = []
+        items, collects = [], set()
         for x in trades:
             got = [order[f] for f in x['found'] if f in order]
             if not got:
                 continue
             t, tc, iid = x['trade'], x['comic'], x['row']['TradeIssueID']
+            if iid in mine:
+                collects.update(got)
             items.append({'iid': iid, 'cid': x['row']['TradeComicID'], 'name': tc['ComicName'], 'year': tc['ComicYear'],
                           'num': t['Issue_Number'], 'type': tc['Corrected_Type'] or tc['Type'], 'status': t['Status'],
                           'issues': _spans(got, labels), 'count': len(set(got)), 'whole': len(set(got)) == len(rows),
@@ -661,7 +663,10 @@ def related(comicid):
         items.sort(key=lambda i: (i['first'], -i['count'], i['name'].lower(), str(i['year'])))
         s = comics[sid]
         groups.append({'cid': sid, 'name': s['ComicName'], 'year': s['ComicYear'], 'issues': len(rows),
-                       'this': sid == comicid, 'trades': items})
+                       'this': sid == comicid, 'trades': items, 'collects': _spans(collects, labels),
+                       'whole': len(collects) == len(rows),
+                       # how the single issues this trade collects stand in the series
+                       'singles': dict(Counter(status[rows[k]['IssueID']]['Status'] or 'Skipped' for k in collects))})
     ids = [i['iid'] for g in groups for i in g['trades']]
     titles = {}
     for k in range(0, len(ids), 500):
