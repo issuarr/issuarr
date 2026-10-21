@@ -38,3 +38,14 @@ def test_range_starting_below_zero():
 def test_ordinary_ranges_unchanged(title, series, issues):
     r = check(title)
     assert (r['pack'], r['series'], r['issues']) == (True, series, issues)
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize('title,booktype', [
+    ('X-Men Vol. 3 #1 – 41 + TPBs (2010-2013)', 'issue+TPB'),
+    ('Uncanny X-Men #1 – 35 + 600 + TPBs (2013-2016)', 'issue+TPB'),
+    ('Thunderbolts Vol. 2 #1 – 32 + TPB Vol. 1 – 5 (2013-2014)', 'issue+TPB'),
+    ('Batwoman Vol. 1 – 6 (TPB) (New 52) (2012-2015)', 'TPB'),
+])
+def test_issues_with_their_tpbs_added_on_are_not_just_a_tpb(title, booktype):
+    assert check(title)['gc_booktype'] == booktype

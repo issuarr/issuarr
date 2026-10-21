@@ -140,6 +140,10 @@ def names_series(title, names):
 class DownloadCancelled(Exception):
     pass
 
+# booktype of a pack of issues with its TPBs added on; it suits a search for either
+MIXED_BOOKTYPE = 'issue+TPB'
+
+
 class GC(object):
 
     def cookie_receipt(self, main_url=None):
@@ -1999,7 +2003,9 @@ class GC(object):
                 try:
                     if x == 'TPB':
                         if gc_booktype is None:
-                            gc_booktype = 'TPB'
+                            # '#1 - 41 + TPBs' is a run of issues with the trades added on
+                            mixed = '#' in og_title and any(r.startswith('+') and 'TPB' in r for r in pr)
+                            gc_booktype = MIXED_BOOKTYPE if mixed else 'TPB'
                         tpb = True
                     # may have to put HC/GN/One_shot in here as well...
                     if 'Annual' in x:

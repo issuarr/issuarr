@@ -123,6 +123,8 @@ def with_extra_words(parsed, watchcomic, year):
 def edition_fits(booktype, parsed_booktype, ignore_booktype=False, title=None):
     """Whether a result's edition (parsed_booktype, as the parser reads it) suits a series of
     booktype. title is the result's name."""
+    if parsed_booktype == 'issue+TPB':  # getcomics.MIXED_BOOKTYPE: '#1 - 41 + TPBs'
+        return any(edition_fits(booktype, b, ignore_booktype, title) for b in ('issue', 'TPB'))
     return bool(
         all([booktype is None, parsed_booktype == 'issue'])
         or all([booktype == 'Print', parsed_booktype == 'issue'])

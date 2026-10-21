@@ -49,3 +49,12 @@ def test_a_collected_series_still_turns_single_issues_away():
 def test_accept_any_edition_takes_everything():
     assert edition_fits('Print', 'TPB', ignore_booktype=True)
     assert edition_fits('One-Shot', 'HC', ignore_booktype=True)
+
+
+@pytest.mark.unit
+def test_a_run_of_issues_with_its_tpbs_suits_issue_and_tpb_searches():
+    # 'X-Men Vol. 3 #1 - 41 + TPBs' was thrown out when searching a Print series
+    from mylar.search_filer import edition_fits
+    for booktype in (None, 'Print', 'Digital', 'TPB'):
+        assert edition_fits(booktype, 'issue+TPB')
+    assert not edition_fits('Print', 'TPB')
