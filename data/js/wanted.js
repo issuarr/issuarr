@@ -51,7 +51,7 @@
     return link;
   }
 
-  // Where the issue is on its way to the library, from the flow line's data.
+  // Where the issue is on its way to the library, from the flow data (js/flow.js).
   // The search queue knows story-arc issues by their arc issue id.
   function ago(at) {
     var m = Math.round((Date.now() / 1000 - at) / 60);
@@ -185,7 +185,7 @@
       });
   }
 
-  /* ---- where each issue is: from the flow line above the list ---- */
+  /* ---- where each issue is: from the flow data (js/flow.js) ---- */
   document.addEventListener('issuarr:flow', function (e) {
     var d = e.detail.now;
     var before = st.current;

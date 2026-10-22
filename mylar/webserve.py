@@ -4914,6 +4914,7 @@ class WebInterface(object):
                 myDB.action('DELETE from issues WHERE ComicID=?', [cl['ComicID']])
                 if mylar.CONFIG.ANNUALS_ON:
                     myDB.action('DELETE from annuals WHERE ComicID=?', [cl['ComicID']])
+                search.drop_series(cl['ComicID'])
                 logger.info('[MANAGE COMICS][DELETION] Successfully deleted ' + cl['ComicName'] + '(' + str(cl['ComicYear']) + ')')
             elif action == 'pause':
                 controlValueDict = {'ComicID': cl['ComicID']}
@@ -4992,7 +4993,7 @@ class WebInterface(object):
     search_status.exposed = True
 
     def activity_flow(self):
-        # The flow line on Wanted and Downloads > Queue: search, download and filing side by side.
+        # The flow line on Downloads > Queue (and where each Wanted row is): search, download and filing side by side.
         cherrypy.response.headers['Content-Type'] = 'application/json'
         return json.dumps(activity.flow())
     activity_flow.exposed = True
@@ -10598,6 +10599,7 @@ class WebInterface(object):
             myDB.action('DELETE from upcoming WHERE ComicID=?', [comicid])
             myDB.action('DELETE from readlist WHERE ComicID=?', [comicid])
             myDB.action("UPDATE weekly SET Status='Skipped' WHERE ComicID=? AND Status='Wanted'", [comicid])
+            search.drop_series(comicid)
             warnings = 0
             if delete_dir:
                 logger.fdebug('Remove directory on series removal enabled.')

@@ -183,6 +183,7 @@ LOCAL_IP = None
 APILOCK = False
 SEARCHLOCK = False
 SEARCH_CURRENT = None  # the search-queue item being searched, for the Wanted page
+SEARCH_ABORT = None  # ComicID of SEARCH_CURRENT once its series is deleted: stop that search
 CMTAGGER_PATH = None
 STATIC_COMICRN_VERSION = "1.01"
 STATIC_APC_VERSION = "2.04"

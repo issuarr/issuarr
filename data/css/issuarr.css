@@ -1252,7 +1252,7 @@ body.set-searching .set-notify:not(:has(.set-hit)) { display: none; }
 .q-src b { display: block; color: var(--text); font-weight: 600; font-size: 13.5px; }
 
 /* ---------- Flow line: Wanted, Searching, Downloading, Filing, Added today ----------
-   On Wanted and Downloads > Queue. Each stop takes the color of the issue status it holds
+   On Downloads > Queue. Each stop takes the color of the issue status it holds
    (Wanted, then Snatched, then Have); custom CSS can recolor one with --flow-<stop>, set on
    :root (the stage tokens live there so the Running now box matches). */
 
@@ -1286,6 +1286,10 @@ body.set-searching .set-notify:not(:has(.set-hit)) { display: none; }
 @keyframes flow-run { from { background-position: 0 0; } to { background-position: 16px 0; } }
 @keyframes flow-run-down { from { background-position: 0 0; } to { background-position: 0 16px; } }
 
+/* A stop whose "now" links elsewhere (the series being searched) lays out like the stop's link does. */
+.flow-stop.has-now-link { display: flex; flex-direction: column; gap: 1px; padding-right: 18px; }
+.flow-stop.has-now-link > a:first-child { padding-right: 0; }
+a.flow-now:hover { color: var(--text); text-decoration: underline; text-underline-offset: 3px; }
 .flow-stop > a { display: flex; flex-direction: column; gap: 1px; min-width: 0; padding-right: 18px; color: var(--text); border-radius: var(--radius-sm); }
 .flow-stop > a:hover { text-decoration: none; }
 .flow-name { font-size: 13px; font-weight: 600; color: var(--muted); }
