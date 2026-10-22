@@ -479,7 +479,7 @@ class GC(object):
                     errno.EHOSTUNREACH,
                 ]
             ):
-                helpers.disable_provider('DDL', 'Connection Refused.')
+                helpers.disable_provider('DDL(GetComics)', 'Connection Refused.')
             return 'no results'
         except Exception as err:
             logger.warn(
@@ -488,7 +488,7 @@ class GC(object):
             )
             if 'Unable to identify Cloudflare IUAM' in str(err):
                 helpers.disable_provider(
-                    'DDL', 'Unable to identify Cloudflare IUAM Javascript on website'
+                    'DDL(GetComics)', 'Unable to identify Cloudflare IUAM Javascript on website'
                 )
 
             # since we're capturing exceptions here, searches from the search module

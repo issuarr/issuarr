@@ -369,6 +369,22 @@ def test_block_provider_check(monkeypatch, patch_time):
 
 
 @pytest.mark.unit
+@pytest.mark.parametrize("blocked,checked", [
+    ('DrunkenSlug (newznab)', 'DrunkenSlug'),                 # blocked during a search, checked when picking providers
+    ('DrunkenSlug (newznab) [RSS]', 'newznab: DrunkenSlug'),  # checked in the search order loop
+    ('Hydra [nzbhydra] (newznab)', 'Hydra [nzbhydra]'),
+    ('Jackett (torznab)', 'torznab: Jackett'),
+    ('32P', '32p'),
+])
+def test_block_provider_check_matches_other_spellings(monkeypatch, patch_time, blocked, checked):
+    monkeypatch.setattr(mylar, "PROVIDER_BLOCKLIST",
+                        [{'site': blocked, 'resume': tests.fixtures.TIME_SINCE_EPOCH + 120, 'reason': 'API Limit reached'}],
+                        raising=False)
+    assert helpers.block_provider_check(checked) is True
+    assert helpers.block_provider_check('Another indexer') is False
+
+
+@pytest.mark.unit
 def test_disable_provider(monkeypatch, patch_time):
     monkeypatch.setattr(mylar, "CONFIG", mylar.config.Config("./nothing"))
     monkeypatch.setattr(mylar.CONFIG, "BLOCKLIST_TIMER", 120, raising=False)
