@@ -1047,15 +1047,16 @@ textarea.css-editor.is-bad { border-color: var(--failed); }
 .set-noresults { margin: 8px 0 0; color: var(--muted); }
 .settings .set-panel:not(#tabs-7) { max-width: 980px; }
 /* Wide screens: groups side by side, each column kept narrow enough that a switch sits near its label.
-   A grid rather than CSS columns, so turning a setting on doesn't push groups into the other column. */
-.settings #tabs { container-type: inline-size; }
-@container (min-width: 1480px) {
-  .settings .set-panel:not(#tabs-7) { max-width: none; display: grid; grid-template-columns: repeat(2, minmax(0, 820px)); column-gap: 72px; align-items: start; }
-  .settings .set-panel:not(#tabs-7) > :not(.set-group), .settings .set-panel:not(#tabs-7)::before { grid-column: 1 / -1; }
-}
-@container (min-width: 2400px) {
-  .settings .set-panel:not(#tabs-7) { grid-template-columns: repeat(3, minmax(0, 760px)); }
-}
+   The page script deals the groups into .set-col columns that stack on their own, so a short group
+   (a section that's turned off) doesn't leave a gap the height of the group beside it.
+   A group always stays in the same column, so turning a setting on doesn't move groups around. */
+.settings .set-panel.set-multi:not(#tabs-7) { max-width: none; }
+.set-cols { display: grid; grid-template-columns: repeat(2, minmax(0, 820px)); column-gap: 72px; align-items: start; }
+.set-cols.set-cols-3 { grid-template-columns: repeat(3, minmax(0, 760px)); }
+.set-col { min-width: 0; }
+/* Search results from every section: one plain column, so matches don't sit alone in a far column. */
+body.set-searching .settings .set-panel.set-multi:not(#tabs-7) { max-width: 980px; }
+body.set-searching .set-cols { display: block; }
 .set-order-gap { flex: 1 1 100%; color: var(--text-2); font-size: 13px; }
 .settings label, .settings .set-label { float: none !important; width: auto !important; margin: 0 !important; font-size: 14px !important; line-height: 1.45; }
 .set-group { margin: 0 0 36px; }
