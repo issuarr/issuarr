@@ -75,9 +75,9 @@ def test_single_issue_uses_the_order():
 
 
 @pytest.mark.unit
-def test_torrent_left_out_when_torrent_search_is_off():
+def test_torrent_left_out_when_use_torrents_is_off():
     first('torrent', 'main')
-    mylar.CONFIG.ENABLE_TORRENT_SEARCH = False
+    mylar.CONFIG.ENABLE_TORRENTS = False
     entries, chosen = gc()._single_item(BeautifulSoup(SINGLE, 'html.parser'), INFO)
     assert chosen['source'] == 'main' and 'torrent' not in {e['source'] for e in entries}
 
@@ -139,3 +139,11 @@ def test_auto_snatch_watches_the_torrent(monkeypatch, tmp_path):
     mylar.CONFIG.AUTO_SNATCH = True
     run_post(monkeypatch, tmp_path, {'hash': 'ABC', 'clientmode': 'deluge'})
     assert mylar.SNATCHED_QUEUE.get_nowait() == {'issueid': '1', 'comicid': '100', 'hash': 'ABC'}
+
+
+@pytest.mark.unit
+def test_torrent_used_without_a_torrent_indexer():
+    # GetComics torrents only need Use torrents and a client, not Torznab
+    first('torrent', 'main')
+    mylar.CONFIG.ENABLE_TORRENT_SEARCH = False
+    assert ddlsources.torrent_ready() is True
