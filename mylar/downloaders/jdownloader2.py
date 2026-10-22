@@ -26,6 +26,28 @@ def local_folder():
     return None
 
 
+def job_ids(job_id):
+    """A JD2 job as Issuarr stores it: the ids JD2 gave each link it was sent, comma separated."""
+    return [j for j in str(job_id or '').split(',') if j.strip() and j.strip() != 'None']
+
+
+def local_path(save_to):
+    """A folder JD2 reports (its saveTo) as Issuarr sees it. JD2 can file a package in a subfolder
+    of its download folder, such as '2026-06/07', so the whole path under that folder is kept."""
+    if not save_to:
+        return None
+    save_to = str(save_to).replace('\\', '/').rstrip('/')
+    dest = str(getattr(mylar.CONFIG, 'JD2_DEST_DIR', None) or '').replace('\\', '/').rstrip('/')
+    local = local_folder()
+    if not local:
+        return None
+    if dest and dest != 'None' and (save_to == dest or save_to.startswith(dest + '/')):
+        rel = save_to[len(dest):].lstrip('/')
+    else:
+        rel = os.path.basename(save_to)
+    return os.path.join(local, rel) if rel else local
+
+
 class JDownloader2(object):
     """Simple helper for submitting links to JDownloader2 and polling status."""
 
@@ -68,6 +90,9 @@ class JDownloader2(object):
         endpoint = self._url(self.LINKGRABBER_ENDPOINT)
         payload = None
         job_id = None
+        # each link is its own JD2 job; all of them are kept, or a mirror JD2 finishes is never seen
+        ids = []
+        error = 'JD2 returned no job id'
         
         for url, priority in links.items():
             query['priority'] = priority
@@ -82,21 +107,24 @@ class JDownloader2(object):
                 resp.raise_for_status()
             except Exception as err:
                 logger.error('[JD2] Failed to submit %s (url=%s params=%s): %s', package_name, endpoint, params, err)
+                error = err
                 continue
-            if payload is None or job_id is None:
-                try:
-                    payload = resp.json() or None
-                    if isinstance(payload, dict):
-                        data = payload.get('data', payload)
-                        if isinstance(data, dict):
-                            job_id = data.get('id') or data.get('jobID')
-                            time.sleep(1)
-                except Exception as json_err:
-                    logger.warn('[JD2] Unable to decode submit response JSON: %s', json_err)
-                    
+            try:
+                link_payload = resp.json() or None
+                if isinstance(link_payload, dict):
+                    data = link_payload.get('data', link_payload)
+                    if isinstance(data, dict) and (data.get('id') or data.get('jobID')):
+                        ids.append(str(data.get('id') or data.get('jobID')))
+                        payload = payload or link_payload
+                        time.sleep(1)
+            except Exception as json_err:
+                logger.warn('[JD2] Unable to decode submit response JSON: %s', json_err)
+
+        if ids:
+            job_id = ','.join(ids)
         if job_id is None:
             logger.error('[JD2] No job id returned for %s', package_name)
-            return {'status': False, 'jobid': None, 'error': err}
+            return {'status': False, 'jobid': None, 'error': error}
 
         if record_id:
             try:
@@ -205,8 +233,8 @@ class JDownloader2(object):
         found = {}
         for area, endpoint in (('downloadsV2', 'downloadsV2/queryLinks'), ('linkgrabberv2', 'linkgrabberv2/queryLinks')):
             packages = set(self._packages(area, record_id))
-            if job_id:
-                packages |= {l.get('packageUUID') for l in self._links(endpoint, {'jobUUIDs': [job_id]}) if l.get('packageUUID')}
+            if job_ids(job_id):
+                packages |= {l.get('packageUUID') for l in self._links(endpoint, {'jobUUIDs': job_ids(job_id)}) if l.get('packageUUID')}
             links = self._links(endpoint, {'packageUUIDs': sorted(packages)}) if packages else []
             found[area] = (links, sorted(packages))
         return found
@@ -253,20 +281,26 @@ class JDownloader2(object):
         loaded = [l['bytesLoaded'] for l in links if isinstance(l.get('bytesLoaded'), (int, float))]
         return {'found': True, 'status': first.get('status') or 'Queued', 'data': first, 'loaded': sum(loaded) if loaded else None}
 
-    def folder(self, job_id: str, record_id: Optional[str] = None) -> Optional[str]:
-        """Name of the folder JD2 saved the job's package in. JD2 can rename a package after the post's
-        own folder name, so it isn't always the name Issuarr asked for."""
+    def _save_to(self, packages):
+        """{package uuid: the folder JD2 saves it to} for these packages of the download list."""
+        if not packages:
+            return {}
+        r = self.session.get(self._url('downloadsV2/queryPackages'),
+                             params={'queryParams': json.dumps({'uuid': True, 'name': True, 'saveTo': True, 'packageUUIDs': packages})},
+                             timeout=self.timeout)
+        r.raise_for_status()
+        return {p.get('uuid'): p['saveTo'] for p in (r.json() or {}).get('data') or []
+                if isinstance(p, dict) and p.get('uuid') in packages and p.get('saveTo')}
+
+    def folder(self, job_id: str, record_id: Optional[str] = None, package=None) -> Optional[str]:
+        """The folder JD2 saved the job's download in, as Issuarr sees it. JD2 can rename a package
+        after the post's own folder name, or file it in a dated subfolder, so it isn't always the
+        name Issuarr asked for. `package` is the package of the file that finished, when known."""
         try:
             packages = self._job_links(job_id, record_id)['downloadsV2'][1]
-            if not packages:
-                return None
-            r = self.session.get(self._url('downloadsV2/queryPackages'),
-                                 params={'queryParams': json.dumps({'uuid': True, 'name': True, 'saveTo': True, 'packageUUIDs': packages})},
-                                 timeout=self.timeout)
-            r.raise_for_status()
-            for p in (r.json() or {}).get('data') or []:
-                if isinstance(p, dict) and p.get('uuid') in packages and p.get('saveTo'):
-                    return os.path.basename(str(p['saveTo']).replace('\\', '/').rstrip('/'))
+            save_to = self._save_to(packages)
+            path = save_to.get(package) or next((save_to[p] for p in packages if p in save_to), None)
+            return local_path(path)
         except Exception as err:
             logger.warn('[JD2] Unable to look up the folder of job %s: %s', job_id, err)
         return None
@@ -276,9 +310,20 @@ class JDownloader2(object):
             return
         try:
             found = self._job_links(job_id, record_id)
+            try:
+                folders = [local_path(f) for f in self._save_to(found['downloadsV2'][1]).values()]
+            except Exception:
+                folders = []
             for area in ('downloadsV2', 'linkgrabberv2'):
                 packages = found[area][1]
                 if packages:
                     self.session.get(self._url('%s/removeLinks' % area), params={'linkIds': '[]', 'packageIds': json.dumps(packages)}, timeout=self.timeout)
+            for folder in folders:
+                # JD2 makes a package's folder when it starts on it; one whose links never downloaded stays empty
+                try:
+                    if folder and os.path.normpath(folder) != os.path.normpath(local_folder() or '') and os.path.isdir(folder) and not os.listdir(folder):
+                        os.rmdir(folder)
+                except OSError:
+                    pass
         except Exception as err:
             logger.warn('[JD2] Unable to remove job %s from JD2: %s', job_id, err)
