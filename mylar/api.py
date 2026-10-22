@@ -484,6 +484,7 @@ class Api(object):
             myDB.action("DELETE from comics WHERE ComicID=?", [self.id])
             myDB.action("DELETE from issues WHERE ComicID=?", [self.id])
             myDB.action("DELETE from upcoming WHERE ComicID=?", [self.id])
+            search.drop_series(self.id)
             if directory_del is True:
                 if os.path.exists(delchk['ComicLocation']):
                     shutil.rmtree(delchk['ComicLocation'])

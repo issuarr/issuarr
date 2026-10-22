@@ -91,12 +91,14 @@ def search_queue(queue):
                             manual = item['manual']
                         except Exception:
                             manual = False
+                        mylar.SEARCH_ABORT = None
                         mylar.SEARCH_CURRENT = item
                         started = time.time()
                         try:
                             mylar.search.searchforissue(item['issueid'], manual=manual)
                         finally:
                             mylar.SEARCH_CURRENT = None
+                            mylar.SEARCH_ABORT = None
                             activity.searched(item, started)
                     time.sleep(5)
 

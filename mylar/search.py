@@ -1354,6 +1354,7 @@ def verification(verified_matches, is_info):
                     verified_index +=1
                     continue
                 # generate the send-to and actually send the nzb / torrent.
+                check_aborted(verified['ComicID'])
                 try:
                     links = {'id': verified['entry']['id'], 'link': verified['entry']['link'],
                              'torrent': verified['entry'].get('torrent')}
@@ -1588,13 +1589,30 @@ def drop_series(comicid):
             # get() callers count unfinished tasks; the dropped items will never be done
             q.unfinished_tasks = max(0, q.unfinished_tasks - dropped)
             q.not_full.notify_all()
+    # The series' issue being searched right now stops at its next provider and the queue moves on.
+    current = mylar.SEARCH_CURRENT
+    if isinstance(current, dict) and str(current.get('comicid')) == str(comicid):
+        mylar.SEARCH_ABORT = str(comicid)
+        logger.info('[SEARCH-QUEUE] %s #%s is being searched and its series was deleted - stopping that search.'
+                    % (current.get('comicname'), current.get('issuenumber')))
     return dropped
+
+
+class SearchAborted(Exception):
+    """The series being searched was deleted part way through its search."""
+
+
+def check_aborted(comicid):
+    """Stop the search for a deleted series' issue, before the next provider is asked or a find is sent."""
+    if comicid is not None and mylar.SEARCH_ABORT is not None and str(comicid) == mylar.SEARCH_ABORT:
+        raise SearchAborted(comicid)
 
 
 def search_status():
     """What the search queue is doing, for the Wanted page: the issue being searched and the ones waiting."""
     def brief(item):
-        return {'issueid': item.get('issueid'), 'name': item.get('comicname'), 'number': item.get('issuenumber')}
+        return {'issueid': item.get('issueid'), 'comicid': item.get('comicid'), 'name': item.get('comicname'),
+                'number': item.get('issuenumber')}
     with mylar.SEARCH_QUEUE.mutex:
         waiting = [brief(x) for x in mylar.SEARCH_QUEUE.queue if isinstance(x, dict)]
     current = mylar.SEARCH_CURRENT
@@ -2559,6 +2577,11 @@ def searchforissue(issueid=None, new=False, rsschecker=None, manual=False, all_t
                     #    hash=foundNZB['info']['t_hash'],
                     #)
                 return foundNZB
+
+            except SearchAborted:
+                logger.info('[SEARCH] Stopped searching for %s #%s: the series was deleted.'
+                            % (result['ComicName'], result['Issue_Number']))
+                return {'status': False}
 
             except Exception as err:
                 exc_type, exc_value, exc_tb = sys.exc_info()
@@ -4271,6 +4294,7 @@ def check_the_search_delay(manual=False):
     return pause_the_search
 
 def search_the_matrix(scarios):
+    check_aborted(scarios['ComicID'])
     return NZB_SEARCH(
                 scarios['ComicName'],
                 scarios['tmp_IssueNumber'],

@@ -13,7 +13,7 @@
 #  You should have received a copy of the GNU General Public License
 #  along with Issuarr.  If not, see <http://www.gnu.org/licenses/>.
 
-"""The way from Wanted into the library, for the flow line on Wanted and Downloads > Queue.
+"""The way from Wanted into the library, for the flow line on Downloads > Queue (and the Wanted rows).
 
 An issue goes Wanted -> searched -> downloading -> filed. Each step keeps its own state
 (the search queue, ddl_info, the download clients, post-processing); flow() puts them side
