@@ -9,7 +9,7 @@ import mylar
 from .. import logger, helpers
 from mylar import db, getcomics
 from . import ddl
-from mylar.downloaders.jdownloader2 import JDownloader2
+from mylar.downloaders.jdownloader2 import JDownloader2, local_folder
 
 # The record id of the item the monitor is working on. It's out of the queue while the monitor
 # checks it and sleeps before putting it back, but it's still at JD2.
@@ -197,7 +197,7 @@ def jd2_queue_monitor(queue):
                             logger.warn('[JD2-QUEUE] Unexpected item type %s for job %s; skipping post-processing.', type(item), job_id)
                             continue
                         if mylar.CONFIG.POST_PROCESSING is True:
-                            dest_root = getattr(mylar.CONFIG, 'JD2_DEST_DIR', None) or None
+                            dest_root = local_folder()
                             # the folder JD2 really used; it can name the package after the post's own folder
                             folder_name = jd2_folder(jd2_client, job_id, record_id) or (
                                 "%s - %s" % (item.get('filename'), record_id)

@@ -7889,6 +7889,7 @@ class WebInterface(object):
                     "jd2_enable": helpers.checked(mylar.CONFIG.JD2_ENABLE),
                     "jd2_url": mylar.CONFIG.JD2_URL or "",
                     "jd2_dest_dir": mylar.CONFIG.JD2_DEST_DIR or "",
+                    "jd2_local_dir": mylar.CONFIG.JD2_LOCAL_DIR or "",
                     "enable_external_server": helpers.checked(mylar.CONFIG.ENABLE_EXTERNAL_SERVER),
                     "external_server": mylar.CONFIG.EXTERNAL_SERVER,
                     "external_username": mylar.CONFIG.EXTERNAL_USERNAME,

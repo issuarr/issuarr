@@ -25,9 +25,9 @@ The deprecated API has no password. Anyone who can reach that port can add downl
 
 ## 2. Share the download folder
 
-Issuarr tells JD2 where to save each download, then opens that same folder to file it. The folder has to have **the same path in both programs**.
+Issuarr tells JD2 where to save each download, then opens that same folder to file it, so both programs need to reach one shared folder.
 
-In Docker, map the same host folder to the same container path in both containers:
+The easiest setup gives the folder the same path in both. In Docker, map the same host folder to the same container path in both containers:
 
 ```yaml
 services:
@@ -44,7 +44,9 @@ services:
       - /path/to/downloads:/downloads
 ```
 
-Here both see the folder as `/downloads`, so `/downloads/jd2` works in both. The JD2 image is only an example; any JD2 install works as long as the paths match.
+Here both see the folder as `/downloads`, so `/downloads/jd2` works in both. The JD2 image is only an example.
+
+If the paths differ, that works too. For example, some JD2 templates on Unraid map the folder to `/output` while Issuarr maps it to `/downloads`. Then you enter both paths in step 3.
 
 The user JD2 runs as must be able to write there, and the user Issuarr runs as (`PUID`/`PGID` in Docker) must be able to read and move the files. Keep this folder out of the folder Issuarr watches for new comics, so it doesn't pick up downloads before they finish.
 
@@ -53,9 +55,10 @@ The user JD2 runs as must be able to write there, and the user Issuarr runs as (
 1. Go to **Settings > Search providers > Direct downloads** and turn on **Download directly from sites**.
 2. Go to **Settings > Download clients > JDownloader 2** and turn on **Send mirror links to JDownloader 2**.
 3. **JDownloader 2 address:** the API address, for example `http://jdownloader2:3128` or `http://192.168.1.20:3128`. Include the port.
-4. **Download folder:** the shared folder from step 2, for example `/downloads/jd2`.
-5. Make sure **Settings > Files & post-processing > Post-process downloads** is on, or finished JD2 downloads won't be filed.
-6. Save.
+4. **Download folder:** the shared folder as JD2 sees it, for example `/downloads/jd2` (or `/output/complete`).
+5. **Same folder, as Issuarr sees it:** only when Issuarr sees that folder under another path, for example `/downloads/complete`. Leave it empty when the path is the same.
+6. Make sure **Settings > Files & post-processing > Post-process downloads** is on, or finished JD2 downloads won't be filed.
+7. Save.
 
 ## Checking it works
 
@@ -66,3 +69,4 @@ Search for a wanted issue whose GetComics post has mirror links. **Tasks > Logs*
 | `Submission failed ... falling back to DDL queue` | Issuarr couldn't reach JD2. Check the address, the port, and the two Remote API settings. |
 | `never reached the JD2 download list` | JD2 got the links but didn't start them, usually because the host is offline or needs an account. |
 | `JD2 destination is not configured` | The **Download folder** setting is empty. |
+| `Issuarr can't reach JD2's download folder` | Issuarr sees the folder under another path, or doesn't have it mapped. Set **Same folder, as Issuarr sees it**. |

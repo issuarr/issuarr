@@ -32,6 +32,7 @@ import requests
 
 import mylar
 from mylar import db, helpers, logger
+from mylar.downloaders import jdownloader2
 
 def ddl_queue_rows(myDB):
     """Every row of the direct-download queue, named from the library where possible.
@@ -175,11 +176,11 @@ def _tag(d):
 def _in_attention(d, flagged):
     """Whether any of this download's files are listed under Needs attention.
 
-    DDL files carry the [__id__] mark; JD2 ones sit in JD2_DEST_DIR under a folder ending ' - <ddl id>'.
+    DDL files carry the [__id__] mark; JD2 ones sit in JD2's folder under a folder ending ' - <ddl id>'.
     """
     tag = _tag(d)
-    jd2 = getattr(mylar.CONFIG, 'JD2_DEST_DIR', None)
-    jd2 = os.path.join(os.path.normpath(jd2), '') if jd2 and jd2 != 'None' else None
+    jd2 = jdownloader2.local_folder()
+    jd2 = os.path.join(os.path.normpath(jd2), '') if jd2 else None
     folder = ' - %s%s' % (d['queueid'], os.sep)
     for p in flagged:
         if tag and tag in p:
@@ -963,7 +964,7 @@ class Grabs(object):
         except Exception:
             self.flagged = []
         self.names = _listing(getattr(mylar.CONFIG, 'DDL_LOCATION', None))
-        self.jd2_dirs = _listing(getattr(mylar.CONFIG, 'JD2_DEST_DIR', None))
+        self.jd2_dirs = _listing(jdownloader2.local_folder())
         self.holds = archives.holds
 
     def held(self, iid, comicid, skip=None):
