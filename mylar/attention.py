@@ -625,7 +625,44 @@ def _trash_file(path):
         dest = '%s (%s)%s' % (base, int(time.time()), ext)
     shutil.move(path, dest)
     forget(path)
+    prune_empty(os.path.dirname(path))
     return dest_dir
+
+
+def _download_roots():
+    """Folders Issuarr downloads into itself; empty folders are only cleared below these."""
+    from mylar.downloaders import jdownloader2
+    roots = [getattr(mylar.CONFIG, 'DDL_LOCATION', None)]
+    try:
+        roots.append(jdownloader2.local_folder())
+    except Exception:
+        pass
+    return [os.path.realpath(r) for r in roots if r]
+
+
+def prune_empty(folder):
+    """Remove folder, then each parent, while it's empty and below one of Issuarr's download
+    folders - the download's own folder once its last file was filed or trashed. Never the
+    download folder itself, the review, trash or mega folders, or anything not empty."""
+    folder = os.path.realpath(folder)
+    roots = _download_roots()
+    keep = set(roots)
+    for f in (review_dir, trash_dir):
+        try:
+            keep.add(os.path.realpath(f()))
+        except Exception:
+            pass
+    keep.update(os.path.join(r, 'mega') for r in roots)  # the Mega downloader needs its folder
+    root = next((r for r in roots if folder.startswith(r.rstrip(os.sep) + os.sep)), None)
+    while root and folder not in keep and folder.startswith(root.rstrip(os.sep) + os.sep):
+        try:
+            if os.listdir(folder):
+                return
+            os.rmdir(folder)
+        except OSError:
+            return
+        logger.fdebug('[ATTENTION] Removed the empty folder %s' % folder)
+        folder = os.path.dirname(folder)
 
 
 def purge_trash():
@@ -738,6 +775,7 @@ def _file_now(path, issue):
                 # filing copies when set to copy - the original isn't needed here any more
                 trash(path)
             forget(path)
+            prune_empty(os.path.dirname(path))
             JOBS[path] = {'state': 'filed', 'note': 'Filed as %s' % label}
             logger.info('[ATTENTION] Filed %s as %s.' % (os.path.basename(path), label))
         else:
