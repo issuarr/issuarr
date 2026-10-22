@@ -191,9 +191,26 @@
     var before = st.current;
     st.flow = d.issues || {};
     st.current = d.search.current ? String(d.search.current.issueid) : null;
+    queueButtons(d.search);
     // An issue just finished searching: reload, it may have been snatched.
     if (before && before !== st.current) load(); else if (st.loaded) render();
   });
+
+  /* ---- the search queue: pause, resume, stop ---- */
+  function queueButtons(s) {
+    var pause = $id('w-queue-pause');
+    pause.setAttribute('data-paused', s.paused ? 'true' : 'false');
+    pause.textContent = s.paused ? 'Resume searches' : 'Pause searches';
+    pause.title = s.paused ? 'Let the search queue start searches again' : 'Hold the search queue: nothing new starts until you resume it';
+    $id('w-queue-stop').hidden = !(s.current || s.waiting);
+  }
+
+  function queueControl(action) {
+    return fetch('search_queue_control', { method: 'POST', body: new URLSearchParams({ action: action }), credentials: 'same-origin', cache: 'no-store' })
+      .then(queued)
+      .then(function (r) { I().toast(r.message || 'Done', r.status !== false); })
+      .catch(function () { I().toast('That didn\'t work. Check the log.', false); });
+  }
 
   function queued(r) {
     if (!r.ok) throw new Error(r.status);
@@ -205,7 +222,7 @@
     ids.forEach(function (id) { p.append('issueIds', id); });
     return fetch('forceSearch?' + p.toString(), { credentials: 'same-origin' })
       .then(queued)
-      .then(function () { I().toast('Added ' + plural(ids.length) + ' to the search queue. Follow it along the line above.'); })
+      .then(function () { I().toast('Added ' + plural(ids.length) + ' to the search queue. Each row shows where its issue is.'); })
       .catch(function () { I().toast('That didn\'t work. Check the log.', false); });
   }
 
@@ -269,7 +286,7 @@
   $id('w-search-tier1').addEventListener('click', function () {
     fetch('forceSearch', { credentials: 'same-origin' })
       .then(queued)
-      .then(function () { I().toast('Adding every Tier 1 issue to the search queue. Follow it along the line above.'); })
+      .then(function () { I().toast('Adding every Tier 1 issue to the search queue. Each row shows where its issue is.'); })
       .catch(function () { I().toast('That didn\'t work. Check the log.', false); });
   });
   $id('w-search-all').addEventListener('click', function () {
@@ -277,8 +294,15 @@
     if (n && !window.confirm('Search all ' + plural(n) + '? Providers are searched one page at a time, so a long list can take hours.')) return;
     fetch('forceSearch?tiers=all', { credentials: 'same-origin' })
       .then(queued)
-      .then(function () { I().toast('Adding every Wanted issue, Tier 2 included, to the search queue. Follow it along the line above.'); })
+      .then(function () { I().toast('Adding every Wanted issue, Tier 2 included, to the search queue. Each row shows where its issue is.'); })
       .catch(function () { I().toast('That didn\'t work. Check the log.', false); });
+  });
+  $id('w-queue-pause').addEventListener('click', function () {
+    queueControl(this.getAttribute('data-paused') === 'true' ? 'resume' : 'pause');
+  });
+  $id('w-queue-stop').addEventListener('click', function () {
+    if (!window.confirm('Stop searching? The search running now stops and every waiting search is taken out of the queue. The issues stay Wanted.')) return;
+    queueControl('stop');
   });
   $id('w-export').addEventListener('click', function () {
     fetch('wanted_Export?mode=Wanted', { credentials: 'same-origin' })

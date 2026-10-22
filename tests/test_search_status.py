@@ -19,7 +19,7 @@ def item(issueid, name='Alpha', number='1'):
 
 @pytest.mark.unit
 def test_nothing_to_report_when_idle(idle):
-    assert search.search_status() == {'current': None, 'waiting': [], 'busy': False}
+    assert search.search_status() == {'current': None, 'waiting': [], 'paused': False, 'busy': False}
 
 
 @pytest.mark.unit

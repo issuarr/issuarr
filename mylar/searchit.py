@@ -28,7 +28,11 @@ class CurrentSearcher():
         logger.info('[SEARCH] Running Search for Wanted.')
         helpers.job_management(write=True, job='Auto-Search', current_run=helpers.utctimestamp(), status='Running')
         mylar.SEARCH_STATUS = 'Running'
-        mylar.search.searchforissue()
+        mylar.JOB_STOP.discard('search')
+        try:
+            mylar.search.searchforissue()
+        finally:
+            mylar.JOB_STOP.discard('search')   # Stop on Tasks only covers this run
         helpers.job_management(write=True, job='Auto-Search', last_run_completed=helpers.utctimestamp(), status='Waiting')
         #mylar.SEARCH_STATUS = 'Waiting'
         #mylar.SCHED_SEARCH_LAST = helpers.now()

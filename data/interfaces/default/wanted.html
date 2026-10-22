@@ -14,6 +14,8 @@
             <div class="btn-row">
                 <button type="button" class="btn btn-primary" id="w-search-tier1" title="Run the scheduled search now, for every Tier 1 issue">Search Tier 1 now</button>
                 <button type="button" class="btn" id="w-search-all" title="Queue every Wanted issue for a search, Tier 2 included">Search all</button>
+                <button type="button" class="btn" id="w-queue-pause" data-paused="false" title="Hold the search queue: nothing new starts until you resume it">Pause searches</button>
+                <button type="button" class="btn btn-danger" id="w-queue-stop" title="Stop the search running now and empty the search queue" hidden>Stop searching</button>
                 <details class="menu" id="w-more">
                     <summary class="btn" aria-label="More wanted actions" title="More">
                         <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" aria-hidden="true"><path d="M5 12h.01M12 12h.01M19 12h.01"/></svg>

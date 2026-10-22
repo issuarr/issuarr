@@ -142,6 +142,14 @@ class PostProcessor(object):
     FOLDER_NAME = 2
     FILE_NAME = 3
 
+    stop_key = None   # the Tasks job running this pass, which Stop can end between issues
+
+    def stopping(self):
+        if self.stop_key and helpers.job_stopping(self.stop_key):
+            logger.info('[POST-PROCESSING] Stopped from Tasks - the rest is filed on the next pass.')
+            return True
+        return False
+
     def __init__(self, nzb_name, nzb_folder, issueid=None, module=None, queue=None, comicid=None, apicall=False, ddl=False, pack=None, download_info=None):
         """
         Creates a new post processor with the given file path and optionally an NZB name.
@@ -2518,6 +2526,8 @@ class PostProcessor(object):
                 i = 0
 
                 for ml in manual_list:
+                    if self.stopping():
+                        break
                     i+=1
                     archives.progress('Filing %s of %s matched issues' % (i, len(manual_list)))
                     comicid = ml['ComicID']
@@ -2991,6 +3001,8 @@ class PostProcessor(object):
             i = 0
 
             for ml in manual_list:
+                if self.stopping():
+                    break
                 i+=1
                 archives.progress('Filing %s of %s matched issues' % (i, len(manual_list)))
                 comicid = ml['ComicID']
@@ -3770,6 +3782,11 @@ class FolderCheck():
             mylar.MONITOR_STATUS = 'Running'
             logger.info('%s Checking folder %s for newly snatched downloads' % (self.module, mylar.CONFIG.CHECK_FOLDER))
             PostProcess = PostProcessor('Manual Run', mylar.CONFIG.CHECK_FOLDER, queue=self.queue)
-            result = PostProcess.Process()
+            PostProcess.stop_key = 'monitor'   # Stop on Tasks ends it between issues
+            mylar.JOB_STOP.discard('monitor')
+            try:
+                result = PostProcess.Process()
+            finally:
+                mylar.JOB_STOP.discard('monitor')
             logger.info('%s Finished checking for newly snatched downloads' % self.module)
             helpers.job_management(write=True, job='Folder Monitor', last_run_completed=helpers.utctimestamp(), status='Waiting')

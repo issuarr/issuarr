@@ -53,7 +53,11 @@
     if (s.current) {
       sNow = issue(s.current); sState = 'live';
       if (s.current.comicid) sLink = 'comicDetails?ComicID=' + encodeURIComponent(s.current.comicid);
-      sMeta = s.waiting ? fmt(s.waiting) + ' waiting' : 'Nothing else waiting';
+      sMeta = s.paused ? 'Paused after this one' + (s.waiting ? ', ' + fmt(s.waiting) + ' waiting' : '')
+                       : s.waiting ? fmt(s.waiting) + ' waiting' : 'Nothing else waiting';
+    } else if (s.paused) {
+      sNow = 'Paused'; sState = 'held';
+      sMeta = s.waiting ? fmt(s.waiting) + ' waiting' : 'Resume it on Wanted';
     } else if (s.blocked === 'filing') {
       sNow = 'Waiting for filing'; sState = 'held';
       sMeta = 'Its series is being filed, searching after';
@@ -77,7 +81,11 @@
       dNow = top.title; dState = 'live';
       if (top.percent != null) bar = top.percent;
       dMeta = (top.via === 'JDownloader 2' ? 'At JDownloader 2' : top.percent != null ? top.percent + '%' : 'Starting') +
-              (running > 1 ? ', ' + (running - 1) + ' more running' : '') + (waiting ? ', ' + fmt(waiting) + ' waiting' : '');
+              (running > 1 ? ', ' + (running - 1) + ' more running' : '') + (waiting ? ', ' + fmt(waiting) + ' waiting' : '') +
+              (dl.paused ? ', paused after these' : '');
+    } else if (dl.paused) {
+      dNow = 'Paused'; dState = 'held';
+      dMeta = (dl.queued ? fmt(dl.queued) + ' queued, ' : '') + 'nothing new starts';
     } else if (dl.stalled) {
       dNow = 'Stalled'; dState = 'stuck';
       dMeta = fmt(dl.queued) + ' queued, nothing moving';
