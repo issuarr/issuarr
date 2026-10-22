@@ -62,8 +62,24 @@ def test_a_single_issue_is_done_when_any_mirror_finishes():
     assert client_with(links).status(JOB, '1')['status'] == 'Finished'
 
 
+def packages_client(save_to, calls=None, links=()):
+    client = client_with(list(links))
+
+    class Resp:
+        def raise_for_status(self):
+            pass
+
+        def json(self):
+            return {'data': [{'uuid': 'p1', 'name': 'Daredevil Vol. 1 001 – 380 + Annuals (1964-1998)', 'saveTo': save_to}]}
+
+    client.session = types.SimpleNamespace(get=lambda url, params=None, timeout=None: (calls if calls is not None else []).append(url) or Resp())
+    client.base_url, client.timeout = 'http://jd2', 5
+    return client
+
+
 @pytest.mark.unit
-def test_the_folder_is_the_one_jd2_saved_to():
+def test_the_folder_is_the_one_jd2_saved_to(monkeypatch):
+    monkeypatch.setattr(mylar, 'CONFIG', types.SimpleNamespace(JD2_DEST_DIR='/output', JD2_LOCAL_DIR='/downloads'), raising=False)
     client = client_with([])
     calls = []
 
@@ -77,8 +93,65 @@ def test_the_folder_is_the_one_jd2_saved_to():
 
     client.session = types.SimpleNamespace(get=lambda url, params=None, timeout=None: calls.append(url) or Resp())
     client.base_url, client.timeout = 'http://jd2', 5
-    assert client.folder(JOB, '6078') == 'Daredevil Vol. 1 001 – 380 + Annuals (1964-1998)'
+    assert client.folder(JOB, '6078') == '/downloads/Daredevil Vol. 1 001 – 380 + Annuals (1964-1998)'
     assert calls == ['http://jd2/downloadsV2/queryPackages']
+
+
+@pytest.mark.unit
+def test_a_dated_subfolder_jd2_saved_to_is_kept(monkeypatch):
+    # 2026-10-22: JD2 saved Weird War Tales #1 - 62 in complete/2026-06/07. Issuarr kept only '07' and
+    # post-processed /downloads/complete/07, which doesn't exist, so the pack was never filed.
+    monkeypatch.setattr(mylar, 'CONFIG', types.SimpleNamespace(JD2_DEST_DIR='/output/complete', JD2_LOCAL_DIR='/downloads/complete'), raising=False)
+    assert packages_client('/output/complete/2026-06/07').folder(JOB, '19434') == '/downloads/complete/2026-06/07'
+
+
+@pytest.mark.unit
+def test_every_mirror_sent_to_jd2_is_part_of_the_job(monkeypatch):
+    # 2026-10-21: Detective Comics #1112. Each mirror is its own JD2 job; only the first (a datanodes link
+    # stuck on a captcha) was watched. JD2 finished another mirror in a minute, Issuarr never saw it,
+    # gave up after 6 hours and downloaded the issue again.
+    client = JDownloader2.__new__(JDownloader2)
+    client.base_url, client.timeout, client.destination_folder = 'http://jd2', 5, None
+    replies = iter([{'data': {'id': 111}}, {'data': {'id': 222}}, {'data': {'id': 333}}])
+
+    class Resp:
+        def __init__(self):
+            self.body = next(replies)
+
+        def raise_for_status(self):
+            pass
+
+        def json(self):
+            return self.body
+
+    client.session = types.SimpleNamespace(get=lambda url, params=None, timeout=None: Resp())
+    monkeypatch.setattr(mylar.downloaders.jdownloader2, 'time', types.SimpleNamespace(sleep=lambda s: None))
+    result = client.submit({'https://datanodes.to/a': 'HIGHEST', 'https://pixeldrain.com/u/b': 'HIGH', 'https://mega.nz/c': 'DEFAULT'},
+                           'Detective Comics #1112 (2026) - 404406')
+    assert result['jobid'] == '111,222,333'
+
+    asked = []
+    client._links = lambda endpoint, query: asked.append(query) or []
+    client._packages = lambda area, record_id: []
+    client._job_links(result['jobid'], '404406')
+    assert asked[0] == {'jobUUIDs': ['111', '222', '333']}
+
+
+@pytest.mark.unit
+def test_removing_a_job_deletes_jd2_folders_that_stayed_empty(monkeypatch, tmp_path):
+    local = tmp_path / 'complete'
+    empty, full = local / 'Detective Comics #1112 (2026) - 404406', local / '2026-08' / '26'
+    empty.mkdir(parents=True)
+    full.mkdir(parents=True)
+    (full / 'Detective Comics 1112 (2026).cbz').write_bytes(b'x')
+    monkeypatch.setattr(mylar, 'CONFIG', types.SimpleNamespace(JD2_DEST_DIR='/output/complete', JD2_LOCAL_DIR=str(local)), raising=False)
+    client = JDownloader2.__new__(JDownloader2)
+    client.base_url, client.timeout = 'http://jd2', 5
+    client._job_links = lambda job_id, record_id=None: {'downloadsV2': ([], ['p1', 'p2']), 'linkgrabberv2': ([], [])}
+    client._save_to = lambda packages: {'p1': '/output/complete/Detective Comics #1112 (2026) - 404406', 'p2': '/output/complete/2026-08/26'}
+    client.session = types.SimpleNamespace(get=lambda url, params=None, timeout=None: None)
+    client.remove('111,222', '404406')
+    assert not empty.exists() and full.exists() and local.exists()
 
 
 class FakeJD2:
@@ -89,7 +162,7 @@ class FakeJD2:
     def status(self, job_id, record_id=None):
         return self._status
 
-    def folder(self, job_id, record_id=None):
+    def folder(self, job_id, record_id=None, package=None):
         return self._folder
 
     def remove(self, job_id, record_id=None):
@@ -119,7 +192,7 @@ def test_a_finished_job_is_filed_from_the_folder_jd2_used(monkeypatch, tmp_path,
     monkeypatch.setattr(jd2, 'PROGRESS', {})
     monkeypatch.setattr(jd2, 'time', types.SimpleNamespace(sleep=lambda s: None, monotonic=lambda: 0.0))
     client = FakeJD2({'found': True, 'status': 'Finished', 'data': {'name': 'Daredevil 001 (1964).cbr'}, 'files': 382},
-                     'Daredevil Vol. 1 001 – 380 + Annuals (1964-1998)')
+                     '/downloads/mylar-dl/Daredevil Vol. 1 001 – 380 + Annuals (1964-1998)')
     monkeypatch.setattr(jd2, 'JDownloader2', lambda: client)
     conn = make_db(pack)
     monkeypatch.setattr(jd2.db, 'DBConnection', lambda: conn)
@@ -188,3 +261,31 @@ def test_every_mirror_dead_is_still_a_failure():
     links = [{'host': 'mega.nz', 'status': 'File not found', 'name': 'a.cbr'},
              {'host': 'pixeldrain.com', 'status': 'Offline', 'name': 'a.cbr'}]
     assert client_with(links).status(JOB, '1')['status'] == 'Failed'
+
+
+@pytest.mark.unit
+def test_a_single_issue_is_filed_by_its_own_file_in_a_shared_folder(monkeypatch, tmp_path):
+    # a dated folder JD2 uses can hold other downloads too, so only the file that finished is handed over
+    dated = tmp_path / '2026-08' / '26'
+    dated.mkdir(parents=True)
+    (dated / 'Detective Comics 1112 (2026).cbz').write_bytes(b'x')
+    (dated / 'Something Else 001 (2026).cbz').write_bytes(b'x')
+    pp = queue.Queue()
+    monkeypatch.setattr(mylar, 'CONFIG', types.SimpleNamespace(POST_PROCESSING=True, JD2_DEST_DIR=str(tmp_path),
+                                                               ENABLE_DDL=True, CACHE_DIR=str(tmp_path)), raising=False)
+    monkeypatch.setattr(mylar, 'PP_QUEUE', pp, raising=False)
+    monkeypatch.setattr(mylar, 'DDL_CANCEL', set(), raising=False)
+    monkeypatch.setattr(jd2, 'HOLDING', [None])
+    monkeypatch.setattr(jd2, 'PROGRESS', {})
+    monkeypatch.setattr(jd2, 'time', types.SimpleNamespace(sleep=lambda s: None, monotonic=lambda: 0.0))
+    client = FakeJD2({'found': True, 'status': 'Finished', 'data': {'name': 'Detective Comics 1112 (2026).cbz'}, 'files': 1}, str(dated))
+    monkeypatch.setattr(jd2, 'JDownloader2', lambda: client)
+    conn = make_db(0)
+    monkeypatch.setattr(jd2.db, 'DBConnection', lambda: conn)
+    q = queue.Queue()
+    q.put({'id': '6078', 'series': 'Detective Comics #1112', 'year': '2026', 'jd2_job_id': JOB,
+           'comicid': '1', 'issueid': '1189483', 'mainlink': 'https://getcomics.org/dc/detective-comics-1112-2026/'})
+    q.put('exit')
+    jd2.jd2_queue_monitor(q)
+    sent = pp.get_nowait()
+    assert sent['nzb_folder'] == str(dated / 'Detective Comics 1112 (2026).cbz') and sent['issueid'] == '1189483'

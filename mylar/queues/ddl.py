@@ -12,6 +12,7 @@ import collections
 import datetime
 import os
 import re
+import shutil
 import threading
 from queue import Empty, Queue
 
@@ -679,8 +680,46 @@ def ddl_process(myDB, item):
         forget(item['id'])
         ddl_cleanup(item['id'])
     else:
+        discard_download(myDB, item, ddzstat)
         return ddzstat
     return None
+
+
+def _inside(path, root):
+    path, root = os.path.realpath(path), os.path.realpath(root)
+    return path != root and path.startswith(root.rstrip(os.sep) + os.sep)
+
+
+def discard_download(myDB, item, ddzstat):
+    """Delete what a failed download left in DDL_LOCATION: an empty, cut-short or corrupt file,
+    a .zip that wouldn't unpack, and the folder it was partly unpacked into. The next source
+    writes a new file, so nothing here is worth keeping. Only touches paths inside DDL_LOCATION."""
+    location = getattr(mylar.CONFIG, 'DDL_LOCATION', None)
+    if not location:
+        return
+    paths = [ddzstat.get('path')]
+    try:
+        row = myDB.selectone('SELECT tmp_filename FROM ddl_info WHERE id=?', [item['id']]).fetchone()
+        if row is not None and row['tmp_filename']:
+            tmp = row['tmp_filename']
+            paths.append(tmp if os.path.isabs(tmp) else os.path.join(location, tmp))
+    except Exception as e:
+        logger.fdebug('[DDL] Unable to look up the partial download for %s: %s' % (item.get('id'), e))
+    for path in paths:
+        if not path or not _inside(path, location):
+            continue
+        if os.path.isfile(path):
+            try:
+                os.remove(path)
+                logger.info('[DDL] Deleted the failed download %s' % path)
+            except Exception as e:
+                logger.warn('[DDL] Unable to delete the failed download %s: %s' % (path, e))
+        if path.lower().endswith('.zip'):
+            # getcomics.zip_zip unpacks into DDL_LOCATION/<name without .zip>
+            folder = os.path.join(location, re.sub('.zip', '', os.path.basename(path)).strip())
+            if os.path.isdir(folder) and _inside(folder, location):
+                shutil.rmtree(folder, ignore_errors=True)
+                logger.info('[DDL] Deleted the partly unpacked folder %s' % folder)
 
 
 def ddl_cancelled(item, ddzstat=None):

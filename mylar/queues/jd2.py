@@ -198,18 +198,23 @@ def jd2_queue_monitor(queue):
                             continue
                         if mylar.CONFIG.POST_PROCESSING is True:
                             dest_root = local_folder()
-                            # the folder JD2 really used; it can name the package after the post's own folder
-                            folder_name = jd2_folder(jd2_client, job_id, record_id) or (
+                            # the folder JD2 really used, where the file that finished is; it can name the
+                            # package after the post's own folder, or put it in a dated subfolder
+                            package = ((status_payload or {}).get('data') or {}).get('packageUUID')
+                            nzb_folder = jd2_folder(jd2_client, job_id, record_id, package) or os.path.join(dest_root, (
                                 "%s - %s" % (item.get('filename'), record_id)
                                 if item.get('filename')
                                 else "%s (%s) - %s" % (series, year, record_id)
-                            )
-                            nzb_folder = os.path.join(dest_root, folder_name)
+                            ))
+                            folder_name = os.path.basename(nzb_folder.rstrip(os.sep))
                             pack = ddl.is_pack(dict(item, id=record_id), myDB)
                             # a pack that came as many files is filed as a whole folder against the series;
                             # one that came as a single zip is unpacked by post-processing as before
                             whole_folder = bool(pack) and ((status_payload or {}).get('files') or 1) > 1
                             nzb_name = folder_name if whole_folder else (job_filename or 'Manual Run')
+                            if not pack and job_filename and os.path.isfile(os.path.join(nzb_folder, job_filename)):
+                                # just this file: a shared folder (a dated one) can hold other downloads too
+                                nzb_folder = os.path.join(nzb_folder, job_filename)
 
                             if nzb_folder:
                                 try:
@@ -264,9 +269,9 @@ def jd2_queue_monitor(queue):
             time.sleep(10)
 
 
-def jd2_folder(jd2_client, job_id, record_id):
+def jd2_folder(jd2_client, job_id, record_id, package=None):
     folder = getattr(jd2_client, 'folder', None)
-    return folder(job_id, record_id) if folder else None
+    return folder(job_id, record_id, package) if folder else None
 
 
 COMIC_FILES = ('.cbz', '.cbr', '.cb7', '.cbt', '.pdf', '.zip', '.rar', '.7z')
