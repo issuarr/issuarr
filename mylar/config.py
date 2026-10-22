@@ -409,6 +409,7 @@ _CONFIG_DEFINITIONS = OrderedDict({
     'HTTPS_PROXY': (str, 'DDL', None),
     'JD2_ENABLE': (bool, 'DDL', False),
     'JD2_DEST_DIR': (str, 'DDL', None),
+    'JD2_LOCAL_DIR': (str, 'DDL', None),
     'JD2_URL': (str, 'DDL', None),
 
     'ENABLE_AIRDCPP': (bool, 'DCPP', False),

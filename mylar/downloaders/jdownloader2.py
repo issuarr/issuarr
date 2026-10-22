@@ -15,6 +15,17 @@ import mylar
 from mylar import db, logger
 
 
+def local_folder():
+    """JD2's download folder as Issuarr sees it. The two programs can see the same folder under
+    different paths (say /output in JD2's container and /downloads in Issuarr's), so the JD2 path
+    is only used here when no Issuarr path is set."""
+    for key in ('JD2_LOCAL_DIR', 'JD2_DEST_DIR'):
+        path = getattr(mylar.CONFIG, key, None)
+        if path and path != 'None':
+            return path
+    return None
+
+
 class JDownloader2(object):
     """Simple helper for submitting links to JDownloader2 and polling status."""
 
@@ -31,13 +42,15 @@ class JDownloader2(object):
 
         self.destination_root = mylar.CONFIG.JD2_DEST_DIR
         self.destination_folder = None
-        if self.destination_root:
+        if self.destination_root and self.destination_root != 'None':
+            # the path JD2 saves to; Issuarr checks the folder under its own path for it
             self.destination_folder = self.destination_root
+            local = local_folder()
             try:
-                os.makedirs(self.destination_folder, exist_ok=True)
+                os.makedirs(local, exist_ok=True)
             except Exception as err:
-                logger.warn('[JD2] Unable to ensure destination folder exists: %s', err)
-                self.destination_folder = None
+                logger.warn('[JD2] Issuarr can\'t reach JD2\'s download folder at %s (%s), so JD2 downloads won\'t be filed.'
+                            ' Set "Same folder, as Issuarr sees it" under Settings > Download clients > JDownloader 2.', local, err)
 
     def _url(self, endpoint: str) -> str:
         return f"{self.base_url}/{endpoint.lstrip('/')}"

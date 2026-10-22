@@ -18,7 +18,7 @@ from queue import Empty, Queue
 import mylar
 from .. import logger, helpers
 from mylar import archiveorg, db, getcomics
-from mylar.downloaders import mediafire, mega, pixeldrain
+from mylar.downloaders import jdownloader2, mediafire, mega, pixeldrain
 
 
 GC_LINK_TYPES = (None, 'GC-Main', 'GC-Mirror')
@@ -105,12 +105,12 @@ def _finished_path(row):
     """(path, is_folder) for a finished download that's still on disk, or None.
 
     Built-in downloads are the file in DDL_LOCATION (Mega's under mega/), or the folder a .zip
-    was unpacked into; JD2 ones are the folder jd2.py names '<name> - <id>' in JD2_DEST_DIR.
+    was unpacked into; JD2 ones are the folder jd2.py names '<name> - <id>' in JD2's folder.
     """
     location = getattr(mylar.CONFIG, 'DDL_LOCATION', None) or ''
     if row['jd2_job_id']:
-        dest = getattr(mylar.CONFIG, 'JD2_DEST_DIR', None)
-        if not dest or dest == 'None':
+        dest = jdownloader2.local_folder()
+        if not dest:
             return None
         # the package name jd2.py submits, then the folder name its monitor hands to filing
         names = ['%s (%s) - %s' % (row['series'], row['year'], row['id'])]
