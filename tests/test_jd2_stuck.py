@@ -164,7 +164,8 @@ def test_the_client_reports_bytes_downloaded_across_the_package():
         'downloadsV2': ([{'status': EXPIRED, 'bytesLoaded': 0}, {'status': 'Downloading', 'bytesLoaded': 5000}], ['p1']),
         'linkgrabberv2': ([], [])}
     result = client.status(JOB, '193251')
-    assert result['status'] == EXPIRED and result['loaded'] == 5000
+    # the expired mirror isn't the job's state while the other one is still downloading
+    assert result['status'] == 'Downloading' and result['loaded'] == 5000
 
 
 @pytest.mark.unit
