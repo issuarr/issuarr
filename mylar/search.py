@@ -1576,12 +1576,11 @@ def queued_issueids():
     return {x.get('issueid') for x in waiting if isinstance(x, dict)}
 
 
-def drop_series(comicid):
-    """Take a deleted series' issues out of the search queue. Left in, each one still came up and was
-    dropped only after a lookup ('Unable to locate IssueID'), holding up the issues behind it."""
+def _drop(match):
+    """Take the waiting searches that match out of the search queue; returns how many."""
     q = mylar.SEARCH_QUEUE
     with q.mutex:
-        keep = [x for x in q.queue if not (isinstance(x, dict) and str(x.get('comicid')) == str(comicid))]
+        keep = [x for x in q.queue if not (isinstance(x, dict) and match(x))]
         dropped = len(q.queue) - len(keep)
         if dropped:
             q.queue.clear()
@@ -1589,6 +1588,13 @@ def drop_series(comicid):
             # get() callers count unfinished tasks; the dropped items will never be done
             q.unfinished_tasks = max(0, q.unfinished_tasks - dropped)
             q.not_full.notify_all()
+    return dropped
+
+
+def drop_series(comicid):
+    """Take a deleted series' issues out of the search queue. Left in, each one still came up and was
+    dropped only after a lookup ('Unable to locate IssueID'), holding up the issues behind it."""
+    dropped = _drop(lambda x: str(x.get('comicid')) == str(comicid))
     # The series' issue being searched right now stops at its next provider and the queue moves on.
     current = mylar.SEARCH_CURRENT
     if isinstance(current, dict) and str(current.get('comicid')) == str(comicid):
@@ -1598,13 +1604,30 @@ def drop_series(comicid):
     return dropped
 
 
+def stop_queue():
+    """Stop on the search queue: drop every waiting search and stop the one running now. Returns
+    (searches dropped, the item that was being searched or None)."""
+    from mylar.queues import search as search_worker
+    dropped = _drop(lambda x: True)
+    search_worker.HELD.clear()
+    current = mylar.SEARCH_CURRENT
+    if isinstance(current, dict):
+        mylar.SEARCH_ABORT = '*'
+    logger.info('[SEARCH-QUEUE] Stopped: %s waiting searches dropped%s.'
+                % (dropped, ', stopping the search for %s #%s' % (current.get('comicname'), current.get('issuenumber'))
+                   if isinstance(current, dict) else ''))
+    return dropped, current if isinstance(current, dict) else None
+
+
 class SearchAborted(Exception):
-    """The series being searched was deleted part way through its search."""
+    """The search was stopped part way through: its series was deleted, or the search queue was stopped."""
 
 
 def check_aborted(comicid):
-    """Stop the search for a deleted series' issue, before the next provider is asked or a find is sent."""
-    if comicid is not None and mylar.SEARCH_ABORT is not None and str(comicid) == mylar.SEARCH_ABORT:
+    """Stop the search for a deleted series' issue, or any search once the queue is stopped, before the
+    next provider is asked or a find is sent."""
+    abort = mylar.SEARCH_ABORT
+    if abort == '*' or (abort is not None and comicid is not None and str(comicid) == abort):
         raise SearchAborted(comicid)
 
 
@@ -1618,6 +1641,7 @@ def search_status():
     current = mylar.SEARCH_CURRENT
     return {'current': brief(current) if isinstance(current, dict) else None,
             'waiting': waiting,
+            'paused': bool(mylar.SEARCH_PAUSED),
             # The lock without a current issue: the RSS check is running.
             'busy': bool(mylar.SEARCHLOCK)}
 
@@ -1881,6 +1905,9 @@ def searchforissue(issueid=None, new=False, rsschecker=None, manual=False, all_t
 
             tier_date = helpers.search_tier_date()
             for result in sorted(results, key=itemgetter('StoreDate'), reverse=True):
+                if helpers.job_stopping('rss' if rsschecker else 'search'):
+                    logger.info('[SEARCH] Stopped from Tasks - not going through the rest of the Wanted list.')
+                    break
 
                 try:
                     OneOff = False
@@ -2161,6 +2188,9 @@ def searchforissue(issueid=None, new=False, rsschecker=None, manual=False, all_t
                 # Split the results by IssueID to then break on the first successful snatch
                 unique_issue_ids = set([x['info']['IssueID'] for x in results['entries']])
                 for unique_issue_id in unique_issue_ids:
+                    if helpers.job_stopping('rss'):
+                        logger.info('[RSS] Stopped from Tasks - not trying the rest of the RSS matches.')
+                        break
                     issue_results = [r for r in results['entries'] if r['info']['IssueID'] == unique_issue_id]
                     logger.debug(f'Attempting RSS downloads for Issue ID {unique_issue_id}')
 
@@ -2579,8 +2609,9 @@ def searchforissue(issueid=None, new=False, rsschecker=None, manual=False, all_t
                 return foundNZB
 
             except SearchAborted:
-                logger.info('[SEARCH] Stopped searching for %s #%s: the series was deleted.'
-                            % (result['ComicName'], result['Issue_Number']))
+                logger.info('[SEARCH] Stopped searching for %s #%s: %s.'
+                            % (result['ComicName'], result['Issue_Number'],
+                               'the search queue was stopped' if mylar.SEARCH_ABORT == '*' else 'the series was deleted'))
                 return {'status': False}
 
             except Exception as err:

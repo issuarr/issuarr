@@ -4177,6 +4177,47 @@ class WebInterface(object):
         return json.dumps({'status': True, 'message': message})
     ddl_clear.exposed = True
 
+    def ddl_queue_control(self, action, **kwargs):
+        """Downloads page: pause or resume the direct-download queue, or stop everything in it."""
+        if cherrypy.request.method != 'POST':
+            raise cherrypy.HTTPError(405)
+        cherrypy.response.headers['Content-Type'] = 'application/json'
+        if action in ('pause', 'resume'):
+            mylar.DDL_PAUSED = action == 'pause'
+            logger.info('[DDL-QUEUE] %s from Downloads.' % ('Paused' if mylar.DDL_PAUSED else 'Resumed'))
+            if mylar.DDL_PAUSED:
+                return json.dumps({'status': True, 'message': 'Direct downloads paused. The ones running now finish first'})
+            return json.dumps({'status': True, 'message': 'Direct downloads resumed'})
+        if action != 'stop_all':
+            return json.dumps({'status': False, 'message': 'Unknown action'})
+        # Stop every running direct download and drop every queued one, as the rows' own Stop and
+        # Remove do. Grabs at SABnzbd, NZBGet or a torrent client are left to the client.
+        myDB = db.DBConnection()
+        rows = downloadqueue.claim(myDB.select("SELECT * FROM ddl_info WHERE status IN ('Queued', 'Downloading')"))
+        if not rows:
+            return json.dumps({'status': True, 'message': 'No direct downloads were running or queued'})
+        for row in rows:
+            mylar.DDL_CANCEL.add(str(row['id']))
+        running = [r for r in rows if r['status'] == 'Downloading']
+        for row in running:
+            myDB.upsert('ddl_info', {'Status': 'Failed'}, {'id': row['id']})
+        queued = [r for r in rows if r['status'] == 'Queued']
+        for row in queued:
+            myDB.action("DELETE FROM ddl_info WHERE id=? AND status = 'Queued'", [row['id']])
+        wanted = downloadqueue.release(myDB, rows)
+        logger.info('[DDL-QUEUE] Stopped everything from Downloads: %s running, %s queued.' % (len(running), len(queued)))
+        parts = []
+        if running:
+            parts.append('stopped %s %s' % (len(running), 'download' if len(running) == 1 else 'downloads'))
+        if queued:
+            parts.append('removed %s queued' % len(queued))
+        message = ' and '.join(parts)
+        message = message[0].upper() + message[1:]
+        if wanted:
+            message += '. %s back to Wanted' % ('1 issue is' if len(wanted) == 1 else '%s issues are' % len(wanted))
+        return json.dumps({'status': True, 'message': message})
+    ddl_queue_control.exposed = True
+
     def stuck_snatched(self):
         # Read only: what reset_stuck_snatched would put back to Wanted, for its confirm.
         cherrypy.response.headers['Content-Type'] = 'application/json'
@@ -4436,6 +4477,9 @@ class WebInterface(object):
         for j in self._job_rows():
             editable = self.JOB_INTERVALS.get(j['jobname'])
             j['force'] = self.JOB_FORCE_IDS.get(j['jobname'])
+            stop = self.JOB_STOPPABLE.get(j['jobname'])
+            j['stoppable'] = stop is not None
+            j['stopping'] = stop in mylar.JOB_STOP
             j['minutes'] = getattr(mylar.CONFIG, editable[1], None) if editable else None
             j['min_minutes'] = editable[2] if editable else None
             jobs.append(j)
@@ -4454,6 +4498,51 @@ class WebInterface(object):
         cherrypy.response.headers['Content-Type'] = 'application/json'
         return json.dumps(self._tasks_data())
     tasks_data.exposed = True
+
+    # Jobs Stop can end part way, at the key their stop points check. The others finish in moments.
+    JOB_STOPPABLE = {'Auto-Search': 'search', 'RSS Feeds': 'rss', 'Folder Monitor': 'monitor'}
+
+    def job_stop(self, job, **kwargs):
+        if cherrypy.request.method != 'POST':
+            raise cherrypy.HTTPError(405)
+        cherrypy.response.headers['Content-Type'] = 'application/json'
+        key = self.JOB_STOPPABLE.get(job)
+        if key is None:
+            return json.dumps({'ok': False, 'error': '%s can\'t be stopped part way. It finishes in moments.' % job})
+        if not any(j['jobname'] == job and j['status'] == 'Running' for j in self._job_rows()):
+            return json.dumps({'ok': False, 'error': '%s isn\'t running.' % job})
+        mylar.JOB_STOP.add(key)
+        logger.info('[TASKS] Stop asked for %s - it ends at its next safe point.' % job)
+        return json.dumps({'ok': True, 'message': 'Stopping %s after its current step' % job})
+    job_stop.exposed = True
+
+    def search_queue_control(self, action, **kwargs):
+        """Wanted page: pause, resume or stop the search queue."""
+        if cherrypy.request.method != 'POST':
+            raise cherrypy.HTTPError(405)
+        cherrypy.response.headers['Content-Type'] = 'application/json'
+        if action == 'pause':
+            mylar.SEARCH_PAUSED = True
+            logger.info('[SEARCH-QUEUE] Paused from Wanted.')
+            return json.dumps({'status': True, 'message': 'Searches paused. The one running now finishes first'
+                               if mylar.SEARCH_CURRENT else 'Searches paused'})
+        if action == 'resume':
+            mylar.SEARCH_PAUSED = False
+            logger.info('[SEARCH-QUEUE] Resumed from Wanted.')
+            return json.dumps({'status': True, 'message': 'Searches resumed'})
+        if action == 'stop':
+            dropped, current = search.stop_queue()
+            if not dropped and not current:
+                return json.dumps({'status': True, 'message': 'Nothing was searching'})
+            parts = []
+            if current:
+                parts.append('stopping the search for %s #%s' % (current.get('comicname'), current.get('issuenumber')))
+            if dropped:
+                parts.append('%s waiting %s dropped' % (dropped, 'search' if dropped == 1 else 'searches'))
+            message = ', '.join(parts)
+            return json.dumps({'status': True, 'message': message[0].upper() + message[1:]})
+        return json.dumps({'status': False, 'message': 'Unknown action'})
+    search_queue_control.exposed = True
 
     JOB_INTERVALS = {'Auto-Search': ('search', 'SEARCH_INTERVAL', 360),
                      'RSS Feeds': ('rss', 'RSS_CHECKINTERVAL', 20),

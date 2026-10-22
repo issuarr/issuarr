@@ -318,7 +318,7 @@ def start_waiting():
             moved = list(PENDING)
             PENDING.clear()
         else:
-            while PENDING and RUNNING[0] < limit and not STOP.is_set():
+            while PENDING and RUNNING[0] < limit and not STOP.is_set() and not mylar.DDL_PAUSED:
                 RUNNING[0] += 1
                 starting.append(PENDING.popleft())
     for item in moved:
@@ -350,11 +350,24 @@ def _next(q, stop):
     return None
 
 
+def _hold(q, item):
+    """Put an item back at the front of its queue, where it was."""
+    with q.mutex:
+        q.queue.appendleft(item)
+        q.not_empty.notify()
+
+
 def gc_worker(gc_queue, stop):
     while True:
+        # paused from Downloads: nothing new starts until it's resumed
+        while mylar.DDL_PAUSED and not stop.is_set():
+            stop.wait(WORKER_POLL)
         item = _next(gc_queue, stop)
         if item is None:
             break
+        if mylar.DDL_PAUSED:
+            _hold(gc_queue, item)   # paused while this worker was waiting for an item
+            continue
         with GC_SLOT:
             run_download(item)
 

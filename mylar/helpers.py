@@ -3044,6 +3044,11 @@ def date_conversion(originaldate):
     hours = (absdiff.days * 24 * 60 * 60 + absdiff.seconds) / 3600.0
     return hours
 
+def job_stopping(key):
+    """True once Stop was pressed on Tasks for this running job ('search', 'rss' or 'monitor')."""
+    return key in mylar.JOB_STOP
+
+
 def job_management(write=False, job=None, last_run_completed=None, current_run=None, status=None, failure=False, startup=False):
     jobresults = []
 

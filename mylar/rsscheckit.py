@@ -28,6 +28,13 @@ class tehMain():
         pass 
 
     def run(self, forcerss=None):
+        mylar.JOB_STOP.discard('rss')
+        try:
+            return self._run(forcerss)
+        finally:
+            mylar.JOB_STOP.discard('rss')   # Stop on Tasks only covers this run
+
+    def _run(self, forcerss=None):
         with rss_lock:
 
             #logger.info('[RSS-FEEDS] RSS Feed Check was last run at : ' + str(mylar.SCHED_RSS_LAST))
@@ -99,17 +106,22 @@ class tehMain():
                                         pfeed_32p = str(7 + x)
                                         rsscheck.torrents(pickfeed=pfeed_32p, feedinfo=fi)
 
-            logger.info('[RSS-FEEDS] Initiating RSS Feed Check for NZB Providers.')
-            rsscheck.nzbs(forcerss=forcerss)
-            if mylar.CONFIG.ENABLE_DDL is True:
+            # Stop on Tasks: skip the steps that haven't started yet
+            if not helpers.job_stopping('rss'):
+                logger.info('[RSS-FEEDS] Initiating RSS Feed Check for NZB Providers.')
+                rsscheck.nzbs(forcerss=forcerss)
+            if mylar.CONFIG.ENABLE_DDL is True and not helpers.job_stopping('rss'):
                 logger.info('[RSS-FEEDS] Initiating RSS Feed Check for DDL Provider.')
                 rsscheck.ddl(forcerss=forcerss)
-            logger.info('[RSS-FEEDS] RSS Feed Check/Update Complete')
-            logger.info('[RSS-FEEDS] Watchlist Check for new Releases')
-            rss_start = datetime.datetime.now()
-            mylar.search.searchforissue(rsschecker='yes')
-            logger.fdebug('[RSS-FEEDS] RSS dbsearch/matching took: %s' % (datetime.datetime.now() - rss_start))
-            logger.info('[RSS-FEEDS] Watchlist Check complete.')
+            if helpers.job_stopping('rss'):
+                logger.info('[RSS-FEEDS] Stopped from Tasks.')
+            else:
+                logger.info('[RSS-FEEDS] RSS Feed Check/Update Complete')
+                logger.info('[RSS-FEEDS] Watchlist Check for new Releases')
+                rss_start = datetime.datetime.now()
+                mylar.search.searchforissue(rsschecker='yes')
+                logger.fdebug('[RSS-FEEDS] RSS dbsearch/matching took: %s' % (datetime.datetime.now() - rss_start))
+                logger.info('[RSS-FEEDS] Watchlist Check complete.')
             if forcerss:
                 logger.info('[RSS-FEEDS] Successfully ran a forced RSS Check.')
             helpers.job_management(write=True, job='RSS Feeds', last_run_completed=helpers.utctimestamp(), status='Waiting')
