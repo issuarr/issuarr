@@ -2860,6 +2860,34 @@ $("#enable_airdcpp").click(function(){
             none.hidden = !v || hits > 0;
             if (!v && lastPanel) { location.hash = '#' + lastPanel.id; lastPanel = null; }
         });
+
+        // Wide screens: deal each section's groups into columns that stack independently (see .set-cols).
+        var tabsEl = document.getElementById('tabs'), ncols = 0;
+        function layoutCols() {
+            var w = tabsEl.clientWidth, n = w >= 2400 ? 3 : w >= 1480 ? 2 : 1;
+            if (n === ncols) return;
+            ncols = n;
+            form.querySelectorAll('.set-panel:not(#tabs-7)').forEach(function (p) {
+                // in page order, kept from the first pass since the columns change the DOM order
+                var groups = p._setGroups || (p._setGroups = Array.prototype.slice.call(p.querySelectorAll('.set-group')));
+                var old = p.querySelector('.set-cols');
+                if (!groups.length) return;
+                if (n > 1) {
+                    var wrap = document.createElement('div'), cols = [];
+                    wrap.className = 'set-cols' + (n === 3 ? ' set-cols-3' : '');
+                    for (var i = 0; i < n; i++) { cols.push(wrap.appendChild(document.createElement('div'))); cols[i].className = 'set-col'; }
+                    groups.forEach(function (g, i) { cols[i % n].appendChild(g); });
+                    if (old) old.replaceWith(wrap); else p.appendChild(wrap);
+                } else if (old) {
+                    groups.forEach(function (g) { p.insertBefore(g, old); });
+                    old.remove();
+                }
+                p.classList.toggle('set-multi', n > 1);
+            });
+        }
+        layoutCols();
+        if (window.ResizeObserver) new ResizeObserver(layoutCols).observe(tabsEl);
+        else window.addEventListener('resize', layoutCols);
     })();
     </script>
 </%def>

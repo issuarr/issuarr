@@ -136,7 +136,7 @@ The menus moved to a sidebar on the left. Press **Ctrl K** on any page to jump t
 | DDL queue | **Downloads > Queue**, which now also lists Usenet and torrent downloads with their progress |
 | Activity / Jobs | **Tasks > Jobs** |
 | Logs | **Tasks > Logs** |
-| Settings (gear icon) | **Settings**, split into General, Appearance, Download clients, Search providers, Files & post-processing, and Notifications & advanced |
+| Settings (gear icon) | **Settings**, split into General, Download clients, Search providers, Files & post-processing, Notifications & advanced, and Appearance |
 | Version info, CarePackage | **About** (the button is now called **Care package**) |
 | Story arcs, reading list | **Story Arcs > Arcs**, **Story Arcs > Reading list**, **Story Arcs > CBL import** |
 
