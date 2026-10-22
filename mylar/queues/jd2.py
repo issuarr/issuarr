@@ -284,6 +284,8 @@ def resolve_links(links):
     buttons itself, and downloads a script from the page instead. Buttons that lead nowhere are dropped."""
     if not links:
         return links
+    # a link to a GetComics post isn't a download: JD2 would crawl the page and every post it links to
+    links = {u: p for u, p in links.items() if not getcomics.post_path(u)}
     if not any(getcomics.is_redirect_link(u) for u in links):
         return links
     gc = getcomics.GC()
