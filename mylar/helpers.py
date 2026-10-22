@@ -2999,10 +2999,18 @@ def get_the_hash(filepath):
     logger.info('Hash of file : ' + thehash)
     return {'hash':     thehash}
 
+def _block_key(site):
+    """One name for a provider, however it's spelled where it's blocked or checked:
+    'newznab: Geek', 'Geek (newznab)', 'Geek [nzbhydra] (newznab) [RSS]' and 'Geek' are all 'geek'."""
+    s = re.sub(r'^\s*(newznab|torznab)\s*:\s*', '', str(site or ''), flags=re.I)
+    s = re.sub(r'\[(rss|nzbhydra|localhost)\]|\((newznab|torznab)\)', '', s, flags=re.I)
+    return re.sub(r'\s+', ' ', s).strip().lower()
+
 def block_provider_check(site, simple=True, force=False):
     timenow = int(time.time())
-    for prov in mylar.PROVIDER_BLOCKLIST:
-        if prov['site'] == site:
+    key = _block_key(site)
+    for prov in list(mylar.PROVIDER_BLOCKLIST):
+        if _block_key(prov['site']) == key:
             if force is True:
                 mylar.PROVIDER_BLOCKLIST.remove(prov)
                 if simple is True:
@@ -3030,8 +3038,8 @@ def disable_provider(site, reason=None, delay=0):
             delay = 3600
     mins = int(delay / 60) + (delay % 60 > 0)
     logger.info('Temporarily blocking provider %s for %s minutes...'% (site, mins))
-    for entry in mylar.PROVIDER_BLOCKLIST:
-        if entry['site'] == site:
+    for entry in list(mylar.PROVIDER_BLOCKLIST):
+        if _block_key(entry['site']) == _block_key(site):
             mylar.PROVIDER_BLOCKLIST.remove(entry)
     newentry = {'site': site, 'resume': int(time.time()) + delay, 'reason': reason}
     mylar.PROVIDER_BLOCKLIST.append(newentry)
