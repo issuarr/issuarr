@@ -8,6 +8,29 @@ Releases come from the `main` branch and are the `latest` Docker image. Changes 
 
 Nothing yet.
 
+## 0.10.0 (22 October 2026)
+
+### Trades
+
+- Library > Trades has a "Replaces a whole series" filter for trades you own that together collect every issue of a single-issue series. Selecting them offers to remove that series, and the line names the other trades it takes. ([`305ece6`](https://github.com/issuarr/issuarr/commit/305ece6), [`5eaf14d`](https://github.com/issuarr/issuarr/commit/5eaf14d))
+- Series pages have a Related issues and TPBs section listing the trades that collect the series' issues. A trade's page lists the series it collects, with each one's issues and how many of them you have. ([`8af4b77`](https://github.com/issuarr/issuarr/commit/8af4b77), [`995fb3d`](https://github.com/issuarr/issuarr/commit/995fb3d), [`fb3de9c`](https://github.com/issuarr/issuarr/commit/fb3de9c), [`4c3a62e`](https://github.com/issuarr/issuarr/commit/4c3a62e))
+
+### Searching and downloads
+
+- GetComics posts that list volumes as bullets with a subtitle or an issue range ("Batwoman Vol. 5 - Webs (2014)") give links again. ([`aaf6b7a`](https://github.com/issuarr/issuarr/commit/aaf6b7a))
+- A GetComics post that only has HD-Digital links no longer crashes the download. ([`7c82419`](https://github.com/issuarr/issuarr/commit/7c82419))
+- A post up to a week before ComicVine's store date is accepted, since store dates are often a few days off. ([`207f74d`](https://github.com/issuarr/issuarr/commit/207f74d))
+- A TPB, HC or GN result's "Vol. N" no longer stands in for the year, so the wrong volume of trades isn't downloaded over and over. ([`94c61fe`](https://github.com/issuarr/issuarr/commit/94c61fe))
+- JDownloader 2 packs finish only when one host has all their files, and filing uses the folder JD2 saved to. ([`cfc7d31`](https://github.com/issuarr/issuarr/commit/cfc7d31))
+- Deleting a series removes its issues from the search queue. ([`786b46b`](https://github.com/issuarr/issuarr/commit/786b46b))
+
+### Screens
+
+- The sidebar's service status shows the download clients that are turned on, each with an up or down mark. ([`3d67a31`](https://github.com/issuarr/issuarr/commit/3d67a31))
+- The sidebar footer links to the GitHub repository. ([`41eb23d`](https://github.com/issuarr/issuarr/commit/41eb23d))
+- The ⋯ menu stays fully visible on series with only one or two issues. ([`d35dcbf`](https://github.com/issuarr/issuarr/commit/d35dcbf))
+- "As ComicVine lists it" under Treat this series as clears an earlier choice instead of bringing it back. ([`ecaa7c8`](https://github.com/issuarr/issuarr/commit/ecaa7c8))
+
 ## 0.9.0 (20 October 2026)
 
 ### Matching and tagging
