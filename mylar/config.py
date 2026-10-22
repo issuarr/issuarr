@@ -1279,6 +1279,10 @@ class Config(object):
         #force off public torrents usage as currently broken.
         self.ENABLE_PUBLIC = False
 
+        # torrent search has no switch of its own any more: it's on when a torrent indexer is
+        self.ENABLE_TORRENT_SEARCH = bool(self.ENABLE_TORZNAB or self.ENABLE_32P)
+        config.set('Torrents', 'enable_torrent_search', str(self.ENABLE_TORRENT_SEARCH))
+
         if self.GIT_TOKEN:
             self.GIT_TOKEN = (self.GIT_TOKEN, 'x-oauth-basic')
             #logger.info('git_token set to %s' % (self.GIT_TOKEN,))
@@ -1964,7 +1968,7 @@ class Config(object):
                     PPR.append(en_name)
                     PR_NUM +=1
 
-        if self.ENABLE_TORZNAB and self.ENABLE_TORRENT_SEARCH:
+        if self.ENABLE_TORZNAB:
             for ets in self.EXTRA_TORZNABS:
                 if str(ets[5]) == '1' and has_host(ets[1]): # if torznabs are enabled
                     if ets[0] == "":

@@ -18,7 +18,7 @@ GROUP_LABELS = {'direct': 'GetComics direct', 'cloud': 'Cloud shares', 'torrent'
                 'ia': 'Internet Archive'}
 GROUP_VIA = {'direct': 'Download Now, Main Server and Mirror, through FlareSolverr',
              'cloud': 'Mega, MediaFire and Pixeldrain by Issuarr; other hosts such as TeraBox through JD2',
-             'torrent': 'Sent to your torrent client, when torrent search is on. Includes Internet Archive torrents',
+             'torrent': 'Sent to your torrent client, when Use torrents is on. Includes Internet Archive torrents',
              'ia': 'Searches archive.org for Wanted issues, mostly older ones, and downloads the file from there'}
 GETCOMICS = ['direct', 'cloud', 'torrent']
 DEFAULT_GROUPS = list(GROUPS)
@@ -57,9 +57,9 @@ def is_torrent(label, href=None):
 
 
 def torrent_ready():
-    """Torrent links can be used: torrent search is on and there's a torrent client or watch folder to send them to."""
+    """Torrent links can be used: Use torrents is on and there's a torrent client or watch folder to send them to."""
     c = mylar.CONFIG
-    if not (getattr(c, 'ENABLE_TORRENTS', False) and getattr(c, 'ENABLE_TORRENT_SEARCH', False)):
+    if not getattr(c, 'ENABLE_TORRENTS', False):
         return False
     return any(getattr(mylar, f, False) for f in ('USE_UTORRENT', 'USE_RTORRENT', 'USE_TRANSMISSION', 'USE_DELUGE',
                                                    'USE_QBITTORRENT', 'USE_WATCHDIR'))

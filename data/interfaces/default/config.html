@@ -386,11 +386,8 @@
             def ready(rows):
                 return any(str(r[5]) == '1' and re.sub(r'^\w+://', '', str(r[1] or '').strip()).strip('/') for r in rows or [])
             ogaps = []
-            if C.ENABLE_TORRENT_SEARCH and not C.ENABLE_32P:
-                if not C.ENABLE_TORZNAB:
-                    ogaps.append('Torrent search is on, but Use Torznab indexers is off.')
-                elif not ready(C.EXTRA_TORZNABS):
-                    ogaps.append('Torznab is on, but no indexer is turned on with an address.')
+            if C.ENABLE_TORZNAB and not ready(C.EXTRA_TORZNABS):
+                ogaps.append('Torznab is on, but no indexer is turned on with an address.')
             if C.NEWZNAB and not ready(C.EXTRA_NEWZNABS):
                 ogaps.append('Newznab is on, but no indexer is turned on with an address.')
             if C.ENABLE_DDL and not (C.ENABLE_GETCOMICS or C.ENABLE_ARCHIVEORG or C.ENABLE_EXTERNAL_SERVER):
@@ -473,35 +470,33 @@
 
         <section class="set-group" aria-labelledby="sg-torznab">
             <div class="set-group-head"><h2 id="sg-torznab">Torrent indexers (Torznab)</h2></div>
-            ${toggle('enable_torrent_search', 'Search torrent indexers', config['enable_torrent_search'], id='enable_torrent_search')}
-            <div class="set-sub">
-                ${toggle('enable_torznab', 'Use Torznab indexers', config['enable_torznab'], id='enable_torznab')}
-                <div class="set-sub" id="torznab_providers">
-                    %for tz in config['extra_torznabs']:
-                    <%
-                        tid = tz[6]
-                        tz_verify = 'checked' if tz[2] in ('1', 1) else ''
-                        tz_enabled = 'checked' if tz[5] in ('1', 1) else ''
-                    %>
-                    <div class="set-provider config" id="torznab${tid}">
-                        <div class="set-provider-head">
-                            <b>${tz[0] or 'Indexer' | h}</b>
-                            <label class="set-inline"><input type="checkbox" class="switch" id="torznab_enabled${tid}" name="torznab_enabled${tid}" value="1" ${tz_enabled} /> On</label>
-                        </div>
-                        ${field('torznab_name%s' % tid, 'Name', tz[0], id='torznab_name%s' % tid)}
-                        ${field('torznab_host%s' % tid, 'Address', tz[1], id='torznab_host%s' % tid)}
-                        ${toggle('torznab_verify%s' % tid, 'Verify the SSL certificate', tz_verify, id='torznab_verify%s' % tid)}
-                        ${field('torznab_apikey%s' % tid, 'API key', tz[3], id='torznab_apikey%s' % tid, attrs='class="set-wide mono" spellcheck="false"')}
-                        ${field('torznab_category%s' % tid, 'Category', tz[4], id='torznab_category%s' % tid)}
-                        <div class="set-provider-foot">
-                            <img name="torznabstatus${tid}" id="torznabstatus${tid}" src="images/success.png" class="set-test-icon" style="visibility:hidden;" width="18" height="18" alt="" />
-                            <input type="button" class="btn torznabtest" value="Test" id="torznab_test${tid}" name="torznab_test${tid}" />
-                            <input type="button" class="btn btn-ghost remove" value="Remove" />
-                        </div>
+            ${toggle('enable_torznab', 'Search Torznab indexers', config['enable_torznab'], id='enable_torznab',
+                     help='Found torrents go to the torrent client set under Download clients, so Use torrents needs to be on there too.')}
+            <div class="set-sub" id="torznab_providers">
+                %for tz in config['extra_torznabs']:
+                <%
+                    tid = tz[6]
+                    tz_verify = 'checked' if tz[2] in ('1', 1) else ''
+                    tz_enabled = 'checked' if tz[5] in ('1', 1) else ''
+                %>
+                <div class="set-provider config" id="torznab${tid}">
+                    <div class="set-provider-head">
+                        <b>${tz[0] or 'Indexer' | h}</b>
+                        <label class="set-inline"><input type="checkbox" class="switch" id="torznab_enabled${tid}" name="torznab_enabled${tid}" value="1" ${tz_enabled} /> On</label>
                     </div>
-                    %endfor
-                    <input type="button" value="Add an indexer" class="btn add_torznab" id="add_torznab" />
+                    ${field('torznab_name%s' % tid, 'Name', tz[0], id='torznab_name%s' % tid)}
+                    ${field('torznab_host%s' % tid, 'Address', tz[1], id='torznab_host%s' % tid)}
+                    ${toggle('torznab_verify%s' % tid, 'Verify the SSL certificate', tz_verify, id='torznab_verify%s' % tid)}
+                    ${field('torznab_apikey%s' % tid, 'API key', tz[3], id='torznab_apikey%s' % tid, attrs='class="set-wide mono" spellcheck="false"')}
+                    ${field('torznab_category%s' % tid, 'Category', tz[4], id='torznab_category%s' % tid)}
+                    <div class="set-provider-foot">
+                        <img name="torznabstatus${tid}" id="torznabstatus${tid}" src="images/success.png" class="set-test-icon" style="visibility:hidden;" width="18" height="18" alt="" />
+                        <input type="button" class="btn torznabtest" value="Test" id="torznab_test${tid}" name="torznab_test${tid}" />
+                        <input type="button" class="btn btn-ghost remove" value="Remove" />
+                    </div>
                 </div>
+                %endfor
+                <input type="button" value="Add an indexer" class="btn add_torznab" id="add_torznab" />
             </div>
         </section>
 
@@ -2733,7 +2728,6 @@ $("#enable_airdcpp").click(function(){
 		//initConfigCheckbox("#usenzbsu");
                 //initConfigCheckbox("#usedognzb");
                 initConfigCheckbox("#enable_torrents");
-                initConfigCheckbox("#enable_torrent_search");
                 initConfigCheckbox("#enable_rss");
 		
                 initConfigCheckbox("#replace_spaces");

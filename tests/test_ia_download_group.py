@@ -67,7 +67,7 @@ def test_internet_archive_is_searched_before_getcomics_only_when_above_all_its_g
 def test_groups_getcomics_cant_use_dont_hold_the_internet_archive_back():
     mylar.CONFIG.DDL_PRIORITY_ORDER = '["torrent","ia","direct","cloud"]'
     assert not ddlsources.ia_before_getcomics()
-    mylar.CONFIG.ENABLE_TORRENT_SEARCH = False      # no torrents: the IA is above both groups left
+    mylar.CONFIG.ENABLE_TORRENTS = False            # no torrents: the IA is above both groups left
     assert ddlsources.ia_before_getcomics()
 
 
