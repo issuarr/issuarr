@@ -205,7 +205,7 @@
     ids.forEach(function (id) { p.append('issueIds', id); });
     return fetch('forceSearch?' + p.toString(), { credentials: 'same-origin' })
       .then(queued)
-      .then(function () { I().toast('Added ' + plural(ids.length) + ' to the search queue. Follow it along the line above.'); })
+      .then(function () { I().toast('Added ' + plural(ids.length) + ' to the search queue. Each row shows where its issue is.'); })
       .catch(function () { I().toast('That didn\'t work. Check the log.', false); });
   }
 
@@ -269,7 +269,7 @@
   $id('w-search-tier1').addEventListener('click', function () {
     fetch('forceSearch', { credentials: 'same-origin' })
       .then(queued)
-      .then(function () { I().toast('Adding every Tier 1 issue to the search queue. Follow it along the line above.'); })
+      .then(function () { I().toast('Adding every Tier 1 issue to the search queue. Each row shows where its issue is.'); })
       .catch(function () { I().toast('That didn\'t work. Check the log.', false); });
   });
   $id('w-search-all').addEventListener('click', function () {
@@ -277,7 +277,7 @@
     if (n && !window.confirm('Search all ' + plural(n) + '? Providers are searched one page at a time, so a long list can take hours.')) return;
     fetch('forceSearch?tiers=all', { credentials: 'same-origin' })
       .then(queued)
-      .then(function () { I().toast('Adding every Wanted issue, Tier 2 included, to the search queue. Follow it along the line above.'); })
+      .then(function () { I().toast('Adding every Wanted issue, Tier 2 included, to the search queue. Each row shows where its issue is.'); })
       .catch(function () { I().toast('That didn\'t work. Check the log.', false); });
   });
   $id('w-export').addEventListener('click', function () {
