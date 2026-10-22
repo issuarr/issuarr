@@ -245,7 +245,10 @@ class JDownloader2(object):
         if all(st and any(d in st for d in self.DEAD) for st in states):
             reasons = {str(l.get('status')) for l in links} | {str(l.get('availability')) for l in grabber}
             return {'found': True, 'status': 'Failed', 'data': (links or grabber)[0], 'reason': '; '.join(sorted(reasons))}
-        first = (links or grabber)[0]
+        # a dead mirror (say one blocked by Cloudflare) isn't the job's state while another one is still going
+        unavailable = lambda l: any(d in str(l.get('availability') or '').lower() for d in self.DEAD)
+        alive = [l for l in links if not is_dead(l)] + [l for l in grabber if not unavailable(l)]
+        first = (alive or links or grabber)[0]
         # bytes downloaded so far across the package, so the monitor can tell a slow download from a stuck one
         loaded = [l['bytesLoaded'] for l in links if isinstance(l.get('bytesLoaded'), (int, float))]
         return {'found': True, 'status': first.get('status') or 'Queued', 'data': first, 'loaded': sum(loaded) if loaded else None}

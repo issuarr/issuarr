@@ -160,3 +160,31 @@ def test_jd2_gets_one_host_for_a_pack_and_every_mirror_for_an_issue(monkeypatch,
     assert len(sent) == hosts
     if pack:
         assert list(sent) == ['https://getcomics.org/dls/mega']  # mega ranks first when pixeldrain can't take it
+
+
+@pytest.mark.unit
+def test_a_dead_mirror_is_not_the_job_while_another_is_downloading():
+    # 2026-10-21: Catwoman #92. The first link was JD2's crawler blocked by Cloudflare; Pixeldrain had
+    # already loaded the whole file. Issuarr gave up on JD2, downloaded the issue again itself, and
+    # JD2's copy was left in the download folder.
+    links = [{'host': 'linkcrawlerretry', 'name': 'Blocked by!Cloudflare Site-Protection', 'status': 'File not found', 'bytesLoaded': 0},
+             {'host': 'pixeldrain.com', 'name': 'Catwoman 092 (2026).cbz', 'status': 'Downloading', 'bytesLoaded': 47424828}]
+    result = client_with(links).status(JOB, '408847')
+    assert not jd2.jd2_status_is_dead(result['status'])
+    assert result['data']['host'] == 'pixeldrain.com' and result['loaded'] == 47424828
+
+
+@pytest.mark.unit
+def test_a_dead_link_waits_for_a_mirror_still_in_the_link_grabber():
+    client = JDownloader2.__new__(JDownloader2)
+    client._job_links = lambda job_id, record_id=None: {
+        'downloadsV2': ([{'host': 'mega.nz', 'status': 'File not found', 'name': 'a.cbr'}], ['p1']),
+        'linkgrabberv2': ([{'host': 'pixeldrain.com', 'availability': 'ONLINE', 'name': 'a.cbr'}], ['g1'])}
+    assert not jd2.jd2_status_is_dead(client.status(JOB, '1')['status'])
+
+
+@pytest.mark.unit
+def test_every_mirror_dead_is_still_a_failure():
+    links = [{'host': 'mega.nz', 'status': 'File not found', 'name': 'a.cbr'},
+             {'host': 'pixeldrain.com', 'status': 'Offline', 'name': 'a.cbr'}]
+    assert client_with(links).status(JOB, '1')['status'] == 'Failed'
