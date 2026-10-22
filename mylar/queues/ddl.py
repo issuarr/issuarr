@@ -402,6 +402,10 @@ def run_download(item):
         send_to_failover(item, result)
 
 
+# how many other posts a failed item may follow, one after another
+MAX_LINKED_POSTS = 3
+
+
 def send_to_failover(item, result, jd2_gave_up=False):
     FAILOVER_QUEUE.put({'item': item, 'result': result or {}, 'jd2_gave_up': jd2_gave_up})
 
@@ -506,17 +510,39 @@ def handle_failure(myDB, item, result, jd2_gave_up=False, repick=False):
             forget(item['id'])
             return
 
-        if 'links_exhausted' in result or not item.get('mainlink'):
+        if not item.get('mainlink'):
             ddl_give_up(myDB, item)
             return
 
-        ggc = getcomics.GC(comicid=item.get('comicid'), issueid=item.get('issueid'), oneoff=item.get('oneoff'))
-        if state['no_jd2']:
-            ggc.jd2 = None
-        # parse_downloadresults saves the next link to ddl_info and puts it back on DDL_QUEUE;
-        # when nothing is left it only returns links_exhausted
-        redo = ggc.parse_downloadresults(item['id'], item['mainlink'], item.get('comicinfo'), item.get('packinfo'), state['failed'])
-        if isinstance(redo, dict) and 'links_exhausted' in redo:
+        made = []
+
+        def gc():
+            # made only when a page is read; an exhausted item with no linked post needs none
+            if not made:
+                made.append(getcomics.GC(comicid=item.get('comicid'), issueid=item.get('issueid'), oneoff=item.get('oneoff')))
+                if state['no_jd2']:
+                    made[0].jd2 = None
+            return made[0]
+
+        exhausted = 'links_exhausted' in result
+        if not exhausted:
+            # parse_downloadresults saves the next link to ddl_info and puts it back on DDL_QUEUE;
+            # when nothing is left it only returns links_exhausted
+            redo = gc().parse_downloadresults(item['id'], item['mainlink'], item.get('comicinfo'), item.get('packinfo'), state['failed'])
+            exhausted = isinstance(redo, dict) and 'links_exhausted' in redo
+        posts = state.setdefault('posts', [item['mainlink']])
+        while exhausted and len(posts) <= MAX_LINKED_POSTS:
+            # every link on the post failed: try a post it links to for the same item, if there is one
+            post = getcomics.linked_post(item['id'], item.get('comicinfo'), posts)
+            if not post:
+                break
+            posts.append(post)
+            logger.info('[DDL-FAILOVER] Every link for %s failed - trying the post it links to: %s' % (item.get('series'), post))
+            myDB.upsert('ddl_info', {'mainlink': post}, {'id': item['id']})
+            state['failed'] = []  # the new post's sources haven't been tried
+            redo = gc().parse_downloadresults(item['id'], post, item.get('comicinfo'), item.get('packinfo'), state['failed'])
+            exhausted = isinstance(redo, dict) and 'links_exhausted' in redo
+        if exhausted:
             ddl_give_up(myDB, item)
     finally:
         with LOCK:

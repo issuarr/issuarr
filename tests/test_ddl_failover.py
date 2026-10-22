@@ -19,15 +19,18 @@ class FakeGC:
 
     def parse_downloadresults(self, id, mainlink, comicinfo=None, packinfo=None, link_type_failure=None):
         self.calls.append({'id': id, 'mainlink': mainlink, 'failed': list(link_type_failure or [])})
-        return FakeGC.reply
+        return FakeGC.replies.pop(0) if FakeGC.replies else FakeGC.reply
 
 
 @pytest.fixture
 def failover(monkeypatch):
     FakeGC.instances = []
     FakeGC.reply = {'success': True, 'site': 'GC-Media'}
+    FakeGC.replies = []
+    FakeGC.posts = []
     monkeypatch.setattr(ddl, 'FAILOVER', {})
     monkeypatch.setattr(ddl.getcomics, 'GC', FakeGC)
+    monkeypatch.setattr(ddl.getcomics, 'linked_post', lambda id, comicinfo, skip=(): next((p for p in FakeGC.posts if p not in skip), None))
     gave_up = []
     monkeypatch.setattr(ddl, 'ddl_give_up', lambda myDB, item: gave_up.append(item['id']))
     return gave_up
@@ -141,3 +144,52 @@ def test_item_in_failover_counts_as_queued_while_handled(failover, monkeypatch):
     ddl.handle_failure(None, item(), {'success': False})
     assert seen == [True]
     assert '54429' not in ddl.ACTIVE
+
+
+class FakeDB:
+    def __init__(self):
+        self.rows = []
+
+    def upsert(self, table, values, ctrl):
+        self.rows.append((table, values, ctrl))
+
+
+OTHER_POST = 'https://getcomics.org/marvel/age-of-ultron-1-10-2013-fixed/'
+
+
+@pytest.mark.unit
+def test_a_linked_post_is_tried_once_every_link_on_the_post_failed(failover):
+    FakeGC.replies = [{'success': False, 'links_exhausted': ['GC-Mega']}, {'success': True, 'site': 'GC-Pixel'}]
+    FakeGC.posts = [OTHER_POST]
+    myDB = FakeDB()
+    ddl.handle_failure(myDB, item(), {'success': False})
+    calls = FakeGC.instances[0].calls
+    assert [c['mainlink'] for c in calls] == [item()['mainlink'], OTHER_POST]
+    assert calls[1]['failed'] == []  # the other post's sources are all new
+    assert myDB.rows == [('ddl_info', {'mainlink': OTHER_POST}, {'id': '54429'})]
+    assert failover == []
+
+
+@pytest.mark.unit
+def test_on_page_links_come_before_linked_posts(failover):
+    FakeGC.posts = [OTHER_POST]
+    ddl.handle_failure(FakeDB(), item(), {'success': False})
+    assert [c['mainlink'] for c in FakeGC.instances[0].calls] == [item()['mainlink']]
+
+
+@pytest.mark.unit
+def test_gives_up_when_the_linked_post_fails_too(failover):
+    FakeGC.reply = {'success': False, 'links_exhausted': []}
+    FakeGC.posts = [OTHER_POST]
+    ddl.handle_failure(FakeDB(), item(), {'success': False})
+    assert [c['mainlink'] for c in FakeGC.instances[0].calls] == [item()['mainlink'], OTHER_POST]
+    assert failover == ['54429']
+
+
+@pytest.mark.unit
+def test_linked_posts_are_followed_a_few_times_at_most(failover):
+    FakeGC.reply = {'success': False, 'links_exhausted': []}
+    FakeGC.posts = ['https://getcomics.org/marvel/post-%s/' % n for n in range(10)]
+    ddl.handle_failure(FakeDB(), item(), {'success': False})
+    assert len(FakeGC.instances[0].calls) == 1 + ddl.MAX_LINKED_POSTS
+    assert failover == ['54429']

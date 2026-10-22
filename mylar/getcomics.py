@@ -53,6 +53,61 @@ def is_redirect_link(link):
     return bool(link and REDIRECT_LINK.match(str(link)))
 
 
+POST_HOST = re.compile(r'^(?:www\.)?getcomics\.(?:org|info)$', re.I)
+
+
+def post_path(link):
+    """'/marvel/tales-to-astonish-vol-1-1-101' for a link to another GetComics post (either domain),
+    None for anything else - a download button, a file host, a tag or the home page."""
+    try:
+        u = urllib.parse.urlparse(str(link or ''))
+    except ValueError:
+        return None
+    path = u.path.rstrip('/')
+    if u.scheme not in ('http', 'https') or not POST_HOST.match(u.netloc) or path.count('/') != 2:
+        return None
+    if path.startswith(('/dls/', '/tag/', '/cat/', '/page/', '/wp-')):
+        return None
+    return path.lower()
+
+
+def linked_post(id, comicinfo, skip=()):
+    """Another GetComics post that the current post links to for the same issue or pack - posts
+    add these when their own links break, or for other editions. Only used once every download
+    link on the post has failed. None when there isn't one; posts in `skip` are left out."""
+    try:
+        name = comicinfo[0]['ComicName']
+        want = GC._issue_number(comicinfo[0]['IssueNumber'])
+    except Exception:
+        return None
+    if want is None:
+        return None
+    title = os.path.join(mylar.CONFIG.CACHE_DIR, 'html_cache', 'getcomics-' + str(id) + '.html')
+    try:
+        with open(title, encoding='utf-8') as f:
+            soup = BeautifulSoup(f, 'html.parser')
+    except OSError:
+        return None
+    norm = lambda v: re.sub(r'[^a-z0-9]', '', re.sub(r'^the\s+', '', (v or '').lower().replace('&', 'and')))
+    # 'Tales to Astonish Vol. 1 #1 - 101 (1959-1968) (2.1 GB)' - the issue numbers end the name
+    pattern = re.compile(r'^(?P<name>.+?)(?:#|\bVol(?:ume)?\.?\s*)(?P<num>\d+(?:\.\d+)?)'
+                         r'(?:\s*-\s*#?(?P<last>\d+(?:\.\d+)?))?\s*(?:\(|$)', re.I)
+    skipped = {post_path(p) for p in skip}
+    for a in soup.find_all('a'):
+        href = a.get('href')
+        path = post_path(href)
+        if not path or path in skipped:
+            continue
+        for text in (a.get_text(' ', strip=True), a.find_parent('li').get_text(' ', strip=True) if a.find_parent('li') else ''):
+            m = pattern.match(re.sub(r'\s+', ' ', text.replace('\u2013', '-')))
+            if not m or norm(name) not in norm(m.group('name')):
+                continue
+            first, last = GC._issue_number(m.group('num')), GC._issue_number(m.group('last'))
+            if want == first or (last is not None and first <= want <= last):
+                return href
+    return None
+
+
 def query_key(queryline):
     """How GetComics sees a query: it ignores case, quotes and '#', so 'Powers #1' and
     '"Powers 1"' return the same posts and only need sending once per issue."""
@@ -935,7 +990,7 @@ class GC(object):
                             ltf = True
 
                     if not ltf:
-                        if 'sh.st' not in lk['href']:
+                        if 'sh.st' not in lk['href'] and not post_path(lk['href']):
                             gather_links.append({
                                  "series": series,
                                  "site": t_site,
@@ -1534,6 +1589,8 @@ class GC(object):
                 href = a.get('href')
                 if not site or not href or 'sh.st' in href or site.lower() == 'read online':
                     continue
+                if post_path(href):
+                    continue  # a link to another post, not a download (see linked_post())
                 src = ddlsources.canonical(site, href)
                 if not src or not ddlsources.is_enabled(src):
                     continue
