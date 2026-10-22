@@ -51,7 +51,7 @@ The user JD2 runs as must be able to write there, and the user Issuarr runs as (
 ## 3. Set up Issuarr
 
 1. Go to **Settings > Search providers > Direct downloads** and turn on **Download directly from sites**.
-2. Turn on **Send other hosts to JDownloader 2**.
+2. Go to **Settings > Download clients > JDownloader 2** and turn on **Send mirror links to JDownloader 2**.
 3. **JDownloader 2 address:** the API address, for example `http://jdownloader2:3128` or `http://192.168.1.20:3128`. Include the port.
 4. **Download folder:** the shared folder from step 2, for example `/downloads/jd2`.
 5. Make sure **Settings > Files & post-processing > Post-process downloads** is on, or finished JD2 downloads won't be filed.

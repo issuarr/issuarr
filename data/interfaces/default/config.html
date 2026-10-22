@@ -212,7 +212,7 @@
         </section>
     </div>
 
-    <div id="tabs-3" class="set-panel" data-title="Download clients" data-sub="Where Issuarr sends what it finds: a Usenet client, a torrent client, or a folder another program watches.">
+    <div id="tabs-3" class="set-panel" data-title="Download clients" data-sub="Where Issuarr sends what it finds: a Usenet client, a torrent client, JDownloader 2, or a folder another program watches.">
         <section class="set-group" aria-labelledby="sg-usenet">
             <div class="set-group-head"><h2 id="sg-usenet">Usenet</h2></div>
             <div class="set-row">
@@ -362,6 +362,15 @@
                     ${select('qbittorrent_loadaction', 'When a torrent is added', [('default', 'Use qBittorrent\'s default'), ('force_start', 'Force start'), ('pause', 'Add paused')], config['qbittorrent_loadaction'])}
                     ${tester('qbittorrent_test', 'Test qBittorrent', 'qbittorrent_statusicon')}
                 </div>
+            </div>
+        </section>
+
+        <section class="set-group" aria-labelledby="sg-jd2">
+            <div class="set-group-head"><h2 id="sg-jd2">JDownloader 2</h2><p>Used for direct downloads. When it's on, the mirror links in GetComics posts go to JDownloader 2, including hosts Issuarr can't download from itself, such as TeraBox. Issuarr still downloads from GetComics' own server.</p></div>
+            ${toggle('jd2_enable', 'Send mirror links to JDownloader 2', config['jd2_enable'], id='jd2_enable')}
+            <div class="set-sub" id="jd2_options" style="display:none">
+                ${field('jd2_url', 'JDownloader 2 address', config['jd2_url'], id='jd2_url', placeholder='http://127.0.0.1:3128')}
+                ${field('jd2_dest_dir', 'Download folder', config['jd2_dest_dir'], id='jd2_dest_dir', help='Full path, as JDownloader 2 sees it.')}
             </div>
         </section>
     </div>
@@ -518,7 +527,7 @@
                         </div>
                     </div>
                     <div class="set-row">
-                        <div class="set-label"><b>Download sources, in the order to try them</b><span>Sources a post doesn't offer are skipped. Cloud shares other than Mega, MediaFire and Pixeldrain need JDownloader 2.
+                        <div class="set-label"><b>Download sources, in the order to try them</b><span>Sources a post doesn't offer are skipped. Cloud shares other than Mega, MediaFire and Pixeldrain need JDownloader 2, set up under Download clients.
                             The Internet Archive is searched before GetComics when it's above all three GetComics sources, and right after GetComics otherwise.
                             Its zips of pages are saved as .cbz, so filing, WebP and tagging handle them as usual.</span></div>
                         <div class="set-ctl ddl-sources" id="ddl_sources_box">
@@ -554,11 +563,6 @@
                             %endif
                             <input type="button" class="btn" value="Test" id="test_pixeldrain">
                         </div>
-                    </div>
-                    ${toggle('jd2_enable', 'Send other hosts to JDownloader 2', config['jd2_enable'], id='jd2_enable')}
-                    <div class="set-sub" id="jd2_options" style="display:none">
-                        ${field('jd2_url', 'JDownloader 2 address', config['jd2_url'], id='jd2_url', placeholder='http://127.0.0.1:3128')}
-                        ${field('jd2_dest_dir', 'Download folder', config['jd2_dest_dir'], id='jd2_dest_dir', help='Full path, as JDownloader 2 sees it.')}
                     </div>
                     %if mylar.EXT_SERVER:
                     ${toggle('enable_external_server', 'External server', config['enable_external_server'], id='enable_external_server')}
