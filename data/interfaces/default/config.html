@@ -370,7 +370,7 @@
             ${toggle('jd2_enable', 'Send mirror links to JDownloader 2', config['jd2_enable'], id='jd2_enable')}
             <div class="set-sub" id="jd2_options" style="display:none">
                 ${field('jd2_url', 'JDownloader 2 address', config['jd2_url'], id='jd2_url', placeholder='http://127.0.0.1:3128')}
-                ${field('jd2_dest_dir', 'Download folder', config['jd2_dest_dir'], id='jd2_dest_dir', help='Full path, as JDownloader 2 sees it.')}
+                ${field('jd2_dest_dir', 'Download folder', config['jd2_dest_dir'], id='jd2_dest_dir', help='Full path. Issuarr and JDownloader 2 must both see this folder at this same path.')}
             </div>
         </section>
     </div>
