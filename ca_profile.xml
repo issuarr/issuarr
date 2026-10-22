@@ -5,7 +5,8 @@
 The image is a drop-in replacement for linuxserver/mylar3: point Appdata at your old mylar3 folder and your settings and database carry over.
 
 Install guide: https://issuarr.github.io/issuarr/UNRAID/
-Help and bug reports: https://github.com/issuarr/issuarr/issues
+Support forum: https://forums.unraid.net/topic/200979-support-issuarr-comic-book-manager-mylar3-successor/
+Bug reports: https://github.com/issuarr/issuarr/issues
   </Profile>
   <Icon>https://raw.githubusercontent.com/issuarr/issuarr/main/data/images/issuarr-transparent.png</Icon>
   <WebPage>https://issuarr.github.io/issuarr/</WebPage>
