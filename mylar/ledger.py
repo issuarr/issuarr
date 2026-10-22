@@ -8,7 +8,7 @@ import threading
 import zipfile
 import xml.etree.ElementTree as ET
 
-from collections import defaultdict
+from collections import Counter, defaultdict
 
 import mylar
 from mylar import db, logger
@@ -462,7 +462,8 @@ def collected_data():
     myDB = db.DBConnection()
     status, comics = _lookups(myDB)
     out = []
-    for x in _trades(myDB, status, comics):
+    trades = _trades(myDB, status, comics)
+    for x in trades:
         r, t, c = x['row'], x['trade'], x['comic']
         lacking = [[f, comics[status[f]['ComicID']]['ComicName'], comics[status[f]['ComicID']]['ComicYear'], status[f]['Issue_Number'], status[f]['Status']]
                    for f in x['found'] if f not in x['own']]
@@ -472,7 +473,53 @@ def collected_data():
                     'ondisk': sum(1 for f in x['own'] if status[f]['Location']),
                     'unresolved': sum(len(u['nums']) for u in x['unresolved']), 'lacking': lacking, 'coverage': x['coverage'],
                     'extras': sorted({_extra_name(u, x['found'], status, comics) for u in x['other']})})
-    return {'trades': out, 'build': status_summary(myDB)}
+    whole = _whole_series(myDB, status, comics, trades)
+    return {'trades': out, 'whole': whole, 'delete_dir': bool(mylar.CONFIG.DELETE_REMOVE_DIR), 'build': status_summary(myDB)}
+
+
+def _whole_series(myDB, status, comics, trades):
+    """Single-issue series whose whole issue list, owned or not, is collected in trades you have on disk.
+    Each entry's 'cover' maps a trade to the issues of the series it holds, so the page can tell
+    whether a selection of trades covers the series by itself."""
+    clocs = {r['ComicID']: r['ComicLocation'] for r in myDB.select('SELECT ComicID, ComicLocation FROM comics')}
+    issues = defaultdict(set)
+    for iid, r in status.items():
+        issues[r['ComicID']].add(iid)
+    annuals = {r['ComicID'] for r in myDB.select('SELECT DISTINCT ComicID FROM annuals WHERE coalesce(Deleted, 0)=0')}
+    cover = defaultdict(lambda: defaultdict(list))
+    for x in trades:
+        t = x['trade']
+        if t['Status'] not in OWNED or not t['Location']:
+            continue
+        for f in x['found']:
+            cid = status[f]['ComicID']
+            if (comics[cid]['Corrected_Type'] or comics[cid]['Type']) in TRADE_TYPES:
+                continue
+            cover[cid][x['row']['TradeIssueID']].append(f)
+    on_disk = {}
+
+    def trade_file(iid):
+        if iid not in on_disk:
+            cid = status[iid]['ComicID']
+            on_disk[iid] = os.path.isfile(os.path.join(clocs.get(cid) or '', status[iid]['Location']))
+        return on_disk[iid]
+
+    out = []
+    for cid, by_trade in cover.items():
+        # Annuals tracked under the series would be removed with it, and no trade's contents point at them.
+        if cid in annuals:
+            continue
+        by_trade = {t: f for t, f in by_trade.items() if trade_file(t)}
+        if not by_trade or not issues[cid] <= {f for fs in by_trade.values() for f in fs}:
+            continue
+        c, folder = comics[cid], os.path.normpath(clocs.get(cid) or '')
+        # A folder that another series also lives in (often the trades themselves) is never offered for deletion.
+        shared = any(o != cid and l and (os.path.normpath(l) == folder or os.path.normpath(l).startswith(folder + os.sep))
+                     for o, l in clocs.items()) if clocs.get(cid) else True
+        out.append({'cid': cid, 'name': c['ComicName'], 'year': c['ComicYear'], 'type': c['Corrected_Type'] or c['Type'],
+                    'issues': len(issues[cid]), 'have': sum(1 for f in issues[cid] if status[f]['Status'] in OWNED),
+                    'shared': shared, 'cover': {t: sorted(f) for t, f in by_trade.items()}})
+    return sorted(out, key=lambda w: (w['name'].lower(), str(w['year'])))
 
 
 def status_summary(myDB=None):
@@ -559,3 +606,74 @@ def remove_singles(trade_ids):
                 logger.warn('[LEDGER] Rescan of %s failed: %s' % (cid, e))
     threading.Thread(target=rescan, name='LEDGER-RESCAN', daemon=True).start()
     return {'ok': not failed, 'moved': moved, 'failed': failed, 'skipped': skipped, 'dest': root, 'undo': undo}
+
+
+
+def _spans(positions, labels):
+    """Places in the series' own issue order as runs: [3, 4, 5, 7] with labels ['40', ...] reads #43-45, #47."""
+    pos, out, start = sorted(set(positions)), [], None
+    for k, p in enumerate(pos):
+        if start is None:
+            start = p
+        if k + 1 == len(pos) or pos[k + 1] != p + 1:
+            out.append('#%s' % labels[p] if start == p else '#%s-%s' % (labels[start], labels[p]))
+            start = None
+    return ', '.join(out)
+
+
+def related(comicid):
+    """The series page's Related issues and TPBs. For a single-issue series: every trade that collects any of its issues.
+    For a trade: the single-issue series it collects, each with all the trades that collect it, so trades
+    that ComicVine files as separate one-issue series (a lone Vol. 7) still sit next to their other volumes."""
+    myDB = db.DBConnection()
+    status, comics = _lookups(myDB)
+    c = comics.get(comicid)
+    if c is None:
+        return {'groups': [], 'trade': False, 'stored': 0}
+    trades = _trades(myDB, status, comics)
+    is_trade = (c['Corrected_Type'] or c['Type']) in TRADE_TYPES
+    mine, series = set(), [comicid]
+    if is_trade:
+        mine, series = {i for i, r in status.items() if r['ComicID'] == comicid}, []
+        for x in trades:
+            if x['row']['TradeIssueID'] in mine:
+                for f in x['found']:
+                    sid = status[f]['ComicID']
+                    if sid not in series and (comics[sid]['Corrected_Type'] or comics[sid]['Type']) not in TRADE_TYPES:
+                        series.append(sid)
+    groups = []
+    for sid in series:
+        rows = myDB.select('SELECT IssueID, Issue_Number FROM issues WHERE ComicID=? ORDER BY Int_IssueNumber, IssueDate', [sid])
+        order = {r['IssueID']: k for k, r in enumerate(rows)}
+        labels = [r['Issue_Number'] for r in rows]
+        items, collects = [], set()
+        for x in trades:
+            got = [order[f] for f in x['found'] if f in order]
+            if not got:
+                continue
+            t, tc, iid = x['trade'], x['comic'], x['row']['TradeIssueID']
+            if iid in mine:
+                collects.update(got)
+            items.append({'iid': iid, 'cid': x['row']['TradeComicID'], 'name': tc['ComicName'], 'year': tc['ComicYear'],
+                          'num': t['Issue_Number'], 'type': tc['Corrected_Type'] or tc['Type'], 'status': t['Status'],
+                          'issues': _spans(got, labels), 'count': len(set(got)), 'whole': len(set(got)) == len(rows),
+                          'this': iid in mine, 'first': min(got)})
+        if not items:
+            continue
+        items.sort(key=lambda i: (i['first'], -i['count'], i['name'].lower(), str(i['year'])))
+        s = comics[sid]
+        groups.append({'cid': sid, 'name': s['ComicName'], 'year': s['ComicYear'], 'issues': len(rows),
+                       'this': sid == comicid, 'trades': items, 'collects': _spans(collects, labels),
+                       'whole': len(collects) == len(rows),
+                       # how the single issues this trade collects stand in the series
+                       'singles': dict(Counter(status[rows[k]['IssueID']]['Status'] or 'Skipped' for k in collects))})
+    ids = [i['iid'] for g in groups for i in g['trades']]
+    titles = {}
+    for k in range(0, len(ids), 500):
+        part = ids[k:k + 500]
+        titles.update({r['IssueID']: r['IssueName'] for r in myDB.select(
+            'SELECT IssueID, IssueName FROM issues WHERE IssueID IN (%s)' % ','.join('?' * len(part)), part)})
+    for g in groups:
+        for i in g['trades']:
+            i['title'] = titles.get(i['iid']) or ''
+    return {'groups': groups, 'trade': is_trade, 'stored': status_summary(myDB)['stored']}

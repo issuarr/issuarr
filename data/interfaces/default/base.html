@@ -175,6 +175,7 @@
 			<div class="sb-foot">
 				<div class="sb-version">Version <em>${_version | h}</em> (${(_commit + ', ' if _commit else '') + str(mylar.CONFIG.GIT_BRANCH) | h})</div>
 				<div id="testing"><a href="#" onclick="check_the_hub();return false;"><span class="ui-icon ui-icon-refresh"></span><span id="version_line">Check for new version</span></a></div>
+				<div class="sb-github"><a href="https://github.com/${mylar.CONFIG.GIT_USER | u}/${mylar.CONFIG.GIT_REPO | u}" target="_blank" rel="noopener noreferrer" title="Issuarr on GitHub">GitHub</a></div>
 				<details class="sb-status">
 					<summary>Service status</summary>
 					<div id="backendstatus">
@@ -217,6 +218,7 @@
 						%endif
 						%endfor
 						%endif
+						<span id="client_status" title="Download clients that are turned on"></span>
 						%if mylar.CONFIG.ENABLE_DDL:
 						<br><span id="pd_usage" title="Pixeldrain transfer used in the last day"></span>
 						%endif
@@ -304,6 +306,7 @@
 	<script>var importStatusInitial = ${_ist};</script>
 	<script src="js/importstatus.js?v=${mylar.CURRENT_VERSION}"></script>
 	<script src="js/pixeldrain-usage.js?v=${mylar.CURRENT_VERSION}"></script>
+	<script src="js/client-status.js?v=${mylar.CURRENT_VERSION}"></script>
 	<script src="js/issuarr.js?v=${mylar.CURRENT_VERSION}"></script>
         <script>
         //var reconnectFrequencySeconds = 1;

@@ -1575,6 +1575,22 @@ def queued_issueids():
     return {x.get('issueid') for x in waiting if isinstance(x, dict)}
 
 
+def drop_series(comicid):
+    """Take a deleted series' issues out of the search queue. Left in, each one still came up and was
+    dropped only after a lookup ('Unable to locate IssueID'), holding up the issues behind it."""
+    q = mylar.SEARCH_QUEUE
+    with q.mutex:
+        keep = [x for x in q.queue if not (isinstance(x, dict) and str(x.get('comicid')) == str(comicid))]
+        dropped = len(q.queue) - len(keep)
+        if dropped:
+            q.queue.clear()
+            q.queue.extend(keep)
+            # get() callers count unfinished tasks; the dropped items will never be done
+            q.unfinished_tasks = max(0, q.unfinished_tasks - dropped)
+            q.not_full.notify_all()
+    return dropped
+
+
 def search_status():
     """What the search queue is doing, for the Wanted page: the issue being searched and the ones waiting."""
     def brief(item):

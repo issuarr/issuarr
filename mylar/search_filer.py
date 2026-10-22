@@ -120,6 +120,24 @@ def with_extra_words(parsed, watchcomic, year):
 
 
 
+# A post can go up a few days before the store date ComicVine has for the issue (dates there are
+# often a few days off, and digital copies can come out early). 'Adventure Time Quadruple Feature
+# #2' was posted 2026-08-10 for a store date of 2026-08-12 and was skipped every search.
+EARLY_POST_DAYS = 7
+
+
+def volume_year_fits(booktype, result_year, wanted_year):
+    """A collected edition's 'Vol. 1' is its number, not a series volume, so the volume label can't stand
+    in for the year: many series have a Vol. 1 trade. When the result has a year, it has to be within a
+    year of the wanted volume's (release dates and cover dates straddle a new year)."""
+    if booktype not in editions.COLLECTED_TYPES:
+        return True
+    try:
+        return abs(int(str(result_year)[:4]) - int(str(wanted_year)[:4])) <= 1
+    except (TypeError, ValueError):
+        return True  # no year on the result, or none to compare against
+
+
 def edition_fits(booktype, parsed_booktype, ignore_booktype=False, title=None):
     """Whether a result's edition (parsed_booktype, as the parser reads it) suits a series of
     booktype. title is the result's name."""
@@ -431,7 +449,7 @@ class search_check(object):
                 issue_converted = datetime.datetime.strptime(
                     usedate.rstrip(), '%Y-%m-%d'
                 )
-                issue_convert = issue_converted + datetime.timedelta(days=-1)
+                issue_convert = issue_converted - datetime.timedelta(days=EARLY_POST_DAYS)
                 # to get past different locale's os-dependent dates, let's
                 # convert it to a generic datetime format
                 try:
@@ -816,6 +834,12 @@ class search_check(object):
                                 )
         elif UseFuzzy == "1":
             yearmatch = True
+
+        if yearmatch and vers4vol != "no" and not volume_year_fits(booktype, parsed_comic.get('issue_year'), comyear):
+            # 'Birds of Prey Vol. 1 - Trouble in Mind (2012)' is not Volume 1 of the 2015 Birds of Prey trades
+            logger.fdebug('%s is a %s labelled %s, but from %s - not the %s volume wanted. Ignoring this result.'
+                          % (ComicTitle, booktype, fndcomicversion, parsed_comic.get('issue_year'), comyear))
+            yearmatch = False
 
         if yearmatch is False and pack is False:
             return None

@@ -797,20 +797,28 @@ class GC(object):
         soup = BeautifulSoup(open(title + '.html', encoding='utf-8'), 'html.parser')
 
         single = self._single_item(soup, comicinfo, link_type_failure)
+        if single and single[1]['pack'] and not (isinstance(pack_issuelist, dict) and pack_issuelist.get('issues')):
+            single = None  # a range of issues needs the pack's issue list to file them
         if single:
             entries, chosen = single
             logger.info('[DDL] %s is listed on its own (%s) - downloading just that instead of the whole post, via %s.' % (chosen['series'], chosen['size'], chosen['site']))
             if isinstance(pack_issuelist, dict) and pack_issuelist.get('issues'):
-                keep_id = str(self.issueid or comicinfo[0]['IssueID'])
-                keep = [x for x in pack_issuelist['issues'] if str(x.get('issueid')) == keep_id]
+                if chosen['pack']:
+                    first, last = chosen['range']
+                    keep = [x for x in pack_issuelist['issues'] if first <= (self._issue_number(x.get('issuenumber')) or -1) <= last]
+                else:
+                    keep_id = str(self.issueid or comicinfo[0]['IssueID'])
+                    keep = [x for x in pack_issuelist['issues'] if str(x.get('issueid')) == keep_id]
                 for x in pack_issuelist['issues']:
                     if x not in keep:
                         mylar.PACK_ISSUEIDS_DONT_QUEUE.pop(x.get('issueid'), None)
                 pack_issuelist['issues'][:] = keep
+            if chosen['pack']:
+                packinfo = dict(packinfo, pack_numbers=chosen['issues'])
             if chosen['source'] == 'torrent':
                 return self._send_torrent(chosen, id, mainlink, comicinfo, packinfo, link_type_failure)
             others = [dict(e) for e in entries if e is not chosen and e['source'] not in ddlsources.BUILTIN and e['source'] != 'torrent']
-            return self._queue_links([chosen], entries, others, id, mainlink, comicinfo, None, link_type_failure, myDB)
+            return self._queue_links([chosen], entries, others, id, mainlink, comicinfo, packinfo if chosen['pack'] else None, link_type_failure, myDB)
 
         i = 0
         possible_more = None
@@ -1092,41 +1100,36 @@ class GC(object):
                     if not link_matched and site_lp == 'mega':
                         sub_site_chk = [y for y in tmp_sites if 'mega' in y]
                         if sub_site_chk:
-                            try:
-                               kk = tmp_links[site_position['SD-Digital:mega']]
-                               logger.info('[MEGA] SD-Digital preference detected...attempting %s' % kk['series'])
-                               link_matched = True
-                            except KeyError:
-                                kk = tmp_links[site_position['normal:mega']]
-                                logger.info('[MEGA] mega preference detected...attempting %s' % kk['series'])
+                            # SD first, then an unlabelled post, then HD: a post can have only HD-Digital links
+                            key = next((k for k in ('SD-Digital:mega', 'normal:mega', 'HD-Digital:mega', 'HD-Upscaled:mega') if k in site_position), None)
+                            if key is not None:
+                                kk = tmp_links[site_position[key]]
+                                logger.info('[MEGA] %s preference detected...attempting %s' % (key, kk['series']))
                                 link_matched = True
 
                     elif not link_matched and site_lp == 'pixeldrain':
                         sub_site_chk = [y for y in tmp_sites if 'pixel' in y]
                         if sub_site_chk:
-                            try:
-                                kk = tmp_links[site_position['SD-Digital:pixeldrain']]
-                                logger.info('[PixelDrain] SD-Digital preference detected...attempting %s' % kk['series'])
-                                link_matched = True
-                            except KeyError:
-                                kk = tmp_links[site_position['normal:pixeldrain']]
-                                logger.info('[PixelDrain] PixelDrain preference detected...attempting %s' % kk['series'])
+                            # SD first, then an unlabelled post, then HD: a post can have only HD-Digital links
+                            key = next((k for k in ('SD-Digital:pixeldrain', 'normal:pixeldrain', 'HD-Digital:pixeldrain', 'HD-Upscaled:pixeldrain') if k in site_position), None)
+                            if key is not None:
+                                kk = tmp_links[site_position[key]]
+                                logger.info('[PixelDrain] %s preference detected...attempting %s' % (key, kk['series']))
                                 link_matched = True
 
                     elif not link_matched and site_lp == 'mediafire':
                         sub_site_chk = [y for y in tmp_sites if 'mediafire' in y]
                         if sub_site_chk:
-                            try:
-                                kk = tmp_links[site_position['SD-Digital:mediafire']]
-                                logger.info('[mediafire] SD-Digital preference detected...attempting %s' % kk['series'])
-                                link_matched = True
-                            except KeyError:
-                                kk = tmp_links[site_position['normal:mediafire']]
-                                logger.info('[mediafire] mediafire preference detected...attempting %s' % kk['series'])
+                            # SD first, then an unlabelled post, then HD: a post can have only HD-Digital links
+                            key = next((k for k in ('SD-Digital:mediafire', 'normal:mediafire', 'HD-Digital:mediafire', 'HD-Upscaled:mediafire') if k in site_position), None)
+                            if key is not None:
+                                kk = tmp_links[site_position[key]]
+                                logger.info('[mediafire] %s preference detected...attempting %s' % (key, kk['series']))
                                 link_matched = True
 
                     elif not link_matched and site_lp == 'main':
-                        for main_key in ('SD-Digital:download now', 'SD-Digital:mirror download', 'normal:download now', 'normal:mirror download'):
+                        for main_key in ('SD-Digital:download now', 'SD-Digital:mirror download', 'normal:download now', 'normal:mirror download',
+                                         'HD-Digital:download now', 'HD-Digital:mirror download', 'HD-Upscaled:download now', 'HD-Upscaled:mirror download'):
                             if main_key in site_position:
                                 kk = tmp_links[site_position[main_key]]
                                 logger.info('[MAIN-SERVER] %s preference detected...attempting %s' % (main_key, kk['series']))
@@ -1434,6 +1437,13 @@ class GC(object):
 
                 for entry in other_links:
                     jd2_priority_links.setdefault(entry['links'], jd2_priority_map.get(entry['source'], 'LOWEST'))
+                if x.get('pack') and len(jd2_priority_links) > 1:
+                    # A pack's hosts aren't mirrors JD2 can match up (a zip on one, the single issues on
+                    # another), so JD2 downloaded the whole pack once per host. Send the best host only;
+                    # if it fails, the DDL failover tries the others.
+                    rank = lambda kv: jd2_priority_list.index(kv[1]) if kv[1] in jd2_priority_list else len(jd2_priority_list)
+                    best = min(jd2_priority_links.items(), key=rank)
+                    jd2_priority_links = dict([best])
                 if link_type not in ('GC-Main', 'GC-Mirror') and 'GC-Main' not in (link_type_failure or []) and ddlsources.is_enabled('main'):
                     main_entry = next((e for e in (tmp_links or []) if isinstance(e, dict) and (e.get('site') or '').lower() in ('main server', 'download now', 'mirror download') and e.get('links')), None)
                     if main_entry is not None:
@@ -1485,6 +1495,13 @@ class GC(object):
             pass
         return {'success': True, 'site': 'GC-Torrent', 'torrent': sent}
 
+    @staticmethod
+    def _issue_number(v):
+        try:
+            return float(re.sub(r'^0+(?=\d)', '', str(v).strip()))
+        except (TypeError, ValueError):
+            return None
+
     def _single_item(self, soup, comicinfo, link_type_failure=None):
         try:
             name = comicinfo[0]['ComicName']
@@ -1492,23 +1509,25 @@ class GC(object):
         except Exception:
             return None
         norm = lambda v: re.sub(r'[^a-z0-9]', '', re.sub(r'^the\s+', '', (v or '').lower().replace('&', 'and')))
-        def number(v):
-            try:
-                return float(re.sub(r'^0+(?=\d)', '', v))
-            except (TypeError, ValueError):
-                return None
+        number = self._issue_number
         want = number(wanted)
         if want is None:
             return None
-        pattern = re.compile(r'^(?P<title>.+?(?:#|\bVol(?:ume)?\.?\s*)(?P<num>\d+(?:\.\d+)?))\s*(?:\((?P<year>\d{4})\))?\s*\((?P<size>[\d.,]+\s*[KMGT]B)\)', re.I)
+        # 'Name Vol. 4 (2008) (575 MB)', 'Name Vol. 5 - Webs (2014) (316 MB)' or a range 'Name #957 - 968 (2016-2017) (459 MB)'
+        pattern = re.compile(r'^(?P<title>(?P<name>.+?)(?:#|\bVol(?:ume)?\.?\s*)(?P<num>\d+(?:\.\d+)?)(?:\s*-\s*#?(?P<last>\d+(?:\.\d+)?))?)'
+                             r'(?:\s+-\s+[^()]+?)?\s*(?:\((?P<year>\d{4})(?:\s*-\s*\d{4})?\))?\s*\((?P<size>[\d.,]+\s*[KMGT]B)\)', re.I)
         for li in soup.find_all('li'):
             text = re.sub(r'\s+', ' ', li.get_text(' ', strip=True).replace('\u2013', '-'))
             m = pattern.match(text)
-            if not m or number(m.group('num')) != want:
+            if not m:
+                continue
+            first, last = number(m.group('num')), number(m.group('last'))
+            if not (want == first or (last is not None and first <= want <= last)):
                 continue
             title = m.group('title').strip()
-            if norm(name) not in norm(re.sub(r'(#|\bVol(?:ume)?\.?)\s*\d+(\.\d+)?$', '', title)):
+            if norm(name) not in norm(m.group('name')):
                 continue
+            issues = m.group('num') if last is None else '%s - %s' % (m.group('num'), m.group('last'))
             entries = []
             for a in li.find_all('a'):
                 site = a.get_text(' ', strip=True)
@@ -1525,7 +1544,8 @@ class GC(object):
                 if link_type_failure and any(src[:4] in str(t).lower() or (src == 'main' and 'main' in str(t).lower()) for t in link_type_failure):
                     continue
                 entries.append({'series': title, 'site': 'Main Server' if src == 'main' else site, 'year': m.group('year') or '',
-                                'issues': m.group('num'), 'size': m.group('size'), 'links': href, 'pack': False, 'source': src})
+                                'issues': issues, 'size': m.group('size'), 'links': href, 'pack': last is not None,
+                                'range': (first, last), 'source': src})
             if not entries:
                 continue
             size = ddlsources.size_bytes(m.group('size'))

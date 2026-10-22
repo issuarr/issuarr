@@ -2212,6 +2212,9 @@ class WebInterface(object):
             myDB.action('DELETE from upcoming WHERE ComicID=?', [ComicID])
             myDB.action('DELETE from readlist WHERE ComicID=?', [ComicID])
             myDB.action("UPDATE weekly SET Status='Skipped' WHERE ComicID=? AND Status='Wanted'", [ComicID])
+            dropped = search.drop_series(ComicID)
+            if dropped:
+                logger.info('Removed %s queued searches for %s.' % (dropped, ComicName))
             if delete_dir: #mylar.CONFIG.DELETE_REMOVE_DIR:
                 logger.fdebug('Remove directory on series removal enabled.')
                 if seriesdir is not None:
@@ -5144,6 +5147,12 @@ class WebInterface(object):
         return json.dumps({'reset': webp.reset(), 'status': webp.status()})
     webp_reset.exposed = True
 
+    def ledger_related(self, ComicID, **kwargs):
+        # the series page's Related issues and TPBs
+        cherrypy.response.headers['Content-Type'] = 'application/json'
+        return json.dumps(ledger.related(ComicID))
+    ledger_related.exposed = True
+
     def ledger_status(self, **kwargs):
         cherrypy.response.headers['Content-Type'] = 'application/json'
         return json.dumps(ledger.status_summary())
@@ -5154,6 +5163,13 @@ class WebInterface(object):
         key = (key or '').strip() or None
         return json.dumps(ddlsources.pixeldrain_status(force=helpers.str_to_bool(force), key=key))
     pixeldrain_status.exposed = True
+
+    def client_status(self, force=0, **kwargs):
+        # the sidebar's Service status: the download clients that are turned on, and whether they answer
+        cherrypy.response.headers['Content-Type'] = 'application/json'
+        from mylar import clientstatus
+        return json.dumps({'clients': clientstatus.status(force=helpers.str_to_bool(force))})
+    client_status.exposed = True
 
     def ledger_cutoff(self, cutoff='', **kwargs):
         cherrypy.response.headers['Content-Type'] = 'application/json'
@@ -8080,11 +8096,11 @@ class WebInterface(object):
             newValues['Corrected_Type'] = 'One-Shot'
         elif force_type == 'Print':
             newValues['Corrected_Type'] = 'Print'
+        elif force_type == '':
+            # "As ComicVine lists it" was picked, so drop the override
+            newValues['Corrected_Type'] = None
         else:
-            if orig_corr_type is not None:
-                newValues['Corrected_Type'] = orig_corr_type
-            else:
-                newValues['Corrected_Type'] = None
+            newValues['Corrected_Type'] = orig_corr_type
 
         if any([ignore_type == '0', ignore_type is None, ignore_type == 'None']):
             newValues['IgnoreType'] = 0

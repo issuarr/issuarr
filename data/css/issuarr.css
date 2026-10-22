@@ -427,6 +427,7 @@ table.dt td.actions .btn { min-width: 92px; }
   padding: 6px; background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius); box-shadow: 0 16px 40px rgba(0, 0, 0, .35);
 }
 .menu.menu-up > .menu-list { top: auto; bottom: calc(100% + 6px); }
+.menu.menu-fixed > .menu-list { position: fixed; right: auto; bottom: auto; max-height: calc(100vh - 12px); overflow-y: auto; }
 .menu-list .btn { justify-content: flex-start; width: 100%; }
 .menu-list hr { border: 0; border-top: 1px solid var(--line); margin: 4px 2px; }
 
@@ -625,6 +626,21 @@ table.dt tr.is-picked td { background: color-mix(in srgb, var(--text) 8%, var(--
 .issues-toolbar #btn_menu a { background-image: none !important; filter: none !important; font-family: var(--font-body); font-size: 13px; font-weight: 600; }
 #tabs-issues .dataTables_wrapper { max-width: 100%; overflow-x: auto; }
 .annuals-title { margin: 32px 0 12px; font-size: 20px; }
+
+/* Related TPBs under the issue list: trades that collect this series, or that sit beside this trade. */
+.related-tpbs { margin-top: 32px; }
+.rt-title { margin: 0 0 12px; font-size: 20px; }
+.rt-series { margin: 18px 0 8px; font-size: 15px; font-weight: 600; }
+.rt-dim { color: var(--muted); font-weight: 400; }
+.rt-tablebox { overflow-x: auto; background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius); }
+.rt-table { width: 100%; border-collapse: collapse; font-size: 14px; }
+.rt-table th { padding: 10px 14px; text-align: left; font-size: 12px; font-weight: 600; color: var(--muted); border-bottom: 1px solid var(--line); white-space: nowrap; }
+.rt-table td { padding: 9px 14px; border-bottom: 1px solid var(--line-soft); vertical-align: middle; }
+.rt-table tr:last-child td { border-bottom: 0; }
+.rt-none { margin: 0 0 4px; font-size: 14px; }
+.rt-issues { font-family: var(--font-mono); font-size: 13px; }
+.rt-badge { display: inline-block; margin-left: 6px; padding: 1px 7px; border-radius: 999px; border: 1px solid var(--line); font-family: var(--font-body); font-size: 11px; font-weight: 600; color: var(--text-2); white-space: nowrap; }
+.rt-note { margin: 8px 0 0; font-size: 12px; }
 
 /* Issue and annual tables: plain rows with a status pill instead of tinted rows. */
 #tabs-issues table.display tbody tr, #tabs-issues table.display tbody tr td { background: var(--surface) !important; }

@@ -708,7 +708,8 @@
       if (inMenu && e.target.closest('.menu-list .btn')) inMenu.open = false;
     });
     // A menu near the bottom of the window, or of a scrolling table that would clip it,
-    // opens upward so its last items aren't cut off.
+    // opens upward so its last items aren't cut off. When the table is too short for
+    // either direction, the menu is lifted out of it and pinned to the window instead.
     function clipBox(el) {
       var top = 0, bottom = window.innerHeight;
       for (var p = el.parentElement; p && p !== doc.body; p = p.parentElement) {
@@ -724,13 +725,26 @@
     doc.addEventListener('toggle', function (e) {
       var m = e.target;
       if (!m.matches || !m.matches('details.menu')) return;
-      m.classList.remove('menu-up');
-      if (!m.open) return;
       var list = m.querySelector('.menu-list');
-      if (!list) return;
-      var r = list.getBoundingClientRect(), box = clipBox(m);
-      if (r.bottom > box.bottom && m.getBoundingClientRect().top - box.top > r.height + 6) m.classList.add('menu-up');
+      m.classList.remove('menu-up', 'menu-fixed');
+      if (list) { list.style.top = ''; list.style.left = ''; }
+      if (!m.open || !list) return;
+      var r = list.getBoundingClientRect(), box = clipBox(m), s = m.getBoundingClientRect(), gap = 6;
+      if (r.bottom <= box.bottom) return;
+      if (s.top - box.top > r.height + gap) { m.classList.add('menu-up'); return; }
+      var winH = window.innerHeight;
+      var top = winH - s.bottom - gap >= r.height || s.top < winH - s.bottom ? s.bottom + gap : s.top - gap - r.height;
+      m.classList.add('menu-fixed');
+      list.style.top = Math.max(gap, top) + 'px';
+      list.style.left = r.left + 'px';
     }, true);
+    // A pinned menu would drift away from its button, so scrolling or resizing closes it.
+    function closePinned(e) {
+      var m = doc.querySelector('details.menu.menu-fixed[open]');
+      if (m && !(e.target && e.target.nodeType === 1 && m.contains(e.target))) m.open = false;
+    }
+    doc.addEventListener('scroll', closePinned, true);
+    window.addEventListener('resize', closePinned);
     doc.addEventListener('keydown', function (e) {
       if (e.key !== 'Escape') return;
       var open = doc.querySelector('details.menu[open]');
