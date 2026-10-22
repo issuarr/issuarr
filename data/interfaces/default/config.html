@@ -600,7 +600,7 @@
 
         <section class="set-group" aria-labelledby="sg-rss">
             <div class="set-group-head"><h2 id="sg-rss">RSS</h2></div>
-            ${toggle('enable_rss', 'Check RSS feeds', config['enable_rss'], id='enable_rss', help='New releases are picked up from your Newznab and torrent indexers\' feeds between searches.')}
+            ${toggle('enable_rss', 'Check RSS feeds', config['enable_rss'], id='enable_rss', help='Between searches, Issuarr reads the newest posts from your Newznab indexers, GetComics (when direct downloads are on) and the AirDC++ announcement hub, and grabs any that match a wanted issue. Torznab indexers\' feeds aren\'t read.')}
             <div class="set-sub">
                 ${field('rss_checkinterval', 'Check every', config['rss_checkinterval'], attrs='inputmode="numeric" class="set-num"', suffix='<span class="set-unit">minutes</span>')}
                 <div class="set-row">
