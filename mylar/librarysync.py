@@ -26,6 +26,32 @@ import traceback
 import mylar
 from mylar import db, logger, helpers, importer, importstatus, updater, filechecker
 
+def work_folders():
+    """Folders Issuarr or the user keeps files in on purpose, which a scan must never read as
+    library: the duplicates dump, and the review and trash folders of Needs attention."""
+    folders = []
+    try:
+        from mylar import archives, attention
+        candidates = [mylar.CONFIG.DUPLICATE_DUMP, archives.review_dir(), attention.trash_dir()]
+    except Exception as e:
+        logger.fdebug('[IMPORT] Could not work out the work folders: %s' % e)
+        candidates = [mylar.CONFIG.DUPLICATE_DUMP]
+    for c in candidates:
+        if c and c != 'None':
+            folders.append(os.path.normpath(c))
+    return folders
+
+
+def skip_work_folders(root, dirs, work=None):
+    """Drop the folders a scan must not enter from the os.walk list `dirs` of `root`, in place:
+    any whose name starts with _ or . (work folders, hidden folders), and the work_folders().
+    Returns the names dropped."""
+    work = work_folders() if work is None else work
+    skipped = [d for d in dirs if d.startswith(('_', '.')) or os.path.normpath(os.path.join(root, d)) in work]
+    dirs[:] = [d for d in dirs if d not in skipped]
+    return skipped
+
+
 # You can scan a single directory and append it to the current library by specifying append=True
 def libraryScan(dir=None, append=False, ComicID=None, ComicName=None, cron=None, queue=None):
 
@@ -64,7 +90,10 @@ def libraryScan(dir=None, append=False, ComicID=None, ComicName=None, cron=None,
     seen_now = []
     unchanged_count = 0
     #mylar.IMPORT_PARSED_COUNT #used to count what #/totalfiles the filename parser is currently on
+    work = work_folders()
     for r, d, f in os.walk(dir):
+        for skipped in skip_work_folders(r, d, work):
+            logger.info('[IMPORT] Not scanning %s: it is a work folder.' % os.path.join(r, skipped))
         if importstatus.stop_requested():
             logger.info('[IMPORT] Library scan stopped by request while scanning files.')
             return "Cancelled"

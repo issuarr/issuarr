@@ -192,6 +192,8 @@ For comics that were never in Mylar's database, such as an old collection on ano
    - **Move the files into your library**, and **Rename them to your naming settings** if you want your naming format applied. With moving off, files stay where they are and their issues are marked Archived.
 3. **Save and scan**, then open **Tools > Import results** to choose which matched series to add.
 
+A scan skips folders whose name starts with `_` or `.`, and the duplicates dump, review and trash folders from your settings. Keep working folders such as `_Duplicates` under one of those names and they are never read as library.
+
 Files are matched most reliably when their names follow `Series Name (Year) Issue.cbz` or similar. If a series isn't recognised, add it with **Add series** first and then scan again.
 
 ## Going back to Mylar3
