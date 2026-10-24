@@ -3501,11 +3501,6 @@ def getImage(comicid, url, issueid=None, thumbnail_path=None, apicall=False, ove
 
     #if cover has '+' in url it's malformed, we need to replace '+' with '%20' to retrieve properly.
 
-    #new CV API restriction - one api request / second.(probably unecessary here, but it doesn't hurt)
-    if mylar.CONFIG.CVAPI_RATE is None or mylar.CONFIG.CVAPI_RATE < 2:
-        time.sleep(2)
-    else:
-        time.sleep(mylar.CONFIG.CVAPI_RATE)
 
     if apicall is False:
         logger.info('Attempting to retrieve the comic image for series')

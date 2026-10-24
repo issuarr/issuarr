@@ -24,7 +24,10 @@ def config(tmp_path, monkeypatch):
         os.makedirs(d, exist_ok=True)
     monkeypatch.setattr(mylar, 'CONFIG', c, raising=False)
     monkeypatch.setattr(mylar, 'LOG_LEVEL', 0, raising=False)
-    monkeypatch.setattr(cmtagmylar, '_fetches', cmtagmylar.deque())
+    monkeypatch.setattr(cv, '_booked', {})
+    monkeypatch.setattr(cv, '_slots', [])
+    # these tests are about the hourly limit, not the gap between calls
+    monkeypatch.setattr(cv, 'request_gap', lambda: 0)
     monkeypatch.setattr(cmtagmylar, 'series_publisher', lambda issueid: (None, None))
     importstatus.clear_ratelimit()
     yield c
@@ -38,8 +41,9 @@ def waits(monkeypatch):
     def fake_wait(seconds):
         waited.append(round(seconds))
         # let the oldest call in the hour drop out, as if the time had passed
-        if cmtagmylar._fetches:
-            cmtagmylar._fetches[0] -= 3600
+        booked = cv._booked.get('issue')
+        if booked:
+            booked[0] -= 3600
         importstatus.clear_ratelimit()
         return True
     monkeypatch.setattr(cv, '_cv_wait', fake_wait)
@@ -82,7 +86,9 @@ def test_tagging_waits_when_the_hour_is_used_up(config, waits, monkeypatch):
     assert waits == []
     assert cmtagmylar.pace('3', '')
     assert len(waits) == 1 and 3590 <= waits[0] <= 3600
-    assert len(cmtagmylar._fetches) == 2
+    # the third tag is booked for when the first one is an hour old (the fake wait moved the first back an hour)
+    first, second, third = cv._booked['issue']
+    assert third - (first + 3600) == pytest.approx(3600, abs=5)
 
 
 @pytest.mark.unit
@@ -100,7 +106,7 @@ def test_cached_issues_dont_use_up_the_hour(config, waits, monkeypatch):
     ct_cache(config, [('1', 1, 3), ('2', 1, 3)])
     for i in ('1', '2', '1', '3'):
         assert cmtagmylar.pace(i, '')
-    assert waits == [] and len(cmtagmylar._fetches) == 1
+    assert waits == [] and len(cv._booked.get('issue', [])) == 1
 
 
 @pytest.mark.unit
