@@ -563,12 +563,16 @@ def libraryScan(dir=None, append=False, ComicID=None, ComicName=None, cron=None,
     vals = []
     importstatus.update(files_analyzed=cnt)
     if len(reverse_issueids) > 0:
-        mylar.IMPORT_STATUS = 'Now Reverse looking up ' + str(len(reverse_issueids)) + ' IssueIDs to get the ComicIDs'
-        importstatus.phase('cv_lookup', 'Reverse looking up %s IssueIDs on ComicVine' % len(reverse_issueids))
-        importstatus.update(issueids_total=len(reverse_issueids), issueids_resolved=0)
-        vals = mylar.cv.getComic(None, 'import', comicidlist=reverse_issueids)
-        if not vals:
-            vals = []
+        # issues already in the database don't need ComicVine to say which series they belong to
+        vals = known_issueids(myDB, reverse_issueids)
+        known = set(str(x['IssueID']) for x in vals)
+        lookup = [x for x in dict.fromkeys(str(x) for x in reverse_issueids) if x not in known]
+        logger.info('[IMPORT] %s of %s tagged IssueIDs are already in the database - looking up the other %s on ComicVine.' % (len(known), len(set(str(x) for x in reverse_issueids)), len(lookup)))
+        importstatus.update(issueids_total=len(lookup), issueids_resolved=0)
+        if lookup:
+            mylar.IMPORT_STATUS = 'Now Reverse looking up ' + str(len(lookup)) + ' IssueIDs to get the ComicIDs'
+            importstatus.phase('cv_lookup', 'Reverse looking up %s IssueIDs on ComicVine' % len(lookup))
+            vals += mylar.cv.getComic(None, 'import', comicidlist=lookup) or []
         #logger.fdebug('vals returned:' + str(vals))
         if importstatus.stop_requested():
             logger.info('[IMPORT] Library scan stopped by request during the ComicVine lookup.')
@@ -602,7 +606,7 @@ def libraryScan(dir=None, append=False, ComicID=None, ComicName=None, cron=None,
                     "comfilename": ii['comfilename'],
                     "comlocation": ii['comlocation']
                                           })
-        importstatus.update(issueids_resolved=len(resolved))
+        importstatus.update(issueids_resolved=len([x for x in resolved if x not in known]))
 
     if len(watch_kchoice) > 0:
         watchchoice['watchlist'] = watch_kchoice
@@ -734,6 +738,26 @@ def unchanged(path, size, mtime, known, seen):
         return False
     last = seen.get(path)
     return last is None or (last[0] == size and last[1] == mtime)
+
+
+def known_issueids(myDB, issueids):
+    """The series of each IssueID the database already has, in the same shape as
+    cv.getComic(rtype='import') returns. Annuals report their own ComicVine series,
+    as ComicVine would."""
+    found = {}
+    ids = list(dict.fromkeys(str(x) for x in issueids))
+    for i in range(0, len(ids), 500):
+        chunk = ids[i:i + 500]
+        marks = ','.join('?' * len(chunk))
+        for r in myDB.select('SELECT i.IssueID, i.ComicID, c.ComicName, i.IssueName, i.Issue_Number FROM issues i JOIN comics c ON c.ComicID = i.ComicID WHERE i.IssueID IN (%s)' % marks, chunk):
+            found[str(r['IssueID'])] = r
+        for r in myDB.select("SELECT IssueID, COALESCE(NULLIF(ReleaseComicID, ''), ComicID) AS ComicID, COALESCE(NULLIF(ReleaseComicName, ''), ComicName) AS ComicName, IssueName, Issue_Number FROM annuals WHERE IssueID IN (%s) AND (Deleted IS NULL OR Deleted = 0)" % marks, chunk):
+            found.setdefault(str(r['IssueID']), r)
+    return [{'ComicID':      str(r['ComicID']),
+             'IssueID':      str(r['IssueID']),
+             'ComicName':    r['ComicName'],
+             'Issue_Name':   r['IssueName'],
+             'Issue_Number': r['Issue_Number']} for r in found.values() if r['ComicID']]
 
 
 def scanLibrary(scan=None, queue=None):
