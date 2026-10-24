@@ -19,7 +19,7 @@ def walked(root, work):
     seen = []
     for r, d, f in os.walk(root):
         librarysync.skip_work_folders(r, d, work)
-        seen += [os.path.relpath(os.path.join(r, n), root) for n in f]
+        seen += [os.path.relpath(os.path.join(r, n), root).replace(os.sep, '/') for n in f]
     return sorted(seen)
 
 
@@ -33,7 +33,7 @@ def test_underscore_and_dot_folders_are_not_entered(tree):
 
 @pytest.mark.unit
 def test_configured_work_folders_are_not_entered(tree):
-    seen = walked(str(tree), [os.path.normpath(str(tree / 'dump')) + os.sep.rstrip(os.sep)])
+    seen = walked(str(tree), [os.path.normpath(str(tree / 'dump'))])
     assert 'dump/x 1 (2000).cbz' not in seen
     assert 'Image/x 1 (2000).cbz' in seen
 
