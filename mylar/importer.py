@@ -910,11 +910,6 @@ def GCDimport(gcomicid, pullupd=None, imported=None, ogcname=None):
 
     coverfile = os.path.join(mylar.CONFIG.CACHE_DIR, str(gcomicid) + ".jpg")
 
-    #new CV API restriction - one api request / second.
-    if mylar.CONFIG.CVAPI_RATE is None or mylar.CONFIG.CVAPI_RATE < 2:
-        time.sleep(2)
-    else:
-        time.sleep(mylar.CONFIG.CVAPI_RATE)
 
     urllib.request.urlretrieve(str(ComicImage), str(coverfile))
     try:

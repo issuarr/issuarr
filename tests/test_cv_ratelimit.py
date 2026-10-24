@@ -52,6 +52,8 @@ def cvenv(monkeypatch):
     monkeypatch.setattr(mylar, 'CVURL', 'https://comicvine.gamespot.com/api/', raising=False)
     monkeypatch.setattr(mylar, 'CV_HEADERS', {}, raising=False)
     monkeypatch.setattr(mylar, 'SIGNAL', None, raising=False)
+    monkeypatch.setattr(cv, '_booked', {})
+    monkeypatch.setattr(cv, '_slots', [])
     importstatus.clear_ratelimit()
     yield clock
     importstatus.clear_ratelimit()
@@ -89,8 +91,8 @@ def test_cv_request_waits_and_retries(cvenv, monkeypatch):
     r = cv.cv_request('https://comicvine.gamespot.com/api/issues/?api_key=abc&format=xml')
     assert r.content == OK_XML
     assert len(calls) == 4
-    # 3 back-offs (2, 5 and 10 minutes) plus the 2s pacing before each of the 4 requests
-    assert cvenv.slept == sum(cv.RATELIMIT_WAITS[:3]) + 4 * 2
+    # 3 back-offs (2, 5 and 10 minutes); each one is longer than the 2s gap between calls
+    assert cvenv.slept == sum(cv.RATELIMIT_WAITS[:3])
     assert importstatus.ratelimit_remaining() == 0
 
 
@@ -122,5 +124,24 @@ def test_backoff_caps_at_an_hour(cvenv, monkeypatch):
     responses = [FakeResponse(420, RATE_JSON) for x in range(9)] + [FakeResponse(200, OK_XML)]
     queue_responses(monkeypatch, responses)
     cv.cv_request('https://comicvine.gamespot.com/api/issues/?api_key=abc')
-    expected = sum(cv.RATELIMIT_WAITS) + 3 * cv.RATELIMIT_WAITS[-1] + 10 * 2
+    expected = sum(cv.RATELIMIT_WAITS) + 3 * cv.RATELIMIT_WAITS[-1]
     assert cvenv.slept == expected
+
+
+@pytest.mark.unit
+def test_every_comicvine_call_shares_one_gap(cvenv):
+    cvenv.now += 10
+    mylar.CONFIG.CVAPI_RATE = 10
+    # three jobs asking at the same moment are spread 10s apart, not sent together
+    assert [cv.reserve('issues'), cv.reserve('volume'), cv.reserve('issues')] == [0, 10, 20]
+
+
+@pytest.mark.unit
+def test_calls_wait_for_room_in_the_hourly_limit(cvenv):
+    for x in range(5):
+        cv.reserve('issues', limit=5)
+        cvenv.now += 2
+    # the sixth call on the resource waits until the first one is an hour old
+    assert cv.reserve('issues', limit=5) == 3600 - 10
+    # other resources have their own hourly limit and aren't held up by it
+    assert cv.reserve('volume', limit=5) == 0

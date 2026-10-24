@@ -14,6 +14,7 @@
 
 import re
 import threading
+import bisect
 import time
 import pytz
 from mylar import db, logger, helpers, importstatus
@@ -28,6 +29,13 @@ from operator import itemgetter
 # ('Slow down cowboy') - or an 'Abnormal Traffic Detected' page if it keeps going - and
 # those responses must never be treated as an empty result set.
 RATELIMIT_WAITS = [120, 300, 600, 900, 1800, 3600]
+# every job books its ComicVine calls from one schedule, so a library scan, tagging and a
+# series refresh running together still keep the configured gap and stay under the
+# hourly limit before ComicVine has to block anything
+HOURLY_CALLS = 190
+_slot_lock = threading.Lock()
+_slots = []
+_booked = {}
 
 
 class CVRateLimitAbort(Exception):
@@ -72,6 +80,37 @@ def _cv_wait(seconds):
     return True
 
 
+def request_gap():
+    """Seconds between any two ComicVine calls (the ComicVine settings' wait, at least 2)."""
+    try:
+        return max(2, int(getattr(mylar.CONFIG, "CVAPI_RATE", 2)))
+    except (TypeError, ValueError):
+        return 2
+
+
+def reserve(resource, limit=HOURLY_CALLS):
+    """Book the next free ComicVine slot for a call on this resource and return how many
+    seconds to wait for it: at least request_gap() away from every other booked call, and
+    no more than limit calls on the resource in any hour. A call held back by one
+    resource's hourly limit doesn't hold up calls to other resources."""
+    with _slot_lock:
+        now = time.time()
+        gap = request_gap()
+        booked = _booked.setdefault(resource, [])
+        booked[:] = [t for t in booked if t > now - 3600]
+        slot = now
+        if len(booked) >= limit and booked[-limit] + 3600 > slot:
+            slot = booked[-limit] + 3600
+            logger.info('[COMICVINE] %s calls to the %s resource in the last hour - waiting %s minutes to stay under ComicVine\'s limit.' % (limit, resource, round((slot - now) / 60, 1)))
+        _slots[:] = [t for t in _slots if t > now - gap]
+        for t in _slots:
+            if t - gap < slot < t + gap:
+                slot = t + gap
+        bisect.insort(_slots, slot)
+        bisect.insort(booked, slot)
+    return slot - now
+
+
 def cv_request(url, params=None, timeout=None):
     resource = _cv_resource(url)
     attempt = 0
@@ -82,10 +121,8 @@ def cv_request(url, params=None, timeout=None):
             if not _cv_wait(remaining):
                 raise CVRateLimitAbort('Aborted while waiting on the ComicVine rate limit')
 
-        if mylar.CONFIG.CVAPI_RATE is None or mylar.CONFIG.CVAPI_RATE < 2:
-            time.sleep(2)
-        else:
-            time.sleep(mylar.CONFIG.CVAPI_RATE)
+        if not _cv_wait(reserve(resource)):
+            raise CVRateLimitAbort('Aborted while waiting for a ComicVine request slot')
 
         r = requests.get(url, params=params, verify=mylar.CONFIG.CV_VERIFY, headers=mylar.CV_HEADERS, timeout=timeout)
         reason = ratelimit_reason(r)

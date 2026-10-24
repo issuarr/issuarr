@@ -132,6 +132,8 @@
             <div class="set-group-head"><h2 id="sg-cv">ComicVine</h2></div>
             ${field('comicvine_api', 'ComicVine API key', config['comicvine_api'], id='comicvine_api', attrs='class="set-wide" spellcheck="false"',
                     help='Needed for searching, series details and covers. <a href="https://comicvine.gamespot.com/api" target="_blank" rel="noopener">Get a free key</a>.')}
+            ${field('cvapi_rate', 'Wait between ComicVine requests', config['cvapi_rate'], attrs='inputmode="numeric" class="set-num"', suffix='<span class="set-unit">seconds</span>',
+                    help='Every ComicVine request waits its turn: series searches and refreshes, library scans and tagging. Issuarr also keeps each kind of request under ComicVine\'s limit of about 200 an hour. Between 2 and 60 seconds.')}
         </section>
 
         <section class="set-group" aria-labelledby="sg-web">

@@ -211,6 +211,15 @@ def wanted_tier(dateadded, storedate, digitaldate, tier_date):
     return '1st [%s]' % since if tier == 1 else '2nd'
 
 
+def cv_gap(value, low=2, high=60):
+    """The wait between ComicVine requests, from the settings form: a whole number of
+    seconds kept between low and high. Anything unreadable keeps the current setting."""
+    try:
+        return max(low, min(high, int(str(value).strip())))
+    except (TypeError, ValueError):
+        return mylar.CONFIG.CVAPI_RATE
+
+
 def query_delay(value, low=3, high=60):
     """The wait between GetComics search pages, from the settings form: a whole number of
     seconds kept between low and high. Anything unreadable keeps the current setting."""
@@ -1741,10 +1750,6 @@ class WebInterface(object):
 
         coverfile = os.path.join(mylar.CONFIG.CACHE_DIR,  'storyarcs', str(cvarcid) + "-banner.jpg")
 
-        if mylar.CONFIG.CVAPI_RATE is None or mylar.CONFIG.CVAPI_RATE < 2:
-            time.sleep(2)
-        else:
-            time.sleep(mylar.CONFIG.CVAPI_RATE)
 
         logger.info('Attempting to retrieve the comic image for series')
         if arcrefresh:
@@ -7881,6 +7886,7 @@ class WebInterface(object):
                     "ddl_main_large_last": helpers.checked(mylar.CONFIG.DDL_MAIN_LARGE_LAST),
                     "ddl_main_large_mb": mylar.CONFIG.DDL_MAIN_LARGE_MB,
                     "ddl_query_delay": mylar.CONFIG.DDL_QUERY_DELAY,
+                    "cvapi_rate": mylar.CONFIG.CVAPI_RATE,
                     "ddl_max_parallel": mylar.CONFIG.DDL_MAX_PARALLEL,
                     "ddl_location": '' if not mylar.CONFIG.DDL_LOCATION or mylar.CONFIG.DDL_LOCATION == mylar.CONFIG.CACHE_DIR else mylar.CONFIG.DDL_LOCATION,
                     "ddl_location_default": mylar.CONFIG.CACHE_DIR,
@@ -8401,6 +8407,8 @@ class WebInterface(object):
 
         if 'ddl_query_delay' in kwargs:
             kwargs['ddl_query_delay'] = query_delay(kwargs['ddl_query_delay'])
+        if 'cvapi_rate' in kwargs:
+            kwargs['cvapi_rate'] = cv_gap(kwargs['cvapi_rate'])
 
         custom_css = kwargs.pop('custom_css', None)
         if custom_css is not None:
