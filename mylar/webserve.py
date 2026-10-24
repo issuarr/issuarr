@@ -4422,6 +4422,7 @@ class WebInterface(object):
                      'imp_rename': helpers.checked(mylar.CONFIG.IMP_RENAME),
                      'imp_metadata': helpers.checked(mylar.CONFIG.IMP_METADATA),
                      'imp_paths': helpers.checked(mylar.CONFIG.IMP_PATHS),
+                     'imp_changed_only': helpers.checked(mylar.CONFIG.IMP_CHANGED_ONLY),
                      'imp_seriesfolders': helpers.checked(mylar.CONFIG.IMP_SERIESFOLDERS)}
 
         mylarRoot = mylar.CONFIG.DESTINATION_DIR
@@ -6931,12 +6932,13 @@ class WebInterface(object):
         return json.dumps({'status': 'success', 'lines': out})
     import_logtail.exposed = True
 
-    def comicScan(self, path, scan=0, libraryscan=0, redirect=None, autoadd=0, imp_move=0, imp_paths=0, imp_rename=0, imp_metadata=0, imp_seriesfolders=0, forcescan=0):
+    def comicScan(self, path, scan=0, libraryscan=0, redirect=None, autoadd=0, imp_move=0, imp_paths=0, imp_rename=0, imp_metadata=0, imp_seriesfolders=0, forcescan=0, imp_changed_only=0):
         importoptions = {'comic_dir':              path,
                          'imp_move':               helpers.str_to_bool(imp_move),
                          'imp_rename':             helpers.str_to_bool(imp_rename),
                          'imp_metadata':           helpers.str_to_bool(imp_metadata),
                          'imp_paths':              helpers.str_to_bool(imp_paths),
+                         'imp_changed_only':       helpers.str_to_bool(imp_changed_only),
                          'imp_seriesfolders':      helpers.str_to_bool(imp_seriesfolders),
                          'add_comics':             helpers.str_to_bool(autoadd)}
 

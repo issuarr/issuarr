@@ -55,6 +55,14 @@ def libraryScan(dir=None, append=False, ComicID=None, ComicName=None, cron=None,
     mylar.IMPORT_STATUS = 'Now attempting to parse files for additional information'
     importstatus.phase('scanning', 'Scanning %s' % dir)
     myDB = db.DBConnection()
+    # with "only new or changed files", files the library already has and that haven't
+    # changed since are left out of the scan
+    changed_only = mylar.CONFIG.IMP_CHANGED_ONLY
+    if changed_only:
+        in_library = library_files(myDB)
+        last_seen = seen_files(myDB)
+    seen_now = []
+    unchanged_count = 0
     #mylar.IMPORT_PARSED_COUNT #used to count what #/totalfiles the filename parser is currently on
     for r, d, f in os.walk(dir):
         if importstatus.stop_requested():
@@ -65,6 +73,16 @@ def libraryScan(dir=None, append=False, ComicID=None, ComicName=None, cron=None,
             importstatus.update(files_found=mylar.IMPORT_FILES)
             if any(files.lower().endswith('.' + x.lower()) for x in extensions):
                 comicpath = os.path.join(r, files)
+                try:
+                    st = os.stat(comicpath)
+                except OSError:
+                    pass
+                else:
+                    seen_now.append((os.path.normpath(comicpath), st.st_size, st.st_mtime))
+                    if changed_only and unchanged(comicpath, st.st_size, st.st_mtime, in_library, last_seen):
+                        unchanged_count += 1
+                        importstatus.update(files_unchanged=unchanged_count)
+                        continue
                 if mylar.CONFIG.IMP_PATHS is True:
                     if myDB.select("SELECT * FROM comics JOIN issues WHERE issues.Status='Downloaded' AND ComicLocation=? AND issues.Location=?", [r, files]):
                         logger.info('Skipped known issue path: %s' % comicpath)
@@ -161,6 +179,12 @@ def libraryScan(dir=None, append=False, ComicID=None, ComicName=None, cron=None,
             if 'cvinfo' in files:
                 cv_location.append(r)
                 logger.fdebug('CVINFO found: ' + os.path.join(r))
+
+    # remember each file's size and modified time, so the next scan can tell what changed
+    if seen_now:
+        myDB.action('INSERT OR REPLACE INTO library_files (Path, Size, Mtime) VALUES (?, ?, ?)', seen_now, executemany=True)
+    if unchanged_count:
+        logger.info('[IMPORT] Left out %s files that are already in the library and haven\'t changed.' % unchanged_count)
 
     mylar.IMPORT_TOTALFILES = comiccnt
     logger.info('I have successfully discovered & parsed a total of ' + str(comiccnt) + ' files....analyzing now')
@@ -680,6 +704,36 @@ def libraryScan(dir=None, append=False, ComicID=None, ComicName=None, cron=None,
             'issueid_list':        issueid_list,
             'failure_list':        failure_list,
             'utter_failure_list':  utter_failure_list}
+
+
+def library_files(myDB):
+    """Every file the library has an issue for, by full path, with the size Issuarr
+    recorded for it."""
+    known = {}
+    for table in ('issues', 'annuals'):
+        for r in myDB.select("SELECT c.ComicLocation, i.Location, i.ComicSize FROM %s i JOIN comics c ON c.ComicID = i.ComicID WHERE i.Location IS NOT NULL AND i.Location != '' AND i.Status IN ('Downloaded', 'Archived')" % table):
+            if r['ComicLocation']:
+                known[os.path.normpath(os.path.join(r['ComicLocation'], r['Location']))] = r['ComicSize']
+    return known
+
+
+def seen_files(myDB):
+    """The size and modified time of each file when a scan last saw it."""
+    return dict((r['Path'], (r['Size'], r['Mtime'])) for r in myDB.select('SELECT Path, Size, Mtime FROM library_files'))
+
+
+def unchanged(path, size, mtime, known, seen):
+    """True when the library has an issue for this file and it hasn't changed: the same
+    size as the issue records and, when an earlier scan saw it, the same modified time.
+    A file pasted over another under the same name counts as changed."""
+    path = os.path.normpath(path)
+    try:
+        if int(known[path]) != size:
+            return False
+    except (KeyError, TypeError, ValueError):
+        return False
+    last = seen.get(path)
+    return last is None or (last[0] == size and last[1] == mtime)
 
 
 def scanLibrary(scan=None, queue=None):

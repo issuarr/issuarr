@@ -188,6 +188,7 @@ For comics that were never in Mylar's database, such as an old collection on ano
 1. Map the folder into the container (for example `-v /path/to/old-comics:/import`), or note its path on a source install.
 2. Go to **Tools > Import & scan**, enter that folder, and choose:
    - **Read the metadata inside the files** to use ComicInfo tags as well as file names to identify each issue.
+   - **Only new or changed files** (on by default) leaves out files your library already has, so scanning your library folder again only picks up what you added or replaced.
    - **Move the files into your library**, and **Rename them to your naming settings** if you want your naming format applied. With moving off, files stay where they are and their issues are marked Archived.
 3. **Save and scan**, then open **Tools > Import results** to choose which matched series to add.
 

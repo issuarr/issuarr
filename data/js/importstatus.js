@@ -69,7 +69,7 @@
         $('#ip_started').text(ts(d.started));
         $('#ip_elapsed').text(d.started ? dur(d.elapsed) : '-');
         $('#ip_eta').text(d.eta !== null ? dur(d.eta) : '-');
-        $('#ip_files_found').text(d.files_found || '-');
+        $('#ip_files_found').text(d.files_found ? d.files_found + (d.files_unchanged ? ' (' + d.files_unchanged + ' unchanged, left out)' : '') : '-');
         $('#ip_files_parsed').text(d.files_parsed || '-');
         $('#ip_parse_failures').text(d.parse_failures || '-');
         $('#ip_files_analyzed').text(ratio(d.files_analyzed, d.files_total));
