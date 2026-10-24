@@ -44,6 +44,7 @@ def _blank():
             'message': None,
             'stop_requested': False,
             'files_found': 0,
+            'files_unchanged': 0,
             'files_total': 0,
             'files_parsed': 0,
             'files_analyzed': 0,

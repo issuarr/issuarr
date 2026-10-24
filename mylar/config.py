@@ -195,6 +195,7 @@ _CONFIG_DEFINITIONS = OrderedDict({
     'COMIC_DIR': (str, 'Import', None),
     'IMP_MOVE': (bool, 'Import', False),
     'IMP_PATHS': (bool, 'Import', False),
+    'IMP_CHANGED_ONLY': (bool, 'Import', True),
     'IMP_RENAME': (bool, 'Import', False),
     'IMP_METADATA': (bool, 'Import', False),  # should default to False - this is enabled for testing only.
     'IMP_SERIESFOLDERS': (bool, 'Import', True),

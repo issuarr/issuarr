@@ -856,6 +856,7 @@ def dbcheck():
     c.execute('CREATE TABLE IF NOT EXISTS notifs(session_id INT, date TEXT, event TEXT, comicid TEXT, comicname TEXT, issuenumber TEXT, seriesyear TEXT, status TEXT, message TEXT, PRIMARY KEY (session_id, date))')
     c.execute('CREATE TABLE IF NOT EXISTS provider_searches(id INTEGER UNIQUE, provider TEXT UNIQUE, type TEXT, lastrun INTEGER, active TEXT, hits INTEGER DEFAULT 0)')
     c.execute('CREATE TABLE IF NOT EXISTS mylar_info(DatabaseVersion INTEGER PRIMARY KEY)')
+    c.execute('CREATE TABLE IF NOT EXISTS library_files (Path TEXT PRIMARY KEY, Size INTEGER, Mtime REAL)')
     conn.commit()
 
     #create some indexes
