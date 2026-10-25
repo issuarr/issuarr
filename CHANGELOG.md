@@ -7,6 +7,12 @@ Releases come from the `main` branch and are the `latest` Docker image. Changes 
 ## Unreleased (on dev)
 
 - On a series page, selecting issues or annuals shows a bar with how many are picked and a button for each status (Mark wanted, Skip, Mark archived, Ignore), Write metadata and Clear selection, instead of the old drop-down. The issue list shows 50 issues per page by default instead of 25. ([`58cb0644`](https://github.com/issuarr/issuarr/commit/58cb0644))
+- Marking issues Wanted from the Ledger or a series page now also searches for picked issues that were already Wanted, instead of skipping them. ([`d66cacc`](https://github.com/issuarr/issuarr/commit/d66cacc))
+- Messages now pop up as a stack in the bottom corner. Errors stay on screen longer, and hovering a message keeps it open. ([`25044d9`](https://github.com/issuarr/issuarr/commit/25044d9))
+- The Library remembers your tab, filter, publisher and sort in the page address, so Back, a refresh or a bookmark brings you to the same view, scrolled to where you were. ([`90d2858`](https://github.com/issuarr/issuarr/commit/90d2858))
+- When Issuarr stops answering (a restart, or the server going away), a bar says so, and a message tells you when it's answering again. ([`e4bfd59`](https://github.com/issuarr/issuarr/commit/e4bfd59))
+- The Ledger no longer says "Mylar" in its labels and messages. ([`8914072`](https://github.com/issuarr/issuarr/commit/8914072))
+- When the Library is sorted by title, an A–Z rail on the right jumps to a letter. On a phone you can slide along it. ([`deb9d67`](https://github.com/issuarr/issuarr/commit/deb9d67))
 - A ? button next to the notifications bell (or the ? key) explains the page you're on, lists the keyboard shortcuts, and links to the docs and troubleshooting. ([`28d8d0a`](https://github.com/issuarr/issuarr/commit/28d8d0a))
 - A series' ⋯ menu has "Want from issue…": issues from that number on are Wanted and earlier ones Skipped, also for issues ComicVine adds later. Issues you have, snatched, archived or ignored are left alone. ([`d845252`](https://github.com/issuarr/issuarr/commit/d845252))
 - Wanted can be grouped by series: one line per series with how many issues it's missing, a checkbox for all of them and a button to search them. Shift-click a checkbox to pick every row between it and the last one you clicked. ([`2d7bcf6`](https://github.com/issuarr/issuarr/commit/2d7bcf6))
