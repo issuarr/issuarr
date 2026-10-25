@@ -296,13 +296,28 @@ fieldset { border: 1px solid var(--line) !important; border-radius: var(--radius
 legend { padding: 0 6px; font-family: var(--font-display); font-weight: 700; font-size: 17px; color: var(--text) !important; }
 label, small { color: var(--muted); }
 
-.ajaxMsg, #ajaxMsg, #ajaxMsg.success {
-  background: var(--text) !important; background-image: none !important; color: var(--ink) !important; filter: none !important; opacity: 1 !important;
-  right: 16px; bottom: 16px; width: auto; max-width: min(400px, calc(100vw - 32px)); min-height: 0; padding: 12px 16px !important;
-  border: 0 !important; border-radius: var(--radius); box-shadow: 0 12px 32px rgba(0, 0, 0, .35); text-align: left;
+/* Older pages write messages into #ajaxMsg; issuarr.js turns them into toasts, so the box itself stays hidden. */
+#ajaxMsg { display: none !important; }
+.toasts {
+  position: fixed; right: 16px; bottom: 16px; z-index: 1100; display: flex; flex-direction: column; align-items: flex-end; gap: 8px;
+  width: min(420px, calc(100vw - 32px)); pointer-events: none;
 }
-#ajaxMsg .msg { padding: 0; font-family: var(--font-body); font-size: 14px; font-weight: 600; text-align: left; }
-#ajaxMsg.error { background: var(--failed) !important; background-image: none !important; color: #FFFFFF !important; }
+.toast {
+  pointer-events: auto; display: flex; align-items: flex-start; gap: 10px; width: 100%; padding: 12px 10px 12px 16px;
+  background: var(--text); color: var(--ink); border-radius: var(--radius); box-shadow: 0 12px 32px rgba(0, 0, 0, .35);
+  font-size: 14px; font-weight: 600; line-height: 1.4; animation: toast-in .18s ease-out;
+}
+.toast.is-error { background: var(--failed); color: #FFFFFF; }
+.toast.is-info { background: var(--raised); color: var(--text); border: 1px solid var(--line); }
+.toast.is-out { opacity: 0; transform: translateY(6px); transition: opacity .18s, transform .18s; }
+.toast-msg { flex: 1; min-width: 0; overflow-wrap: anywhere; }
+.toast-msg .msg, .toast-msg center { padding: 0; text-align: left; }
+.toast-msg a { color: inherit; text-decoration: underline; }
+.toast-x { flex: none; display: grid; place-items: center; width: 24px; height: 24px; margin: -2px 0; padding: 0; border: 0; border-radius: 6px; background: transparent; color: inherit; opacity: .7; cursor: pointer; }
+.toast-x:hover, .toast-x:focus-visible { opacity: 1; background: color-mix(in srgb, currentColor 14%, transparent); }
+.toast-x svg { width: 14px; height: 14px; }
+@keyframes toast-in { from { opacity: 0; transform: translateY(6px); } }
+@media (max-width: 600px) { .toasts { right: 8px; left: 8px; bottom: 8px; width: auto; } }
 /* The old stylesheet glows every empty required field red. */
 input:invalid, textarea:invalid { box-shadow: none !important; }
 #updatebar { background: var(--raised) !important; color: var(--text) !important; border-bottom: 1px solid var(--line) !important; }
