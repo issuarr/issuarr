@@ -38,7 +38,7 @@ New issues of the series you follow arrive the same way, week after week.
 - **Scheduled searches and RSS.** Recent releases are searched actively; older wanted issues are caught as they appear in RSS feeds.
 - **Calendar (weekly pull list).** See every comic released this week, and look weeks ahead or months back. Weeks are numbered the way [TalkHard](https://talkhard.notaninja.party) numbers its pull lists. Upcoming issues of your series are wanted automatically.
 - **Discover.** Browse new #1s and the latest issues from recent weeks' release lists, or just the new series from the publishers you collect most, and add any of them in one click.
-- **Failed download handling:** a failed download is marked Failed and, with auto-retry on, searched for again.
+- **Failed download handling:** a failed download is marked Failed and, with auto-retry on, searched for again. The same release isn't grabbed again, even under a new id or from another indexer.
 - **One download queue for every source.** SABnzbd, NZBGet, qBittorrent, Transmission, Deluge, rTorrent, uTorrent, GetComics and JDownloader 2 downloads show in one list with live progress, speed and time left, and direct downloads can be aborted, removed or restarted.
 
 ### Filing and post-processing
