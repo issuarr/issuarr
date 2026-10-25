@@ -25,7 +25,7 @@
       .then(function (d) {
         st.data = d;
         render();
-        if (d.state === 'running') st.poll = setTimeout(load, 3000);
+        if (d.state === 'running' || d.tagging.state === 'running') st.poll = setTimeout(load, 3000);
       })
       .catch(function () { $('lc-note').textContent = 'Couldn\'t get the results. Check the log.'; });
   }
@@ -43,7 +43,7 @@
 
   function render() {
     var d = st.data, running = d.state === 'running';
-    $('lc-scan').disabled = running;
+    $('lc-scan').disabled = running || d.tagging.state === 'running';
     $('lc-stop').hidden = !running;
     var note;
     if (running) note = 'Checking file ' + d.done + ' of ' + (d.total || '…') + ' (' + d.opened + ' opened, the rest unchanged since last time).';
@@ -53,6 +53,25 @@
     if (d.unchecked) note += ' ' + d.unchecked + ' .cbr ' + (d.unchecked === 1 ? 'file' : 'files') + ' couldn\'t be checked because unrar isn\'t installed.';
     $('lc-note').textContent = note;
     $('lc-list').innerHTML = d.files.map(row).join('');
+    renderTags(d, running);
+  }
+
+  function plural(n, one, many) { return n + ' ' + (n === 1 ? one : many); }
+
+  function renderTags(d, checking) {
+    var t = d.tagging, tagging = t.state === 'running', note;
+    $('lc-tags').hidden = !d.checked;
+    $('lc-tag').hidden = tagging;
+    $('lc-tag').disabled = checking || !d.untagged;
+    $('lc-tag').textContent = d.untagged ? 'Tag ' + plural(d.untagged, 'untagged file', 'untagged files') : 'Tag untagged files';
+    $('lc-tag-stop').hidden = !tagging;
+    if (tagging) note = 'Tagging file ' + t.done + ' of ' + (t.total || '…') + ' (' + t.tagged + ' tagged so far).';
+    else if (d.untagged) note = plural(d.untagged, 'file', 'files') + ' in ' + plural(d.untagged_series, 'series', 'series') +
+      ' have no ComicInfo.xml. Tagging writes one from the series and issue details Issuarr already has, without asking ComicVine (.cbr files are made .cbz first, since only a .cbz can hold tags). For full tags (credits, summary) use Tag issues on the series page.';
+    else note = 'Every checked issue file has tags.';
+    if (!tagging && t.finished) note += ' Last tagging run ' + t.finished + ': ' + plural(t.tagged, 'file', 'files') + ' tagged' +
+      (t.failed ? ', ' + t.failed + ' couldn\'t be tagged (see the log)' : '') + '.';
+    $('lc-tag-note').textContent = note;
   }
 
   document.addEventListener('click', function (e) {
@@ -71,6 +90,12 @@
     post('library_check_scan').then(load).catch(function () { toast('Couldn\'t start. Check the log.', false); });
   });
   $('lc-stop').addEventListener('click', function () { post('library_check_stop'); });
+  $('lc-tag').addEventListener('click', function () {
+    post('library_check_tag')
+      .then(function (r) { if (!r.ok) toast('Wait for the check or tagging that is running to finish.', false); load(); })
+      .catch(function () { toast('Couldn\'t start. Check the log.', false); });
+  });
+  $('lc-tag-stop').addEventListener('click', function () { post('library_check_tag_stop'); });
 
   load();
 })();
