@@ -447,6 +447,10 @@ table.dt td.actions .btn { min-width: 92px; }
 .menu.menu-fixed > .menu-list { position: fixed; right: auto; bottom: auto; max-height: calc(100vh - 12px); overflow-y: auto; }
 .menu-list .btn { justify-content: flex-start; width: 100%; }
 .menu-list hr { border: 0; border-top: 1px solid var(--line); margin: 4px 2px; }
+.ctx-menu { position: fixed; top: 0; left: 0; right: auto; z-index: 60; min-width: 230px; max-width: calc(100vw - 12px); max-height: calc(100vh - 12px); overflow-y: auto; }
+.ctx-menu[hidden] { display: none; }
+.ctx-title { margin: 2px 10px 6px; font-size: 13px; font-weight: 600; color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.cover-card a { -webkit-touch-callout: none; }
 
 .bulk-bar {
   position: sticky; top: var(--carbon-head, 0px); z-index: 20; display: flex; flex-wrap: wrap; align-items: center; gap: 10px;
@@ -1548,6 +1552,14 @@ a.w-where:hover { color: var(--text); text-decoration-color: currentColor; }
   .dc-grid { grid-template-columns: repeat(auto-fill, minmax(130px, 1fr)); }
 }
 
+/* Tools > Duplicates */
+.dp-list { display: flex; flex-direction: column; gap: 14px; }
+.dp-group { border: 1px solid var(--line); border-radius: var(--radius); padding: 12px 14px; background: var(--surface); }
+.dp-group h3 { margin: 0 0 8px; font-size: 1rem; }
+.dp-group ul { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 8px; }
+.dp-file { display: flex; gap: 12px; align-items: flex-start; }
+.dp-file.is-drop .dp-name .mono { text-decoration: line-through; color: var(--muted); }
+.dp-name { display: flex; flex-direction: column; gap: 2px; min-width: 0; overflow-wrap: anywhere; }
 /* Settings > Prowlarr: the indexers to add */
 .prowlarr-list { list-style: none; margin: 0 0 12px; padding: 0; display: flex; flex-direction: column; gap: 6px; }
 /* CBL import: pick a list from CBL-ReadingLists */
