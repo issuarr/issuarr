@@ -44,6 +44,7 @@ New issues of the series you follow arrive the same way, week after week.
 ### Filing and post-processing
 - **Folder monitor** picks up anything that lands in your downloads folder. Your download client can also call Issuarr when a download finishes.
 - Unpacks zip and rar downloads, including multi-issue packs. Every issue in a pack is matched against your whole watchlist, not only the issue you searched for.
+- **Tools > Library check** reads through every comic in the library and lists damaged files, files that aren't comics, and files that wrap another .cbz or .cbr. Unwrap them in place, or send a damaged one to the trash and search for the issue again.
 - Issues nothing on your watchlist wants are moved to a review folder or deleted, your choice. Issuarr can also add their series automatically.
 - Never silently replaces an issue you own: upgrades follow your duplicate rules.
 - Manual post-processing for a folder of files you drop in yourself.

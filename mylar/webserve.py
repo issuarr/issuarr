@@ -62,6 +62,7 @@ from mylar import (
     carepackage,
     cvlink,
     discover,
+    library_check,
     config,
     db,
     Failed,
@@ -5183,6 +5184,33 @@ class WebInterface(object):
         started = ledger.start_build(force=helpers.str_to_bool(force))
         return json.dumps({'started': started, 'status': ledger.status_summary()})
     ledger_build.exposed = True
+
+    def libraryCheck(self):
+        return serve_template(templatename="librarycheck.html", title="Library check", trash_days=attention.trash_days())
+    libraryCheck.exposed = True
+
+    def library_check_status(self):
+        return self._attention_json(library_check.status())
+    library_check_status.exposed = True
+
+    def library_check_scan(self):
+        self._attention_post()
+        return self._attention_json({'ok': library_check.scan()})
+    library_check_scan.exposed = True
+
+    def library_check_stop(self):
+        self._attention_post()
+        library_check.stop()
+        return self._attention_json({'ok': True})
+    library_check_stop.exposed = True
+
+    def library_check_act(self, path, action):
+        self._attention_post()
+        acts = {'unwrap': library_check.unwrap, 'redownload': library_check.redownload, 'remove': library_check.remove}
+        if action not in acts:
+            raise cherrypy.HTTPError(400)
+        return self._attention_json(acts[action](path))
+    library_check_act.exposed = True
 
     def webpConvert(self):
         return serve_template(templatename="webp.html", title="WebP conversion",
