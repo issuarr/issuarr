@@ -70,7 +70,7 @@ def test_build_uses_the_cvdb_notes_form_and_the_imprints_parent(monkeypatch):
 
 def test_fill_writes_tags_into_an_untagged_file(tmp_path):
     path = cbz(tmp_path / 'T2 #01.cbz')
-    assert quicktag.fill(path, FakeDB(ROW))
+    assert quicktag.fill(path, FakeDB(ROW)) == path
     assert fields(path)['Series'] == 'Terminator 2: Infinity'
     with zipfile.ZipFile(path) as z:
         assert sorted(z.namelist()) == ['000.jpg', '001.jpg', '002.jpg', 'ComicInfo.xml']
@@ -82,22 +82,26 @@ def test_fill_leaves_tagged_files_unknown_files_and_tagging_off_alone(tmp_path):
     assert fields(tagged) == {'Series': 'Kept'}
     assert not quicktag.fill(cbz(tmp_path / 'stray.cbz'), FakeDB(None))
     mylar.CONFIG.ENABLE_META = False
-    assert not quicktag.fill(cbz(tmp_path / 'off.cbz'), FakeDB(ROW))
+    off = cbz(tmp_path / 'off.cbz')
+    assert not quicktag.fill(off, FakeDB(ROW))
+    assert quicktag.fill(off, FakeDB(ROW), force=True) == off    # asked for, so tagging being off doesn't matter
 
 
-def test_webp_conversion_adds_tags_to_an_untagged_file(monkeypatch, tmp_path):
+def test_fill_makes_a_cbr_a_cbz_only_when_it_will_tag_it(monkeypatch, tmp_path):
+    monkeypatch.setattr(webp, '_relocate', lambda old, new: None)
+    cbr = cbz(tmp_path / 'T2 #03.cbr')                         # a zip named .cbr
+    mylar.CONFIG.ENABLE_META = False
+    assert not quicktag.fill(cbr, FakeDB(ROW))
+    assert not quicktag.fill(cbr, FakeDB(None), force=True)    # no issue to tag it as
+    assert (tmp_path / 'T2 #03.cbr').exists()
+    out = quicktag.fill(cbr, FakeDB(ROW), force=True)
+    assert out == str(tmp_path / 'T2 #03.cbz') and not (tmp_path / 'T2 #03.cbr').exists()
+    assert fields(out)['Number'] == '1'
+
+
+def test_fill_leaves_a_file_webp_is_converting(tmp_path):
     path = cbz(tmp_path / 'T2 #01.cbz')
-    monkeypatch.setattr(webp, 'convert', lambda p, **kw: {'path': p, 'status': 'converted', 'reason': ''})
-    monkeypatch.setattr(webp, '_update_size', lambda p, size: None)
-    monkeypatch.setattr(quicktag.db, 'DBConnection', lambda: FakeDB(ROW))
-    res = webp.convert_any(path, '[BULK]', 'bulk')
-    assert res['tagged'] is True
-    assert fields(path)['Number'] == '1'
-
-
-def test_webp_failure_adds_no_tags(monkeypatch, tmp_path):
-    path = cbz(tmp_path / 'T2 #01.cbz')
-    monkeypatch.setattr(webp, 'convert', lambda p, **kw: {'path': p, 'status': 'failed', 'reason': 'boom'})
-    monkeypatch.setattr(quicktag.db, 'DBConnection', lambda: FakeDB(ROW))
-    assert 'tagged' not in webp.convert_any(path, '[BULK]', 'bulk')
+    with webp.claim(path) as mine:
+        assert mine
+        assert not quicktag.fill(path, FakeDB(ROW))
     assert not quicktag.tagged(path)

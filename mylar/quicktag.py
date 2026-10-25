@@ -16,7 +16,8 @@ from mylar import db, logger, comicinfo
 
 
 def tagged(path):
-    """True when the file is a zip holding a ComicInfo.xml. A real RAR counts as untagged."""
+    """True when the file is a zip holding a ComicInfo.xml. Tags are never written into a RAR,
+    so a .cbr counts as untagged: tagging makes it a .cbz first."""
     try:
         with zipfile.ZipFile(path) as z:
             return any(comicinfo._is_comicinfo(n) for n in z.namelist())
@@ -85,20 +86,33 @@ def build(row):
     return ('\n'.join(lines) + '\n').encode('utf-8')
 
 
-def fill(path, myDB=None):
-    """Write a ComicInfo.xml from stored info into a .cbz that has none, when tagging is on and
-    the file belongs to an issue. True when tags were written."""
-    if not mylar.CONFIG.ENABLE_META or not path.lower().endswith('.cbz') or not zipfile.is_zipfile(path) or tagged(path):
-        return False
+def fill(path, myDB=None, force=False):
+    """Write a ComicInfo.xml from stored info into an issue file that has none. A .cbr is made a
+    .cbz first, since only a zip can hold one, but only once it's known a tag will be written.
+    Runs when tagging is on, or with force when someone asked for it. The file is held so WebP
+    doesn't rewrite it meanwhile. Returns the file's path (a .cbr's new .cbz) when tags were
+    written, else None."""
+    from mylar import webp
+    if not (force or mylar.CONFIG.ENABLE_META) or not os.path.isfile(path) or tagged(path):
+        return None
     try:
         row = issue_for_path(path, myDB)
     except Exception as e:
         logger.fdebug('[TAGS] Unable to look up the issue for %s: %s' % (path, e))
-        return False
+        return None
     if row is None:
-        return False
-    if not comicinfo.write(path, build(row)):
-        return False
+        return None
+    with webp.claim(path) as mine:
+        if not mine:
+            return None    # being converted right now; WebP adds the tags itself
+        if not path.lower().endswith('.cbz'):
+            res = webp.to_cbz(path)
+            if res['status'] != 'converted':
+                logger.warn('[TAGS] %s was left as it is and not tagged: %s' % (os.path.basename(path), res['reason']))
+                return None
+            path = res['target']
+        if not comicinfo.write(path, build(row)):
+            return None
     logger.info('[TAGS] %s had no ComicInfo.xml - wrote one from the stored info for %s #%s.' % (
         os.path.basename(path), row['ComicName'], row['Issue_Number']))
-    return True
+    return path
