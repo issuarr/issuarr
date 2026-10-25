@@ -7177,12 +7177,16 @@ class WebInterface(object):
         cherrypy.response.headers['Content-Type'] = 'application/json'
         text = (cvid or '').strip()
         if text.isdigit():
-            comicid = text
+            comicid = cvlink.series_for_number(text)
+            if not comicid:
+                return json.dumps({'ok': False, 'note': 'ComicVine has no series or issue with ID %s.' % text})
         else:
             link = cvlink.resolve(text)
-            comicid = link['comicid'] if link else None
-        if not comicid:
-            return json.dumps({'ok': False, 'note': 'That isn\'t a ComicVine series ID or link (like 4050-39340).'})
+            if link is None:
+                return json.dumps({'ok': False, 'note': 'That isn\'t a ComicVine ID or link (like 4050-39340 or 4000-664333).'})
+            comicid = link['comicid']
+            if not comicid:
+                return json.dumps({'ok': False, 'note': 'Couldn\'t find the series of ComicVine issue %s.' % link['issueid']})
         if Volume in (None, '', 'None'):
             Volume = None
         myDB = db.DBConnection()
