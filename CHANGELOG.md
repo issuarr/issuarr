@@ -6,6 +6,7 @@ Releases come from the `main` branch and are the `latest` Docker image. Changes 
 
 ## Unreleased (on dev)
 
+- The Files column on Import results shows each series' number of files again instead of "None". ([`f06837c`](https://github.com/issuarr/issuarr/commit/f06837c))
 - Import results has a ComicVine column showing each series' ComicVine ID. A series that was imported as the wrong one has a Wrong series… button that opens the series with the Wrong series window, where you find the right series and its files move to it. The Imported tab no longer shows Import buttons. ([`113a8ac`](https://github.com/issuarr/issuarr/commit/113a8ac))
 - The sidebar's Wanted number is now how many issues the Wanted page lists. The number of issues waiting in the search queue, which used to sit there, is now next to Downloads. Tools › Import results shows how many series need you to choose their ComicVine match and opens straight to that list, and the import panel's "Manual" count is now called "Needs a choice" and links there too. ([`283459e`](https://github.com/issuarr/issuarr/commit/283459e))
 - Import & scan with Read metadata on no longer drops .cbz files that have no tags inside. They were found and parsed, then left out, so the scan said it was importing 0 files and Import results stayed empty. They are now matched by their file name like any other untagged file. ([`d3e75c0d`](https://github.com/issuarr/issuarr/commit/d3e75c0d))
