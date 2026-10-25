@@ -7091,28 +7091,16 @@ class WebInterface(object):
 
     def importResults(self):
         myDB = db.DBConnection()
-        results = myDB.select("SELECT * FROM importresults WHERE WatchMatch is Null OR WatchMatch LIKE 'C%' group by DynamicName, Volume, Status COLLATE NOCASE")
-        #this is to get the count of issues;
-        res = []
+        # one query for the rows and their file counts: a count per row took minutes on big scans
+        results = myDB.select("SELECT *, count(*) AS IssueCount, sum(IssueNumber LIKE 'Annual%') AS AnnualCount FROM importresults WHERE WatchMatch is Null OR WatchMatch LIKE 'C%' group by DynamicName, Volume, Status COLLATE NOCASE")
         countit = []
-        ann_cnt = 0
-        for result in results:
-            res.append(result)
-        for x in res:
-            if x['Volume']:
-                #because Volume gets stored as NULL in the db, we need to account for it coming into here as a possible None value.
-                countthis = myDB.select("SELECT count(*) FROM importresults WHERE DynamicName=? AND Volume=? AND Status=?", [x['DynamicName'],x['Volume'],x['Status']])
-                countannuals = myDB.select("SELECT count(*) FROM importresults WHERE DynamicName=? AND Volume=? AND IssueNumber LIKE 'Annual%' AND Status=?", [x['DynamicName'],x['Volume'],x['Status']])
-            else:
-                countthis = myDB.select("SELECT count(*) FROM importresults WHERE DynamicName=? AND Volume IS NULL AND Status=?", [x['DynamicName'],x['Status']])
-                countannuals = myDB.select("SELECT count(*) FROM importresults WHERE DynamicName=? AND Volume IS NULL AND IssueNumber LIKE 'Annual%' AND Status=?", [x['DynamicName'],x['Status']])
+        for x in results:
             countit.append({"DynamicName":  x['DynamicName'],
                             "Volume":       x['Volume'],
-                            "IssueCount":   countthis[0][0],
-                            "AnnualCount":  countannuals[0][0],
+                            "IssueCount":   x['IssueCount'],
+                            "AnnualCount":  x['AnnualCount'] or 0,
                             "ComicName":    x['ComicName'],
                             "DisplayName":  x['DisplayName'],
-                            "Volume":       x['Volume'],
                             "ComicYear":    x['ComicYear'],
                             "Status":       x['Status'],
                             "ComicID":      x['ComicID'],
