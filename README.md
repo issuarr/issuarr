@@ -57,6 +57,7 @@ New issues of the series you follow arrive the same way, week after week.
 - Converts the pages of new or existing comics to WebP to save space while keeping the pages looking the same.
 - It only converts pages that benefit. Pages that are low quality, CMYK, unreadable, or that would grow are left as they are. Files that don't shrink by at least 10% are left untouched.
 - Can run on import, for issues from a chosen year onward.
+- Turns cbr files into cbz as part of the conversion (needs `unrar`, which the Docker image includes).
 - **Bulk converter** with filters, a preview, confirmation steps and an optional folder that keeps your originals.
 - Uses every CPU core.
 
