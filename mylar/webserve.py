@@ -7171,6 +7171,32 @@ class WebInterface(object):
 
     preSearchit.exposed = True
 
+    def importByCvid(self, cvid, ComicName, DynamicName, Volume=None):
+        """Import results: import a series with the ComicVine ID (or ComicVine link) the person gives,
+        for one Import & scan didn't match or matched wrongly."""
+        cherrypy.response.headers['Content-Type'] = 'application/json'
+        text = (cvid or '').strip()
+        if text.isdigit():
+            comicid = text
+        else:
+            link = cvlink.resolve(text)
+            comicid = link['comicid'] if link else None
+        if not comicid:
+            return json.dumps({'ok': False, 'note': 'That isn\'t a ComicVine series ID or link (like 4050-39340).'})
+        if Volume in (None, '', 'None'):
+            Volume = None
+        myDB = db.DBConnection()
+        if Volume is None:
+            myDB.action("UPDATE importresults SET ComicID=? WHERE DynamicName=? AND Volume IS NULL AND Status != 'Imported'", [comicid, DynamicName])
+        else:
+            myDB.action("UPDATE importresults SET ComicID=? WHERE DynamicName=? AND Volume=? AND Status != 'Imported'", [comicid, DynamicName, Volume])
+        logger.info('[IMPORT] %s set to ComicVine series %s by hand.' % (ComicName, comicid))
+        comiclist = [{'ComicName': ComicName, 'DynamicName': DynamicName, 'Volume': Volume, 'ComicID': comicid}]
+        if not self._start_import(comiclist, None):
+            return json.dumps({'ok': False, 'note': 'Another import or scan is running. Try again when it finishes.'})
+        return json.dumps({'ok': True, 'comicid': comicid})
+    importByCvid.exposed = True
+
     def _claim_import(self, comiclist, action=None):
         with importstatus.START_LOCK:
             busy = importstatus.running()
