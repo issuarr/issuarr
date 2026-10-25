@@ -33,12 +33,12 @@ New issues of the series you follow arrive the same way, week after week.
 
 ### Finding and downloading
 - **Usenet:** any number of Newznab indexers, sent to SABnzbd, NZBGet or a blackhole folder.
-- **Torrents:** Torznab indexers, sent to qBittorrent, Transmission, Deluge, rTorrent or uTorrent.
+- **Torrents:** Torznab indexers, searched and read with the RSS check, sent to qBittorrent, Transmission, Deluge, rTorrent or uTorrent.
 - **Direct download from GetComics.** Issuarr picks the right file even from posts with many links. You can order or switch off download hosts (GetComics' own server, Mega, Mediafire, Pixeldrain and others). Cloudflare is cleared with [FlareSolverr](https://github.com/FlareSolverr/FlareSolverr), and mirror links can be handed to [JDownloader 2](docs/JDOWNLOADER2.md).
 - **Scheduled searches and RSS.** Recent releases are searched actively; older wanted issues are caught as they appear in RSS feeds.
 - **Calendar (weekly pull list).** See every comic released this week, and look weeks ahead or months back. Weeks are numbered the way [TalkHard](https://talkhard.notaninja.party) numbers its pull lists. Upcoming issues of your series are wanted automatically.
 - **Discover.** Browse new #1s and the latest issues from recent weeks' release lists, or just the new series from the publishers you collect most, and add any of them in one click.
-- **Failed download handling:** a failed download is marked Failed and, with auto-retry on, searched for again.
+- **Failed download handling:** a failed download is marked Failed and, with auto-retry on, searched for again. The same release isn't grabbed again, even under a new id or from another indexer.
 - **One download queue for every source.** SABnzbd, NZBGet, qBittorrent, Transmission, Deluge, rTorrent, uTorrent, GetComics and JDownloader 2 downloads show in one list with live progress, speed and time left, and direct downloads can be aborted, removed or restarted.
 
 ### Filing and post-processing
@@ -70,7 +70,7 @@ New issues of the series you follow arrive the same way, week after week.
 
 ### Reading lists and story arcs
 - Track story arcs across many series and keep them in reading order, optionally in their own folder.
-- Import [CBL reading lists](https://github.com/DieselTech/CBL-ReadingLists) to add a whole event to your wanted list.
+- Import [CBL reading lists](https://github.com/DieselTech/CBL-ReadingLists) to add a whole event to your wanted list. Pick one from the community lists right on the import page, or choose a .cbl file.
 - A reading list, with optional syncing to a tablet.
 
 ### Integrations
@@ -203,7 +203,7 @@ Issuarr marks the missing issues of new series *Wanted* and starts searching. Wa
 - [Moving from Mylar3 to Issuarr](docs/MIGRATING.md): switching an existing install, where pages moved, and changing library paths.
 - [Installing on Unraid](docs/UNRAID.md): the Unraid template, paths and switching from Mylar3.
 - [Using JDownloader 2](docs/JDOWNLOADER2.md) for direct-download mirror links.
-- [Using AirDC++](docs/AIRDCPP.md) to grab from Direct Connect hubs, including when AirDC++ sees folders under different paths.
+- [Using AirDC++](docs/AIRDCPP.md) to grab from Direct Connect hubs, including when AirDC++ sees folders under different paths, and grabbing other wanted issues from the same folder.
 - [Troubleshooting](docs/TROUBLESHOOTING.md): database locking, tagging failures, moved libraries.
 - [docs/API.md](docs/API.md) for the web API.
 
