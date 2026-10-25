@@ -304,6 +304,54 @@ def test_bad_rar_is_left_alone(tmp_path, fixture, why):
 
 
 @pytest.mark.unit
+def test_rar_is_extracted_in_one_unrar_run(tmp_path, monkeypatch):
+    # entry-by-entry reads restart a solid archive from the start for every page
+    from lib.rarfile import rarfile
+    reads = []
+    monkeypatch.setattr(rarfile.RarFile, 'read', lambda self, *a, **k: reads.append(a) or b'')
+    src = rar_copy(tmp_path, 'rar5-solid.rar', 'Hero 001 (2019).cbr')
+    res = webp.to_cbz(src)
+    assert res['status'] == 'converted' and res['repacked'] and reads == [], res
+    monkeypatch.undo()
+    assert entries(res['target'])[0] == rar_contents(os.path.join(RAR, 'rar5-solid.rar'))[0]
+    assert sorted(os.listdir(tmp_path)) == ['Hero 001 (2019).cbz', 'cache']   # the extraction folder is gone
+
+
+@pytest.mark.unit
+def test_rar_is_read_entry_by_entry_without_unrar(tmp_path, monkeypatch):
+    monkeypatch.setattr(webp, '_unrar_all', lambda path, dest, timeout: False)
+    src = rar_copy(tmp_path, 'rar5-solid.rar', 'Hero 001 (2019).cbr')
+    before = rar_contents(src)[0]
+    res = webp.to_cbz(src)
+    assert res['status'] == 'converted' and entries(res['target'])[0] == before
+
+
+@pytest.mark.unit
+def test_a_stuck_filing_run_does_not_hold_up_a_repack(tmp_path, monkeypatch):
+    import threading
+    lock, held, done = threading.RLock(), threading.Event(), threading.Event()
+    monkeypatch.setattr(webp, '_pp_lock', lambda: lock)
+    monkeypatch.setattr(webp, 'PP_WAIT', 0.2)
+
+    def filing():
+        with lock:
+            held.set()
+            done.wait(5)
+    t = threading.Thread(target=filing)
+    t.start()
+    held.wait(5)
+    try:
+        src = rar_copy(tmp_path, 'rar5-solid.rar', 'Hero 001 (2019).cbr')
+        original = sha(src)
+        res = webp.to_cbz(src)
+    finally:
+        done.set()
+        t.join()
+    assert res['status'] == 'failed' and res['reason'] == 'filing is busy' and webp._transient(res['reason'])
+    assert sha(src) == original and sorted(os.listdir(tmp_path)) == ['Hero 001 (2019).cbr', 'cache']
+
+
+@pytest.mark.unit
 def test_existing_cbz_blocks_repack(tmp_path):
     src = rar_copy(tmp_path, 'rar5-solid.rar', 'Hero 003 (2019).cbr')
     (tmp_path / 'Hero 003 (2019).cbz').write_bytes(b'mine')
