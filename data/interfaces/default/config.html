@@ -839,6 +839,14 @@
                 ${tester('mattermost_test', 'Test Mattermost', 'mattermost_statusicon', 'mattermoststatus')}
             </%self:notifier>
 
+            <%self:notifier key="ntfy" label="ntfy" logo="ntfy.png" name="ntfy_enabled" checked="${config['ntfy_enabled']}">
+                ${field('ntfy_server_url', 'Server address', config['ntfy_server_url'], id='ntfy_server_url', attrs='class="set-wide"', placeholder='https://ntfy.sh', help='https://ntfy.sh or your own ntfy server.')}
+                ${field('ntfy_topic', 'Topic', config['ntfy_topic'], id='ntfy_topic', help='On the public ntfy.sh anyone who knows the topic can read it, so pick one that is hard to guess.')}
+                ${field('ntfy_token', 'Access token', config['ntfy_token'], id='ntfy_token', type='password', attrs='autocomplete="new-password"', help='Only if your topic needs one.')}
+                ${toggle('ntfy_onsnatch', 'Notify when an issue is grabbed', config['ntfy_onsnatch'])}
+                ${tester('ntfy_test', 'Test ntfy', 'ntfy_statusicon', 'ntfystatus')}
+            </%self:notifier>
+
             <%self:notifier key="pushbullet" label="Pushbullet" logo="pushbullet_logo.png" name="pushbullet_enabled" checked="${config['pushbullet_enabled']}">
                 ${field('pushbullet_apikey', 'API key', config['pushbullet_apikey'], id='pushbullet_apikey', help='Notifications go to all your Pushbullet devices.')}
                 ${field('pushbullet_channel_tag', 'Channel tag', config['pushbullet_channel_tag'], id='pushbullet_channel_tag', help='Optional. Sends to everyone subscribed to the channel with this tag.')}
@@ -882,6 +890,12 @@
                 ${field('boxcar_token', 'Token', config['boxcar_token'], id='boxcar_token')}
                 ${toggle('boxcar_onsnatch', 'Notify when an issue is grabbed', config['boxcar_onsnatch'])}
                 ${tester('boxcar_test', 'Test Boxcar', 'boxcar_statusicon')}
+            </%self:notifier>
+
+            <%self:notifier key="webhook" label="Webhook" logo="webhook.png" name="webhook_enabled" checked="${config['webhook_enabled']}">
+                ${field('webhook_url', 'URL', config['webhook_url'], id='webhook_url', attrs='class="set-wide"', help='Issuarr POSTs a JSON body here (Home Assistant, n8n, Node-RED or your own script). The fields are in the Notifications guide.')}
+                ${toggle('webhook_onsnatch', 'Notify when an issue is grabbed', config['webhook_onsnatch'])}
+                ${tester('webhook_test', 'Test webhook', 'webhook_statusicon', 'webhookstatus')}
             </%self:notifier>
         </section>
     </div>
@@ -1635,6 +1649,14 @@ $("#enable_airdcpp").click(function(){
                     {
                         $("#emailoptions").slideUp();
                     }
+                });
+
+                $.each(["ntfy", "webhook"], function (i, key) {
+                    $("#" + key + "options").toggle($("#" + key).is(":checked"));
+                    $("#" + key).click(function () {
+                        if ($(this).is(":checked")) { $("#" + key + "options").slideDown(); }
+                        else { $("#" + key + "options").slideUp(); }
+                    });
                 });
 
                 if ($("#gotify").is(":checked"))
@@ -2640,6 +2662,24 @@ $("#enable_airdcpp").click(function(){
                     $('#ajaxMsg').addClass('success').fadeIn().delay(3000).fadeOut();
                 });
 
+
+                function notifyTest(key, url, params) {
+                    var imagechk = document.getElementById(key + "_statusicon");
+                    $.get(url, params, function (data) {
+                        $('#' + key + 'status').val(data);
+                        $('#ajaxMsg').removeClass();
+                        $('#ajaxMsg').html("<div class='msg'><span class='ui-icon ui-icon-check'></span>" + $('<div>').text(data).html() + "</div>");
+                        imagechk.src = data.indexOf("Successfully") > -1 ? "images/success.png" : "images/x_red.png";
+                        imagechk.style.visibility = "visible";
+                    });
+                    $('#ajaxMsg').addClass('success').fadeIn().delay(3000).fadeOut();
+                }
+                $('#ntfy_test').click(function () {
+                    notifyTest('ntfy', 'testntfy', { server_url: $('#ntfy_server_url').val(), topic: $('#ntfy_topic').val(), token: $('#ntfy_token').val() });
+                });
+                $('#webhook_test').click(function () {
+                    notifyTest('webhook', 'testwebhook', { url: $('#webhook_url').val() });
+                });
 
 		$(function() {
 			$( "#tabs" ).tabs();

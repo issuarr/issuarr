@@ -263,6 +263,16 @@ _CONFIG_DEFINITIONS = OrderedDict({
     'GOTIFY_TOKEN': (str, 'GOTIFY', None),
     'GOTIFY_ONSNATCH': (bool, 'GOTIFY', False),
 
+    'NTFY_ENABLED': (bool, 'NTFY', False),
+    'NTFY_SERVER_URL': (str, 'NTFY', 'https://ntfy.sh'),
+    'NTFY_TOPIC': (str, 'NTFY', None),
+    'NTFY_TOKEN': (str, 'NTFY', None),
+    'NTFY_ONSNATCH': (bool, 'NTFY', False),
+
+    'WEBHOOK_ENABLED': (bool, 'WEBHOOK', False),
+    'WEBHOOK_URL': (str, 'WEBHOOK', None),
+    'WEBHOOK_ONSNATCH': (bool, 'WEBHOOK', False),
+
     'POST_PROCESSING': (bool, 'PostProcess', True),
     'FILE_OPTS': (str, 'PostProcess', 'move'),
     'SNATCHEDTORRENT_NOTIFY': (bool, 'PostProcess', False),

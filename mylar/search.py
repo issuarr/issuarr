@@ -3964,6 +3964,26 @@ def notify_snatch(sent_to, comicname, comyear, IssueNumber, nzbprov, pack):
             sent_to=sent_to,
             prov=nzbprov,
         )
+    if mylar.CONFIG.NTFY_ENABLED and mylar.CONFIG.NTFY_ONSNATCH:
+        logger.info("Sending ntfy notification")
+        notifiers.NTFY().notify(
+            "Snatched",
+            snline,
+            snatched_nzb=snatched_name,
+            sent_to=sent_to,
+            prov=nzbprov,
+        )
+    if mylar.CONFIG.WEBHOOK_ENABLED and mylar.CONFIG.WEBHOOK_ONSNATCH:
+        logger.info("Sending webhook notification")
+        notifiers.WEBHOOK().notify(
+            "Snatched",
+            snline,
+            snatched_nzb=snatched_name,
+            sent_to=sent_to,
+            prov=nzbprov,
+            metadata={'series': comicname, 'issue': IssueNumber, 'year': comyear},
+            event='snatched',
+        )
 
     return
 

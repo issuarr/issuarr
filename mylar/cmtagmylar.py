@@ -429,6 +429,12 @@ def sendnotify(message, filename, module):
         if mylar.CONFIG.GOTIFY_ENABLED:
             gotify = notifiers.GOTIFY()
             gotify.notify("Issuarr metatagging error: ", prline2, module=module)
+
+        if mylar.CONFIG.NTFY_ENABLED:
+            notifiers.NTFY().notify("Issuarr metatagging error", prline2, module=module)
+
+        if mylar.CONFIG.WEBHOOK_ENABLED:
+            notifiers.WEBHOOK().notify("Issuarr metatagging error", prline2, module=module, event='tag_error')
     except Exception as e:
         logger.warn('[NOTIFICATION] Unable to send notification: %s' % e)
 
