@@ -47,6 +47,7 @@ New issues of the series you follow arrive the same way, week after week.
 - Unpacks zip and rar downloads, including multi-issue packs. Every issue in a pack is matched against your whole watchlist, not only the issue you searched for.
 - Issues nothing on your watchlist wants are moved to a review folder or deleted, your choice. Issuarr can also add their series automatically.
 - Never silently replaces an issue you own: upgrades follow your duplicate rules.
+- **Tools > Duplicates** finds issues with more than one file in the library and moves the extra copies out, keeping the copy that opens, has tags, has more pages or is bigger. You see the list first.
 - Manual post-processing for a folder of files you drop in yourself.
 
 ### Metadata
