@@ -81,6 +81,7 @@
                         <tr>
                             <th scope="col" class="check"><input type="checkbox" id="imp-check-all" aria-label="Select all shown" /></th>
                             <th scope="col">Series</th>
+                            <th scope="col">ComicVine</th>
                             <th scope="col">Year</th>
                             <th scope="col" class="num">Files</th>
                             <th scope="col">Status</th>
@@ -101,8 +102,12 @@
                                 %if r['AnnualCount']:
                                 <span class="muted">+ ${r['AnnualCount']} annual${'s' if r['AnnualCount'] != 1 else ''}</span>
                                 %endif
+                            </td>
+                            <td class="mono nowrap">
                                 %if r['ComicID']:
-                                <a class="muted mono imp-cvid" href="https://comicvine.gamespot.com/volume/4050-${r['ComicID'] | u}/" target="_blank" rel="noopener" title="Open on ComicVine">CV ${r['ComicID'] | h}</a>
+                                <a class="imp-cvid" href="https://comicvine.gamespot.com/volume/4050-${r['ComicID'] | u}/" target="_blank" rel="noopener" title="Open on ComicVine">4050-${r['ComicID'] | h}</a>
+                                %else:
+                                <span class="muted">-</span>
                                 %endif
                             </td>
                             <td class="mono">${r['ComicYear'] or '-' | h}</td>
@@ -129,12 +134,16 @@
                                 <button type="button" class="btn btn-sm btn-ghost" data-cvid="${urlencode({'ComicName': r['ComicName'], 'DynamicName': r['DynamicName'], 'Volume': r['Volume']}) | h}"
                                         data-title="${x['name'] | h}" title="Import with a ComicVine series you pick">ComicVine ID</button>
                                 %endif
+                                %if x['status'] == 'Imported' and r['ComicID']:
+                                <a class="btn btn-sm btn-ghost" href="comicDetails?ComicID=${r['ComicID'] | u}#wrong-series"
+                                   title="Imported as the wrong ComicVine series: find the right one (or paste its ComicVine link) and move the files to it">Wrong series…</a>
+                                %endif
                                 <a class="btn btn-sm btn-ghost" href="deleteimport?${urlencode({'ComicName': r['ComicName'], 'volume': r['Volume'], 'DynamicName': r['DynamicName'], 'Status': r['Status']}) | h}">Remove</a>
                             </td>
                         </tr>
                     %endfor
                     %if not rows:
-                        <tr><td colspan="7" class="empty-state">No results. <a href="manage#tabs-1">Scan a folder</a> to find series you already have.</td></tr>
+                        <tr><td colspan="8" class="empty-state">No results. <a href="manage#tabs-1">Scan a folder</a> to find series you already have.</td></tr>
                     %endif
                     </tbody>
                 </table>
@@ -163,10 +172,13 @@
         function renderBulk() {
             var n = picked().length;
             document.getElementById('imp-bulk').hidden = !n;
+            document.querySelector('#imp-bulk [data-bulk="importselected"]').hidden = !picked().some(function (tr) { return tr.getAttribute('data-status') !== 'Imported'; });
             document.getElementById('imp-bulk-count').textContent = n + (n === 1 ? ' series selected' : ' series selected');
         }
         function applyTab() {
             rows().forEach(function (tr) { tr.hidden = !!status && tr.getAttribute('data-status') !== status; });
+            // the Imported tab has nothing left to import
+            document.getElementById('imp-all').hidden = status === 'Imported';
             document.querySelectorAll('#imp-tabs [data-status]').forEach(function (b) { b.setAttribute('aria-pressed', String(b.getAttribute('data-status') === status)); });
             document.getElementById('imp-check-all').checked = false;
             renderBulk();

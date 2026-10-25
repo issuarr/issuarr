@@ -873,7 +873,7 @@ a.release-title:hover { text-decoration: underline; text-underline-offset: 3px; 
 .imp-opts { display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 16px; margin: 0; font-size: 13.5px; color: var(--text-2); }
 .imp-opts a { color: var(--text); text-decoration: underline; text-underline-offset: 3px; }
 .imp-name { font-weight: 600; }
-.imp-cvid { margin-left: 6px; font-size: 12px; }
+.imp-cvid { font-size: 13px; }
 .imp-file-list { margin: 0; padding: 0; list-style: none; font-size: 12.5px; }
 .imp-file-list li { padding: 4px 0; border-bottom: 1px solid var(--line-soft); overflow-wrap: anywhere; }
 .tools #tabs > .ui-tabs-panel { border: 0 !important; background: transparent !important; }

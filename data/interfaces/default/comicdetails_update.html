@@ -508,6 +508,12 @@
         <script src="js/libs/full_numbers_no_ellipses.js"></script>
         <script src="js/libs/dataTables.rowGroup.min.js"></script>
         <script src="js/matching.js?v=${mylar.CURRENT_VERSION}"></script>
+        <script>
+        // Import results' "Wrong series…" opens the series with #wrong-series
+        if (location.hash === '#wrong-series') {
+            $(function () { IssuarrMatch.wrongSeries('${comic['ComicID'] | h}', document.getElementById('tab_comicname').value, document.getElementById('tab_comicyear').value); });
+        }
+        </script>
         <script src="js/series-details.js?v=${mylar.CURRENT_VERSION}"></script>
         <script src="js/related-tpbs.js?v=${mylar.CURRENT_VERSION}"></script>
         <script src="js/issue-panel.js?v=${mylar.CURRENT_VERSION}"></script>
