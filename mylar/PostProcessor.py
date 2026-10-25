@@ -561,6 +561,10 @@ class PostProcessor(object):
         try:
             result = self._process_main()
             self._clear_pack()
+            try:
+                archives.clear_jd2(getattr(self, 'download_info', None))
+            except Exception as e:
+                logger.warn('[JD2] Unable to clear what the download left in JD2\'s folder: %s' % e)
             return result
         finally:
             archives.cleanup(self.extracted)

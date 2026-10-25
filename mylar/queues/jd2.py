@@ -233,6 +233,8 @@ def jd2_queue_monitor(queue):
                                 nzb_folder = os.path.join(nzb_folder, job_filename)
 
                             if nzb_folder:
+                                # read before the job leaves JD2's list: the other mirrors' copies and part files
+                                files = jd2_files(jd2_client, job_id, record_id)
                                 try:
                                     mylar.PP_QUEUE.put({
                                         'nzb_name': nzb_name,
@@ -243,7 +245,8 @@ def jd2_queue_monitor(queue):
                                         'apicall': True,
                                         'ddl': True,
                                         'pack': pack,
-                                        'download_info': {'provider': 'JD2', 'id': record_id, 'job_id': job_id},
+                                        'download_info': {'provider': 'JD2', 'id': record_id, 'job_id': job_id,
+                                                          'issueid': item.get('issueid'), 'files': files},
                                     })
                                     logger.info('[JD2-QUEUE] Submitted %s for post-processing (folder: %s).', nzb_name, nzb_folder)
                                     jd2_client.remove(job_id, record_id)
@@ -288,6 +291,11 @@ def jd2_queue_monitor(queue):
 def jd2_folder(jd2_client, job_id, record_id, package=None):
     folder = getattr(jd2_client, 'folder', None)
     return folder(job_id, record_id, package) if folder else None
+
+
+def jd2_files(jd2_client, job_id, record_id):
+    files = getattr(jd2_client, 'files', None)
+    return files(job_id, record_id) if files else []
 
 
 def own_package(package, own_jobs, own_records):

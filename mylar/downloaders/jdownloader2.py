@@ -314,6 +314,24 @@ class JDownloader2(object):
             logger.warn('[JD2] Unable to look up the folder of job %s: %s', job_id, err)
         return None
 
+    def files(self, job_id: str, record_id: Optional[str] = None) -> List[str]:
+        """Every file the job's links download to, as Issuarr sees it: the mirror that finished and
+        the ones JD2 was still fetching or also finished. Asked before the job is taken off JD2's
+        list, so what the other mirrors left can be cleared once the download is filed."""
+        try:
+            links, packages = self._job_links(job_id, record_id)['downloadsV2']
+            save_to = self._save_to(packages)
+        except Exception as err:
+            logger.warn('[JD2] Unable to list the files of job %s: %s', job_id, err)
+            return []
+        out = []
+        for l in links:
+            folder = local_path(save_to.get(l.get('packageUUID')))
+            name = os.path.basename(str(l.get('name') or ''))
+            if folder and name and os.path.join(folder, name) not in out:
+                out.append(os.path.join(folder, name))
+        return out
+
     def tagged_packages(self) -> List[Dict[str, Any]]:
         """The packages in JD2's download list marked for Issuarr: the package or one of its links
         has the comment. Each is {'uuid', 'name', 'saveTo', 'links'}, with all of the package's links."""
