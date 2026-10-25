@@ -226,10 +226,13 @@
       .catch(function () { I().toast('That didn\'t work. Check the log.', false); });
   }
 
-  function mark(action) {
+  function mark(action, confirmed) {
     var ids = Object.keys(st.sel);
     if (!ids.length) return;
-    if (action === 'Downloaded' && !window.confirm('Mark ' + plural(ids.length) + ' as downloaded? Issuarr stops looking for them, even if the files are not on disk.')) return;
+    if (action === 'Downloaded' && !confirmed) {
+      I().ask('Mark ' + plural(ids.length) + ' as downloaded? Issuarr stops looking for them, even if the files are not on disk.', { ok: 'Mark downloaded' }, function () { mark(action, true); });
+      return;
+    }
     var p = new URLSearchParams({ action: action });
     ids.forEach(function (id) { p.append('issueids[]', id); });
     fetch('markissues?' + p.toString(), { credentials: 'same-origin' })
@@ -291,18 +294,22 @@
   });
   $id('w-search-all').addEventListener('click', function () {
     var n = st.rows.length;
-    if (n && !window.confirm('Search all ' + plural(n) + '? Providers are searched one page at a time, so a long list can take hours.')) return;
-    fetch('forceSearch?tiers=all', { credentials: 'same-origin' })
-      .then(queued)
-      .then(function () { I().toast('Adding every Wanted issue, Tier 2 included, to the search queue. Each row shows where its issue is.'); })
-      .catch(function () { I().toast('That didn\'t work. Check the log.', false); });
+    var go = function () {
+      fetch('forceSearch?tiers=all', { credentials: 'same-origin' })
+        .then(queued)
+        .then(function () { I().toast('Adding every Wanted issue, Tier 2 included, to the search queue. Each row shows where its issue is.'); })
+        .catch(function () { I().toast('That didn\'t work. Check the log.', false); });
+    };
+    if (n) I().ask('Search all ' + plural(n) + '? Providers are searched one page at a time, so a long list can take hours.', { ok: 'Search all' }, go);
+    else go();
   });
   $id('w-queue-pause').addEventListener('click', function () {
     queueControl(this.getAttribute('data-paused') === 'true' ? 'resume' : 'pause');
   });
   $id('w-queue-stop').addEventListener('click', function () {
-    if (!window.confirm('Stop searching? The search running now stops and every waiting search is taken out of the queue. The issues stay Wanted.')) return;
-    queueControl('stop');
+    I().ask('Stop searching? The search running now stops and every waiting search is taken out of the queue. The issues stay Wanted.', { ok: 'Stop searching', danger: true }, function () {
+      queueControl('stop');
+    });
   });
   $id('w-export').addEventListener('click', function () {
     fetch('wanted_Export?mode=Wanted', { credentials: 'same-origin' })
@@ -325,12 +332,15 @@
         }
         var names = d.issues.slice(0, 12).map(function (i) { return i.series + ' #' + i.issue; });
         if (d.count > names.length) names.push('and ' + fmt(d.count - names.length) + ' more');
-        if (!window.confirm(plural(d.count) + (d.count === 1 ? ' has' : ' have') + ' been Snatched for over ' + d.hours + ' hours with nothing downloading or filing ' +
-          (d.count === 1 ? 'it' : 'them') + ':\n\n' + names.join('\n') + '\n\nTheir series folders are checked first: an issue whose file is there becomes Downloaded. Put the rest back to Wanted so they are searched again?')) return;
-        var body = new URLSearchParams({ issueids: d.issues.map(function (i) { return i.issueid; }).join(',') });
-        return fetch('reset_stuck_snatched', { method: 'POST', credentials: 'same-origin', cache: 'no-store', body: body })
-          .then(function (r) { if (!r.ok) throw new Error(r.status); return r.json(); })
-          .then(function (res) { I().toast(res.message + '.'); return load(); });
+        I().ask(plural(d.count) + (d.count === 1 ? ' has' : ' have') + ' been Snatched for over ' + d.hours + ' hours with nothing downloading or filing ' +
+          (d.count === 1 ? 'it' : 'them') + ':\n\n' + names.join('\n') + '\n\nTheir series folders are checked first: an issue whose file is there becomes Downloaded.',
+          { title: 'Put stuck snatched issues back to Wanted?', ok: 'Put back to Wanted' }, function () {
+            var body = new URLSearchParams({ issueids: d.issues.map(function (i) { return i.issueid; }).join(',') });
+            fetch('reset_stuck_snatched', { method: 'POST', credentials: 'same-origin', cache: 'no-store', body: body })
+              .then(function (r) { if (!r.ok) throw new Error(r.status); return r.json(); })
+              .then(function (res) { I().toast(res.message + '.'); return load(); })
+              .catch(function () { I().toast('That didn\'t work. Check the log.', false); });
+          });
       })
       .catch(function () { I().toast('That didn\'t work. Check the log.', false); });
   });

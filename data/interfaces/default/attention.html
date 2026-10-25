@@ -353,9 +353,12 @@
                 .catch(function () { list.innerHTML = '<p class="empty-state">Couldn\'t list the folders. Check the log.</p>'; });
         }
 
-        function groupAct(key, action, btn) {
+        function groupAct(key, action, btn, sure) {
             var g = groupList.filter(function (x) { return x.key === key; })[0] || { label: key, count: 0 };
-            if (action === 'trash' && !window.confirm('Move all ' + g.count + ' files of ' + g.label + ' to the trash? They are deleted for good after ${trash_days} days.')) return;
+            if (action === 'trash' && !sure) {
+                window.Issuarr.ask('Move all ' + g.count + ' files of ' + g.label + ' to the trash? They are deleted for good after ${trash_days} days.', { ok: 'Move to trash', danger: true }, function () { groupAct(key, action, btn, true); });
+                return;
+            }
             var art = btn.closest('[data-group]');
             art.classList.add('is-busy');
             art.querySelectorAll('button').forEach(function (b) { b.disabled = true; });

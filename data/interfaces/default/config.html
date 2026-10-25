@@ -456,6 +456,19 @@
             </div>
         </section>
 
+        <section class="set-group" aria-labelledby="sg-prowlarr">
+            <div class="set-group-head"><h2 id="sg-prowlarr">Prowlarr</h2></div>
+            <p class="set-note">Add your Prowlarr indexers here instead of one at a time. Usenet indexers become Newznab indexers and torrent indexers become Torznab indexers, each searched through Prowlarr.</p>
+            ${field('prowlarr_url', 'Prowlarr address', config['prowlarr_url'], id='prowlarr_url', placeholder='http://192.168.1.2:9696')}
+            ${field('prowlarr_apikey', 'Prowlarr API key', config['prowlarr_apikey'], id='prowlarr_apikey', attrs='class="set-wide mono" spellcheck="false"', help='In Prowlarr under Settings > General.')}
+            ${toggle('prowlarr_sync', 'Keep in sync', config['prowlarr_sync'], id='prowlarr_sync', help='Every 6 hours, add indexers you turn on in Prowlarr later, and turn off ones removed or turned off there. An indexer you remove here is not added back.')}
+            <div class="set-row">
+                <span class="set-label"><b>Indexers</b><span>Adding them saves them and reloads this page, so save other changes first.</span></span>
+                <div class="set-ctl"><input type="button" class="btn" id="prowlarr_load" value="Load from Prowlarr" /></div>
+            </div>
+            <div id="prowlarr_list" class="set-sub" hidden></div>
+        </section>
+
         <section class="set-group" aria-labelledby="sg-newznab">
             <div class="set-group-head"><h2 id="sg-newznab">Usenet indexers (Newznab)</h2></div>
             ${toggle('newznab', 'Use Newznab indexers', config['newznab'], id='usenewznab')}
@@ -2690,6 +2703,39 @@ $("#enable_airdcpp").click(function(){
                     notifyTest('webhook', 'testwebhook', { url: $('#webhook_url').val() });
                 });
 
+                /* Prowlarr: list its indexers, tick, add */
+                function prowlarrPost(url, data) {
+                    return $.ajax({ type: 'POST', url: url, data: $.extend({ url: $('#prowlarr_url').val(), apikey: $('#prowlarr_apikey').val() }, data), dataType: 'json' });
+                }
+                $('#prowlarr_load').click(function () {
+                    var box = $('#prowlarr_list');
+                    box.prop('hidden', false).html('<p class="muted">Asking Prowlarr…</p>');
+                    prowlarrPost('prowlarr_indexers', {}).done(function (d) {
+                        if (!d.ok) { box.html($('<p class="muted">').text(d.note)); return; }
+                        if (!d.indexers.length) { box.html('<p class="muted">Prowlarr has no Usenet or torrent indexers yet.</p>'); return; }
+                        var list = $('<ul class="prowlarr-list">');
+                        d.indexers.forEach(function (ix) {
+                            var note = [ix.protocol === 'usenet' ? 'Usenet (Newznab)' : 'Torrent (Torznab)',
+                                        ix.enabled ? '' : 'off in Prowlarr', ix.comics ? '' : 'no Comics category listed',
+                                        ix.added ? 'already added' : ''].filter(Boolean).join(' · ');
+                            var cb = $('<input type="checkbox">').val(ix.id).prop('checked', !ix.added && ix.enabled && ix.comics).prop('disabled', ix.added);
+                            list.append($('<li>').append($('<label class="set-inline">').append(cb, ' ', $('<b>').text(ix.name), ' ', $('<span class="muted">').text(note))));
+                        });
+                        var add = $('<input type="button" class="btn btn-primary" value="Add the ticked indexers" />');
+                        add.click(function () {
+                            var ids = list.find('input:checked').map(function () { return this.value; }).get();
+                            if (!ids.length) { Issuarr.toast('Tick at least one indexer.', false); return; }
+                            add.prop('disabled', true);
+                            prowlarrPost('prowlarr_add', { ids: ids.join(','), sync: $('#prowlarr_sync').is(':checked') ? '1' : '0' }).done(function (r) {
+                                Issuarr.toast(r.note, !!r.ok);
+                                if (r.ok) setTimeout(function () { location.reload(); }, 1200);
+                                else add.prop('disabled', false);
+                            }).fail(function () { Issuarr.toast('Couldn\'t add them. Check the log.', false); add.prop('disabled', false); });
+                        });
+                        box.empty().append(list, add);
+                    }).fail(function () { box.html('<p class="muted">Couldn\'t ask Prowlarr. Check the log.</p>'); });
+                });
+
 		$(function() {
 			$( "#tabs" ).tabs();
 		});
@@ -2833,8 +2879,28 @@ $("#enable_airdcpp").click(function(){
         function comparable() { return $.param(fields().filter(function (f) { return f.name !== 'ignore_search_words[]'; })); }
         function pick(arr) { return $.param(arr.filter(function (f) { return APPEARANCE.test(f.name); })); }
         function dirty() { return saved !== null && comparable() !== saved; }
+        // Each section's fields on their own, so the sidebar can dot the sections with unsaved changes.
+        var savedPanels = null;
+        function panels() {
+            var out = {};
+            form.querySelectorAll('.set-panel').forEach(function (p) {
+                out[p.id] = $(p).find(':input[name]').not('[name="ignore_search_words[]"]').serialize();
+            });
+            return out;
+        }
+        function markPanels(d) {
+            var now = d && savedPanels ? panels() : null;
+            form.querySelectorAll('.set-panel').forEach(function (p) {
+                var changed = !!now && now[p.id] !== savedPanels[p.id];
+                document.querySelectorAll('#sidebar a.nav-child[href="config#' + p.id + '"]').forEach(function (a) {
+                    a.classList.toggle('has-unsaved', changed);
+                    if (changed) a.setAttribute('title', 'Unsaved changes'); else a.removeAttribute('title');
+                });
+            });
+        }
         function render() {
             var d = dirty();
+            markPanels(d);
             bar.classList.toggle('is-dirty', d);
             state.textContent = d ? 'Unsaved changes' : 'No unsaved changes';
             discardBtn.hidden = !d;
@@ -2852,6 +2918,7 @@ $("#enable_airdcpp").click(function(){
                 .done(function () {
                     var reload = savedAppearance !== null && pick(arr) !== savedAppearance;
                     saved = comparable();
+                    savedPanels = panels();
                     savedAppearance = pick(arr);
                     render();
                     Issuarr.toast(reload ? 'Settings saved. Reloading to apply your CSS.' : 'Settings saved.');
@@ -2890,7 +2957,7 @@ $("#enable_airdcpp").click(function(){
             if (!leaving && dirty()) { e.preventDefault(); e.returnValue = ''; }
         });
         // Take the starting point after the page scripts have filled in their fields.
-        $(function () { setTimeout(function () { saved = comparable(); savedAppearance = pick(fields()); render(); }, 0); });
+        $(function () { setTimeout(function () { saved = comparable(); savedPanels = panels(); savedAppearance = pick(fields()); render(); }, 0); });
 
         // The subtitle follows the section shown.
         var sub = document.getElementById('set-sub');
