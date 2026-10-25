@@ -18,7 +18,7 @@
 %endif
 </%def>
 
-<%def name="field(name, label, value, help='', id=None, type='text', placeholder='', attrs='', suffix='')">
+<%def name="field(name, label, value, help='', id=None, type='text', placeholder='', attrs='', suffix='', nosave=True)">
 <%
     fid = id or ('f_' + name)
     unset = value is None or str(value) == 'None'
@@ -29,7 +29,7 @@
         %if type == 'secret':
         <input type="text" class="secret" spellcheck="false" name="${name}" id="${fid}" value="${'' if unset else value | h}" ${'data-none="1"' if unset else ''} ${('placeholder="%s"' % placeholder.replace('"', '&quot;')) if placeholder else ''} ${NOSAVE} ${attrs} />${suffix}
         %else:
-        <input type="${type}" name="${name}" id="${fid}" value="${'' if unset else value | h}" ${'data-none="1"' if unset else ''} ${('placeholder="%s"' % placeholder.replace('"', '&quot;')) if placeholder else ''} ${NOSAVE} ${attrs} />${suffix}
+        <input type="${type}" name="${name}" id="${fid}" value="${'' if unset else value | h}" ${'data-none="1"' if unset else ''} ${('placeholder="%s"' % placeholder.replace('"', '&quot;')) if placeholder else ''} ${NOSAVE if nosave else ''} ${attrs} />${suffix}
         %endif
     </div>
 </div>
@@ -155,8 +155,9 @@
             </div>
             ${select('authentication', 'Sign-in', [(0, 'None'), (1, 'Browser pop-up (basic)'), (2, 'Login page (forms)')], config['authentication'], id='authentication', attrs='onchange="authoptions()"')}
             <div class="set-sub" id="auth_options">
-                ${field('http_username', 'User name', config['http_user'])}
-                ${field('http_password', 'Password', config['http_pass'], type='secret')}
+                <%doc>Issuarr's own sign-in: a real user name and password pair, so the browser offers to save it.</%doc>
+                ${field('http_username', 'User name', config['http_user'], id='http_username', nosave=False, attrs='autocomplete="username"')}
+                ${field('http_password', 'Password', config['http_pass'], id='http_password', type='password', nosave=False, attrs='autocomplete="new-password"')}
             </div>
             ${field('instance_name', 'Instance name', config['instance_name'], id='instance_name', help='Shown in the browser tab. Useful when you run more than one.')}
             ${toggle('launch_browser', 'Open a browser when Issuarr starts', config['launch_browser'])}
@@ -2853,10 +2854,31 @@ $("#enable_airdcpp").click(function(){
                     savedAppearance = pick(arr);
                     render();
                     Issuarr.toast(reload ? 'Settings saved. Reloading to apply your CSS.' : 'Settings saved.');
+                    offerSignInSave();
                     if (reload) { leaving = true; setTimeout(function () { location.reload(); }, 700); }
                 })
                 .fail(function () { Issuarr.toast('Couldn\'t save the settings. Check the log.', false); })
                 .always(function () { saveBtn.disabled = false; });
+        }
+        // Browsers don't notice a sign-in change saved in the background, so hand a changed
+        // login-page user name and password to the browser's password manager where it allows it
+        // (Chrome and Edge, over HTTPS or on localhost).
+        var signIn = signInNow();
+        function signInNow() {
+            var u = document.getElementById('http_username'), p = document.getElementById('http_password');
+            var mode = document.getElementById('authentication');
+            return { user: u ? u.value : '', pass: p ? p.value : '', forms: !!mode && mode.value === '2' };
+        }
+        function offerSignInSave() {
+            var now = signInNow(), before = signIn;
+            signIn = now;
+            if (!now.forms || !now.user || !now.pass) return;
+            // Only a newly typed password: the box can hold the stored, encrypted value.
+            if (now.pass === before.pass) return;
+            if (!window.PasswordCredential || !navigator.credentials || !navigator.credentials.store) return;
+            try {
+                navigator.credentials.store(new PasswordCredential({ id: now.user, password: now.pass, name: 'Issuarr' })).catch(function () {});
+            } catch (e) {}
         }
         saveBtn.addEventListener('click', save);
         discardBtn.addEventListener('click', function () { leaving = true; location.reload(); });
