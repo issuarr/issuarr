@@ -55,6 +55,7 @@ MAX_THREADS = max(1, _cpus())
 MAX_FILES = 8
 SAMPLE_FILES = 150
 MIN_SAVING = 0.10
+PP_WAIT = 300        # seconds a .cbr waits for filing to let go before it's left for a later run
 # Pages handed to the workers ahead of the one being written, per worker. A comic is streamed
 # through this window, so memory per file stays at a few pages: on 12-13 Oct whole 2-3 GB comics
 # were read in at once and the container reached 10 GB.
@@ -355,7 +356,7 @@ def _journal(res):
 # replaced) is looked at afresh. A converted file is recorded with its new size and time.
 SETTLED = ('converted', 'nothing to gain', 'already webp', 'damaged')
 # Failures worth another try on a later run; any other failure waits until the file changes.
-TRANSIENT = ('not enough free space', 'already being converted', 'file changed while', 'backup copy is incomplete',
+TRANSIENT = ('not enough free space', 'filing is busy', 'already being converted', 'file changed while', 'backup copy is incomplete',
              'missing', 'PermissionError', 'OSError', 'TimeoutError', 'BlockingIOError', 'InterruptedError')
 _ensured = [None]
 
@@ -583,7 +584,35 @@ def _zip_time(dt):
         return (1980, 1, 1, 0, 0, 0)
 
 
+def _unrar_all(path, dest, timeout):
+    """Extract the whole archive into dest with one unrar run, or return False when unrar isn't
+    the tool rarfile uses. Reading entries one at a time restarts a solid archive from its first
+    entry for every page: a 180 MB, 120-page solid .cbr took 76 seconds that way, and the largest
+    ones held up the library and nightly runs for an hour or more."""
+    import subprocess
+    from lib.rarfile import rarfile
+    try:
+        if rarfile.tool_setup().setup is not rarfile.UNRAR_CONFIG:
+            return False
+    except rarfile.RarCannotExec:
+        return False
+    os.makedirs(dest)
+    run = subprocess.run([rarfile.UNRAR_TOOL, 'x', '-inul', '-p-', '-o+', '-y', '--', path, dest + os.sep],
+                         stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.PIPE, timeout=timeout)
+    if run.returncode != 0:
+        raise rarfile.RarCRCError('unrar stopped with code %s %s' % (run.returncode, run.stderr.decode('utf-8', 'replace').strip()))
+    return True
+
+
 def _repack_rar(path, tmp):
+    out = os.path.join(os.path.dirname(path), '.%s.unrar-tmp' % os.path.basename(path))
+    try:
+        return _repack_rar_into(path, tmp, out)
+    finally:
+        shutil.rmtree(out, ignore_errors=True)
+
+
+def _repack_rar_into(path, tmp, out):
     from lib.rarfile import rarfile
     with rarfile.RarFile(path) as rf:
         if rf.needs_password():
@@ -597,12 +626,23 @@ def _repack_rar(path, tmp):
         for i in infos:
             if i.is_symlink() or not _safe_name(i.filename):
                 return 'unsafe entry %s' % i.filename
+        # unrar checks every entry's checksum as it extracts; allow it a minute per 50 MB
+        whole = _unrar_all(path, out, 600 + os.path.getsize(path) // 870000)
         sums = {}
         with zipfile.ZipFile(tmp, 'w', allowZip64=True) as zo:
             if rf.comment:
                 zo.comment = rf.comment.encode('utf-8')[:65535]
             for i in infos:
-                data = rf.read(i)
+                if whole:
+                    try:
+                        with open(os.path.join(out, *i.filename.split('/')), 'rb') as f:
+                            data = f.read()
+                    except OSError:
+                        return '%s was not extracted' % i.filename
+                    if getattr(i, 'CRC', None) is not None and zlib.crc32(data) != i.CRC:
+                        return '%s has a bad checksum' % i.filename
+                else:
+                    data = rf.read(i)
                 if len(data) != i.file_size:
                     return '%s is incomplete' % i.filename
                 zi = zipfile.ZipInfo(i.filename, date_time=_zip_time(i.date_time))
@@ -671,13 +711,17 @@ def to_cbz(path, backup_dir=None, backup_root=None):
             from lib.rarfile import rarfile
             if not rarfile.is_rarfile(path):
                 return dict(res, reason='not a rar or zip archive', damaged=True)
-            if shutil.disk_usage(os.path.dirname(path)).free < st.st_size * 1.2:
+            if shutil.disk_usage(os.path.dirname(path)).free < st.st_size * 2.2:   # extracted, then the new .cbz
                 return dict(res, reason='not enough free space')
             problem = _repack_rar(path, tmp)
             if problem:
                 return dict(res, reason=problem)
             res['repacked'] = True
-        with _pp_lock():
+        lock = _pp_lock()
+        # filing holds this lock; a filing run that never finishes mustn't hold the conversion up with it
+        if not lock.acquire(timeout=PP_WAIT):
+            return dict(res, reason='filing is busy')
+        try:
             now = os.stat(path)
             if (now.st_size, now.st_mtime) != (st.st_size, st.st_mtime):
                 return dict(res, reason='file changed while repacking')
@@ -701,6 +745,8 @@ def to_cbz(path, backup_dir=None, backup_root=None):
             else:
                 os.rename(path, target)
             _relocate(path, target)
+        finally:
+            lock.release()
         return dict(res, status='converted')
     except Exception as e:
         return dict(res, reason='%s: %s' % (type(e).__name__, e), damaged=_bad_rar(e))
