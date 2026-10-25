@@ -19,11 +19,32 @@ import os
 import time
 from operator import itemgetter
 from pathlib import Path
+import re
 import urllib
+import urllib.parse
 
 import mylar
 import mylar.ddlsources
 from mylar import db, helpers, logger, search, search_filer
+
+COMIC_EXTS = ('.cbz', '.cbr', '.cb7', '.pdf', '.zip', '.rar')
+
+
+def album_id(url):
+    """The album id of a PixelDrain album link (pixeldrain.com/l/<id>, .net too), else None."""
+    m = re.search(r'pixeldrain\.(?:com|net)/(?:api/list|l)/([A-Za-z0-9]+)', urllib.parse.unquote(str(url or '')))
+    return m.group(1) if m else None
+
+
+def pick_album_file(files):
+    """The file to take from an album's file list: the largest comic archive, else the largest file."""
+    files = [f for f in (files or []) if isinstance(f, dict) and f.get('id')]
+    comics = [f for f in files if str(f.get('name') or '').lower().endswith(COMIC_EXTS)]
+    pool = comics or files
+    if not pool:
+        return None
+    return max(pool, key=lambda f: f.get('size') or 0)
+
 
 class PixelDrain(object):
 
@@ -70,6 +91,12 @@ class PixelDrain(object):
         file_id = os.path.basename(
             urllib.parse.unquote(t.url)
         )  # .decode('utf-8'))
+        list_id = album_id(t.url)
+        if list_id:
+            # an album (pixeldrain.com/l/<id>): its own id is not a file, so take the comic in it
+            file_id = self.album_file(list_id)
+            if file_id is None:
+                return {"success": False, "filename": None, "path": None, "link_type_failure": 'GC-Pixel'}
         logger.fdebug(t.url)
         logger.fdebug(t)
         logger.fdebug('[PixelDrain] file_id: %s' % file_id)
@@ -169,6 +196,21 @@ class PixelDrain(object):
             return ggc.zip_zip(self.id, str(filepath), filename)
         else:
             return {"success": True, "filename": filename, "path": str(filepath)}
+
+    def album_file(self, list_id):
+        try:
+            r = self.session.get('https://pixeldrain.com/api/list/%s' % list_id, headers=self.headers, timeout=(30, 30))
+            files = r.json().get('files') if r.status_code == 200 else None
+        except Exception as e:
+            logger.warn('[PixelDrain] Could not read album %s: %s' % (list_id, e))
+            return None
+        best = pick_album_file(files)
+        if best is None:
+            logger.warn('[PixelDrain] Album %s has no downloadable file.' % list_id)
+            return None
+        if len(files) > 1:
+            logger.info('[PixelDrain] Album %s holds %s files - taking %s.' % (list_id, len(files), best.get('name')))
+        return best['id']
 
 if __name__ == '__main__':
     test = PixelDrain()

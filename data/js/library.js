@@ -31,6 +31,36 @@
   } catch (e) {}
 
   function save() { try { localStorage.setItem(STORE, JSON.stringify({ view: st.view, sort: st.sort })); } catch (e) {} }
+
+  // The filter tab, search, publisher and sort live in the address (?show=gaps&q=batman&pub=DC+Comics&sort=missing),
+  // so Back from a series returns to the same view and a filtered view can be bookmarked. How far down the page
+  // you were rides in the history entry, so Back lands there too.
+  (function readUrl() {
+    var p = new URLSearchParams(location.search);
+    var show = p.get('show');
+    if (show && TABS.some(function (t) { return t[0] === show; })) st.tab = show;
+    st.q = (p.get('q') || '').trim();
+    st.pub = p.get('pub') || '';
+    var sort = p.get('sort');
+    if (sort && /^(title|updated|year|missing|publisher)$/.test(sort)) st.sort = sort;
+    var h = history.state;
+    if (h && h.libLimit) st.limit = Math.max(CHUNK, h.libLimit);
+  })();
+  function writeUrl() {
+    var p = new URLSearchParams(location.search);
+    [['show', st.tab === 'all' ? '' : st.tab], ['q', st.q], ['pub', st.pub], ['sort', st.sort === 'title' ? '' : st.sort]].forEach(function (kv) {
+      if (kv[1]) p.set(kv[0], kv[1]); else p.delete(kv[0]);
+    });
+    var qs = p.toString();
+    history.replaceState(history.state, '', location.pathname + (qs ? '?' + qs : '') + location.hash);
+  }
+  var scrollTimer = null;
+  window.addEventListener('scroll', function () {
+    clearTimeout(scrollTimer);
+    scrollTimer = setTimeout(function () {
+      history.replaceState({ libScroll: window.scrollY, libLimit: st.limit }, '', location.href);
+    }, 150);
+  }, { passive: true });
   function $id(id) { return document.getElementById(id); }
   function I() { return window.Issuarr; }
   function esc(t) { return I().esc(t); }
@@ -211,8 +241,58 @@
     more.textContent = 'Show more (' + fmt(Math.max(list.length - st.limit, 0)) + ' left)';
     document.querySelectorAll('.library [data-view]').forEach(function (b) { b.setAttribute('aria-pressed', String(b.getAttribute('data-view') === st.view)); });
     $id('lib-sort').value = st.sort;
+    renderRail(list);
     renderBulk();
   }
+
+  /* ---- A–Z rail: jump to a letter when the library is in title order ---- */
+  var LETTERS = '#ABCDEFGHIJKLMNOPQRSTUVWXYZ'.split('');
+  function letterOf(s) {
+    var c = String(s.sort || s.name || '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').charAt(0).toUpperCase();
+    return c >= 'A' && c <= 'Z' ? c : '#';
+  }
+  function titleOrder() { return st.col ? st.col.key === 'name' && st.col.dir === 1 : st.sort === 'title'; }
+
+  function renderRail(list) {
+    var rail = $id('lib-az');
+    var on = titleOrder() && list.length > 40;
+    rail.hidden = !on;
+    document.querySelector('.library').classList.toggle('has-az', on);
+    if (!on) return;
+    var have = {};
+    list.forEach(function (s) { have[letterOf(s)] = true; });
+    rail.innerHTML = LETTERS.map(function (l) {
+      return '<button type="button" data-ui data-az="' + l + '"' + (have[l] ? '' : ' disabled') +
+        ' aria-label="' + (l === '#' ? 'Jump to titles starting with a number or symbol' : 'Jump to ' + l) + '">' + l + '</button>';
+    }).join('');
+  }
+
+  function jumpTo(l) {
+    var list = filtered();
+    var at = -1;
+    for (var i = 0; i < list.length; i++) { if (letterOf(list[i]) === l) { at = i; break; } }
+    if (at < 0) return;
+    if (at >= st.limit) { st.limit = at + CHUNK; render(); }
+    var el = st.view === 'covers' ? $id('lib-grid').children[at] : $id('lib-table').tBodies[0].rows[at];
+    if (!el) return;
+    el.scrollIntoView({ block: 'start' });
+    var a = el.querySelector('.card-title') || el.querySelector('a');
+    if (a) a.focus({ preventScroll: true });
+  }
+
+  $id('lib-az').addEventListener('click', function (e) {
+    var b = e.target.closest('[data-az]');
+    if (b && !b.disabled) jumpTo(b.getAttribute('data-az'));
+  });
+  // Slide a finger along the rail to run through the letters.
+  var railLast = null;
+  $id('lib-az').addEventListener('touchmove', function (e) {
+    var t = e.touches[0], b = document.elementFromPoint(t.clientX, t.clientY);
+    b = b && b.closest('#lib-az [data-az]');
+    e.preventDefault();
+    if (b && !b.disabled && b.getAttribute('data-az') !== railLast) { railLast = b.getAttribute('data-az'); jumpTo(railLast); }
+  }, { passive: false });
+  $id('lib-az').addEventListener('touchend', function () { railLast = null; });
 
   function renderBulk() {
     var n = Object.keys(st.sel).length;
@@ -234,6 +314,9 @@
         st.all.forEach(function (s) { ids[s.id] = true; });
         Object.keys(st.sel).forEach(function (k) { if (!ids[k]) delete st.sel[k]; });
         renderStats(); renderTabs(); renderPublishers(); render();
+        var h = history.state;
+        if (h && h.libScroll && !st.restored) window.scrollTo(0, h.libScroll);
+        st.restored = true;
       })
       .catch(function () {
         st.loaded = true;
@@ -271,14 +354,14 @@
   document.addEventListener('click', function (e) {
     var t = e.target;
     var tab = t.closest('#lib-tabs [data-tab]');
-    if (tab) { st.tab = tab.getAttribute('data-tab'); st.limit = CHUNK; renderTabs(); render(); return; }
+    if (tab) { st.tab = tab.getAttribute('data-tab'); st.limit = CHUNK; writeUrl(); renderTabs(); render(); return; }
     var view = t.closest('.library [data-view]');
     if (view) { st.view = view.getAttribute('data-view'); save(); render(); return; }
     var b = t.closest('#lib-bulk [data-bulk]');
     if (b) { bulk(b.getAttribute('data-bulk')); return; }
     if (t.closest('#lib-clear-filters')) {
       st.tab = 'all'; st.q = ''; st.pub = ''; $id('lib-q').value = ''; $id('lib-pub').value = '';
-      renderTabs(); render(); return;
+      writeUrl(); renderTabs(); render(); return;
     }
     if (t.closest('[data-action-add]')) { var add = document.querySelector('[data-action="add"]'); if (add) add.click(); return; }
     var exp = t.closest('[data-export]');
@@ -334,10 +417,10 @@
   var qTimer = null;
   $id('lib-q').addEventListener('input', function (e) {
     clearTimeout(qTimer);
-    qTimer = setTimeout(function () { st.q = e.target.value.trim(); st.limit = CHUNK; render(); }, 120);
+    qTimer = setTimeout(function () { st.q = e.target.value.trim(); st.limit = CHUNK; writeUrl(); render(); }, 120);
   });
-  $id('lib-pub').addEventListener('change', function (e) { st.pub = e.target.value; st.limit = CHUNK; render(); });
-  $id('lib-sort').addEventListener('change', function (e) { st.sort = e.target.value; st.col = null; I().clearSort($id('lib-table')); save(); render(); });
+  $id('lib-pub').addEventListener('change', function (e) { st.pub = e.target.value; st.limit = CHUNK; writeUrl(); render(); });
+  $id('lib-sort').addEventListener('change', function (e) { st.sort = e.target.value; st.col = null; I().clearSort($id('lib-table')); save(); writeUrl(); render(); });
   $id('lib-table').addEventListener('issuarr:sort', function (e) { st.col = e.detail; render(); });
   $id('lib-more-rows').addEventListener('click', function () { st.limit += CHUNK; render(); });
   if (window.IntersectionObserver) {
@@ -348,6 +431,7 @@
   var refreshTimer = null;
   document.addEventListener('issuarr:refresh', function () { clearTimeout(refreshTimer); refreshTimer = setTimeout(load, 800); });
 
+  $id('lib-q').value = st.q;
   render();
   if (window.jQuery) window.jQuery(load); else document.addEventListener('DOMContentLoaded', load);
 })();

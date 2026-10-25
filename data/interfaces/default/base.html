@@ -1,7 +1,11 @@
 <%
 	import mylar
-	from mylar import ui, attention
+	from mylar import ui, attention, whatsnew
 	_attention = attention.count()
+	try:
+	    _whats_new = len(whatsnew.pending())
+	except Exception:
+	    _whats_new = 0
 	_theme = ui.theme()
 	_nocss = ui.nocss_requested()
 	_css_url = None if _nocss else ui.safe_stylesheet_url(mylar.CONFIG.CUSTOM_CSS_URL)
@@ -90,7 +94,7 @@
 	<script src="js/libs/modernizr-2.8.3.min.js"></script>
 	<script src="js/libs/jquery-1.7.2.min.js"></script>
 </head>
-<body>
+<body${' data-whats-new' if _whats_new else ''}>
 	<a class="skip-link" href="#main">Skip to content</a>
 	<div id="ajaxMsg" class="ajaxMsg"></div>
 	<div id="updatediv"></div>
@@ -276,6 +280,20 @@
 			</div>
 			<ul class="jump-list" id="jump-list" role="listbox" aria-label="Results"></ul>
 			<div class="jump-foot"><span><kbd>↑</kbd> <kbd>↓</kbd> move</span><span><kbd>Enter</kbd> open</span><span><kbd>Ctrl K</kbd> from any page</span></div>
+		</div>
+	</div>
+
+	<div class="jump-backdrop" id="whats-new" hidden>
+		<div class="jump whats-new" role="dialog" aria-modal="true" aria-labelledby="whats-new-title">
+			<div class="add-head">
+				<h2 id="whats-new-title">What's new in Issuarr</h2>
+				<p>Changes since this install last showed you this. Each one links to the commit that made it.</p>
+			</div>
+			<div class="whats-new-body" id="whats-new-body" tabindex="0"></div>
+			<div class="whats-new-foot">
+				<a id="whats-new-more" href="https://github.com/issuarr/issuarr/blob/main/CHANGELOG.md" target="_blank" rel="noopener">Full changelog on GitHub</a>
+				<button type="button" class="btn btn-primary" id="whats-new-close">Got it</button>
+			</div>
 		</div>
 	</div>
 
