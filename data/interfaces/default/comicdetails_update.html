@@ -99,6 +99,7 @@
                     % endfor
                 </p>
                 <p class="notice" id="series_status" style="display:none"></p>
+                <p class="notice" id="series_suspects" data-comicid="${comic['ComicID'] | h}" data-name="${comic['ComicName'] or '' | h}" data-year="${comic['ComicYear'] or '' | h}" hidden></p>
                 <span id="loading_spinner" hidden></span>
                 <div class="series-collection" id="series-collection">
                     <%
