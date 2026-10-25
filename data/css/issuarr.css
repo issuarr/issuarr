@@ -1408,6 +1408,13 @@ a.w-where { text-decoration: underline 1px var(--line); text-underline-offset: 3
 a.w-where:hover { color: var(--text); text-decoration-color: currentColor; }
 .w-where.is-search.is-live { color: var(--wanted); }
 .w-where.is-download { color: var(--snatched); }
+#w-group[aria-pressed="true"] { background: var(--raised); border-color: var(--muted); }
+.w-group td { background: var(--surface); }
+.w-fold { display: inline-flex; align-items: center; gap: 8px; padding: 2px 4px; margin-left: -4px; border: 0; background: none; color: var(--text); font: inherit; cursor: pointer; border-radius: 6px; }
+.w-fold svg { transition: transform .15s ease; flex: none; }
+.w-fold[aria-expanded="true"] svg { transform: rotate(90deg); }
+.w-fold b { font-weight: 650; }
+.w-group ~ tr:not(.w-group) td:nth-child(2) { padding-left: 34px; }
 
 /* ---- Downloads > Needs attention ----
    One file per row. The file name's reading sits over the closest series, column by column:
