@@ -447,6 +447,10 @@ table.dt td.actions .btn { min-width: 92px; }
 .menu.menu-fixed > .menu-list { position: fixed; right: auto; bottom: auto; max-height: calc(100vh - 12px); overflow-y: auto; }
 .menu-list .btn { justify-content: flex-start; width: 100%; }
 .menu-list hr { border: 0; border-top: 1px solid var(--line); margin: 4px 2px; }
+.ctx-menu { position: fixed; top: 0; left: 0; right: auto; z-index: 60; min-width: 230px; max-width: calc(100vw - 12px); max-height: calc(100vh - 12px); overflow-y: auto; }
+.ctx-menu[hidden] { display: none; }
+.ctx-title { margin: 2px 10px 6px; font-size: 13px; font-weight: 600; color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.cover-card a { -webkit-touch-callout: none; }
 
 .bulk-bar {
   position: sticky; top: var(--carbon-head, 0px); z-index: 20; display: flex; flex-wrap: wrap; align-items: center; gap: 10px;
