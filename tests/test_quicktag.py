@@ -51,7 +51,12 @@ def test_build_matches_what_comictagger_wrote():
         'Series': 'Terminator 2: Infinity', 'Number': '1', 'Count': '7', 'Volume': '2007',
         'Publisher': 'Dynamite Entertainment', 'Year': '2007', 'Month': '7', 'Day': '1'}
     assert '[Issue ID 113826]' in out['Notes']
-    assert 'Title' not in out
+    assert 'Title' not in out and 'Summary' not in out
+
+
+def test_build_writes_the_stored_description_as_the_summary():
+    out = {el.tag: el.text for el in ET.fromstring(quicktag.build(dict(ROW, Description='Judgment & more.\n\nPart two.')))}
+    assert out['Summary'] == 'Judgment & more.\n\nPart two.'
 
 
 def test_build_uses_the_series_volume_when_start_year_is_off():

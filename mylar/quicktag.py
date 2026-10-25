@@ -30,7 +30,7 @@ def issue_for_path(path, myDB=None):
     ComicTagger: ComicVine lists them as series of their own, which the stored rows don't name."""
     myDB = myDB or db.DBConnection()
     folder = os.path.dirname(path)
-    return myDB.selectone('SELECT i.IssueID, i.Issue_Number, i.IssueName, i.IssueDate, i.ReleaseDate, c.ComicName, '
+    return myDB.selectone('SELECT i.IssueID, i.Issue_Number, i.IssueName, i.IssueDate, i.ReleaseDate, i.Description, c.ComicName, '
                           'c.ComicYear, c.ComicVersion, c.ComicPublisher, c.Total, c.AgeRating FROM issues i '
                           'JOIN comics c ON c.ComicID=i.ComicID WHERE i.Location=? AND c.ComicLocation IN (?, ?)',
                           [os.path.basename(path), folder, folder + os.sep]).fetchone()
@@ -69,6 +69,7 @@ def build(row):
         ('Number', row['Issue_Number']),
         ('Count', count if count.isdigit() and int(count) > 0 else None),
         ('Volume', _volume(row)),
+        ('Summary', row['Description'] if 'Description' in row.keys() else None),
         ('Notes', 'Tagged by Issuarr from its stored ComicVine info on %s. %s' % (
             datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S'), issue_id % row['IssueID'])),
         ('Year', year),

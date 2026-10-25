@@ -747,8 +747,10 @@ def GetIssuesInfo(comicid, dom, arcid=None):
                 digital_desc = subtrack.getElementsByTagName('description')[0].firstChild.wholeText
             except:
                 tempissue['DigitalDate'] = '0000-00-00'
+                tempissue['Description'] = None
             else:
                 tempissue['DigitalDate'] = '0000-00-00'
+                tempissue['Description'] = summary_text(digital_desc)
                 if all(['digital' in digital_desc.lower()[-90:], 'print' in digital_desc.lower()[-90:]]):
                     #get the digital date of issue here...
                     mff = mylar.filechecker.FileChecker()
@@ -784,7 +786,8 @@ def GetIssuesInfo(comicid, dom, arcid=None):
                     'Digital_Date':            tempissue['DigitalDate'],
                     'Issue_Name':              tempissue['Issue_Name'],
                     'Image':                   tempissue['ComicImage'],
-                    'ImageALT':                tempissue['ComicImageALT']
+                    'ImageALT':                tempissue['ComicImageALT'],
+                    'Description':             tempissue['Description']
                     })
 
             else:
@@ -1256,6 +1259,22 @@ def db_updates(results, rtype='issueid'):
                                'issue_number': x['issue_number'],
                           })
     return dataset
+
+
+def summary_text(html):
+    """An issue's ComicVine description as plain text, a blank line between paragraphs, the
+    way tagging writes it into ComicInfo.xml's Summary. None when there is none."""
+    if not html or not html.strip():
+        return None
+    soup = Soup(html, "html.parser")
+    for br in soup.find_all('br'):
+        br.replace_with('\n')
+    for block in soup.find_all(['p', 'div', 'h1', 'h2', 'h3', 'h4', 'h5', 'li', 'tr']):
+        block.insert_after('\n\n')
+    text = soup.get_text()
+    text = re.sub(r'[ \t]+\n', '\n', text)
+    text = re.sub(r'\n{3,}', '\n\n', text).strip()
+    return text or None
 
 
 def drophtml(html):

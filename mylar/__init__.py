@@ -1130,6 +1130,11 @@ def dbcheck():
     except sqlite3.OperationalError:
         c.execute('ALTER TABLE issues ADD COLUMN forced_file INT')
 
+    try:
+        c.execute('SELECT Description from issues')
+    except sqlite3.OperationalError:
+        c.execute('ALTER TABLE issues ADD COLUMN Description TEXT')
+
     ## -- ImportResults Table --
 
     try:
