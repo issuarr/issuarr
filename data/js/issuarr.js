@@ -14,12 +14,87 @@
     if (text != null) n.textContent = text;
     return n;
   }
-  function toast(message, ok) {
-    if (!$) return;
-    var box = $('#ajaxMsg');
-    box.removeClass().addClass('ajaxMsg ' + (ok === false ? 'error' : 'success'));
-    box.html('<div class="msg"></div>').find('.msg').text(message);
-    box.stop(true, true).fadeIn().delay(3000).fadeOut();
+  // Messages stack in the corner. Errors stay longer, and pointing at a message (or focusing it) holds it
+  // until you move away. ok: false is an error, true or nothing a success, 'info' plain.
+  var TOAST_MS = { ok: 4500, info: 4500, error: 9000 };
+  var TOAST_MAX = 4;
+  function toastStack() {
+    var box = $id('toasts');
+    if (!box) {
+      box = el('div', 'toasts');
+      box.id = 'toasts';
+      box.setAttribute('aria-live', 'polite');
+      doc.body.appendChild(box);
+    }
+    return box;
+  }
+  function dismissToast(t) {
+    if (t.out) return;
+    t.out = true;
+    clearTimeout(t.timer);
+    t.node.classList.add('is-out');
+    setTimeout(function () { if (t.node.parentNode) t.node.parentNode.removeChild(t.node); }, 200);
+  }
+  function holdToast(t, hold) {
+    clearTimeout(t.timer);
+    if (!hold && !t.out) t.timer = setTimeout(function () { dismissToast(t); }, 2500);
+  }
+  var shown = [];
+  function pushToast(content, kind) {
+    kind = kind === false || kind === 'error' ? 'error' : kind === 'info' ? 'info' : 'ok';
+    var text = typeof content === 'string' ? content : content.textContent;
+    text = text.replace(/\s+/g, ' ').trim();
+    if (!text) return;
+    shown = shown.filter(function (t) { return !t.out; });
+    // The same message again (a retry, a spinner added to it) refreshes the one on screen.
+    for (var i = 0; i < shown.length; i++) {
+      if (shown[i].text === text && shown[i].kind === kind) { holdToast(shown[i], true); holdToast(shown[i], false); return; }
+    }
+    var node = el('div', 'toast is-' + kind);
+    node.setAttribute('role', kind === 'error' ? 'alert' : 'status');
+    var msg = el('div', 'toast-msg');
+    if (typeof content === 'string') msg.textContent = content;
+    else msg.appendChild(content);
+    var x = el('button', 'toast-x');
+    x.type = 'button';
+    x.setAttribute('aria-label', 'Dismiss');
+    x.innerHTML = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" aria-hidden="true"><path d="M6 6l12 12M18 6 6 18"/></svg>';
+    node.appendChild(msg);
+    node.appendChild(x);
+    var t = { node: node, text: text, kind: kind, out: false, timer: null };
+    x.addEventListener('click', function () { dismissToast(t); });
+    node.addEventListener('mouseenter', function () { holdToast(t, true); });
+    node.addEventListener('mouseleave', function () { holdToast(t, false); });
+    node.addEventListener('focusin', function () { holdToast(t, true); });
+    node.addEventListener('focusout', function () { holdToast(t, false); });
+    toastStack().appendChild(node);
+    shown.push(t);
+    t.timer = setTimeout(function () { dismissToast(t); }, TOAST_MS[kind]);
+    while (shown.filter(function (s) { return !s.out; }).length > TOAST_MAX) {
+      dismissToast(shown.filter(function (s) { return !s.out; })[0]);
+    }
+  }
+  function toast(message, ok) { pushToast(String(message == null ? '' : message), ok === false ? 'error' : 'ok'); }
+
+  // Older pages still write their messages into #ajaxMsg and fade it in. It stays hidden; whatever is
+  // written there becomes a toast, an error when the page marks it error or failure.
+  function bridgeAjaxMsg() {
+    var box = $id('ajaxMsg');
+    if (!box || !window.MutationObserver) return;
+    var queued = false;
+    new MutationObserver(function () {
+      if (queued) return;
+      queued = true;
+      // The class is set just after the text, so read both once the page's own code has run.
+      setTimeout(function () {
+        queued = false;
+        var copy = el('div');
+        copy.innerHTML = box.innerHTML;
+        copy.querySelectorAll('.ui-icon, .fa, img, script').forEach(function (n) { n.parentNode.removeChild(n); });
+        var cls = ' ' + box.className + ' ';
+        pushToast(copy, /\s(error|failure)\s/.test(cls) ? 'error' : /\ssuccess\s/.test(cls) ? 'ok' : 'info');
+      }, 0);
+    }).observe(box, { childList: true, subtree: true, characterData: true });
   }
   function mark() { return window.issuarrMarkNav ? window.issuarrMarkNav() : null; }
 
@@ -326,7 +401,7 @@
       b.title = title;
     }
     function poll() {
-      if (doc.hidden) return;
+      if (doc.hidden || offline.down) return;
       fetch('pp_activity', { credentials: 'same-origin', headers: { 'Accept': 'application/json' } })
         .then(function (r) { if (!r.ok) throw new Error(r.status); return r.json(); })
         .then(function (d) {
@@ -350,8 +425,13 @@
           }
           refreshIdle();
         })
-        .catch(function () { if (timer) { clearInterval(timer); timer = null; } });
+        .catch(function (err) {
+          // The server not answering at all is a lost connection; keep polling once it's back.
+          if (err instanceof TypeError || /^50[234]$/.test(err.message)) { offline.lost(); return; }
+          if (timer) { clearInterval(timer); timer = null; }
+        });
     }
+    offline.onBack = poll;
     poll();
     timer = setInterval(poll, 20000);
     doc.addEventListener('visibilitychange', function () { if (!doc.hidden && timer) poll(); });
@@ -365,6 +445,51 @@
       new MutationObserver(refreshIdle).observe(importRow, { attributes: true, attributeFilter: ['style'] });
     }
   }
+
+  /* ---------- Lost connection ---------- */
+
+  // When Issuarr stops answering (restarting, updating, the container stopped), a notice says so instead of
+  // the page quietly going stale. It checks again every few seconds and goes away by itself once Issuarr is back.
+  var offline = {
+    down: false, onBack: null, timer: null, fails: 0, bar: null,
+    lost: function () {
+      if (offline.timer) return;
+      offline.fails = 0;
+      offline.check();
+    },
+    check: function () {
+      offline.timer = setTimeout(function () {
+        fetch('pp_activity', { credentials: 'same-origin', cache: 'no-store', headers: { 'Accept': 'application/json' } })
+          .then(function (r) { if (!r.ok && /^50[234]$/.test(String(r.status))) throw new Error(r.status); offline.back(); })
+          .catch(function () {
+            offline.fails += 1;
+            // One missed answer can be a blip; say something from the second one on.
+            if (offline.fails >= 2) offline.show();
+            offline.check();
+          });
+      }, offline.fails ? 5000 : 2000);
+    },
+    show: function () {
+      if (offline.down) return;
+      offline.down = true;
+      var bar = offline.bar;
+      if (!bar) {
+        bar = offline.bar = el('div', 'offline-bar');
+        bar.setAttribute('role', 'status');
+        bar.innerHTML = '<span class="offline-dot" aria-hidden="true"></span><span>Issuarr isn\'t answering. Trying again every few seconds…</span>';
+        doc.body.appendChild(bar);
+      }
+      bar.hidden = false;
+    },
+    back: function () {
+      offline.timer = null;
+      var was = offline.down;
+      offline.down = false;
+      if (offline.bar) offline.bar.hidden = true;
+      if (was) toast('Connected to Issuarr again. Reload the page if anything looks out of date.');
+      if (offline.onBack) offline.onBack();
+    }
+  };
 
   /* ---------- Ctrl K jump menu ---------- */
 
@@ -697,6 +822,59 @@
     box.addEventListener('keydown', function (e) { if (e.key === 'Escape') { e.preventDefault(); close(); } });
   }
 
+  // Once after an update: the changelog lines this install hasn't shown yet. Closing it marks them seen.
+  function setupWhatsNew() {
+    var box = $id('whats-new');
+    if (!box || !doc.body.hasAttribute('data-whats-new')) return;
+    var body = $id('whats-new-body');
+    var last = null;
+    function close() {
+      box.hidden = true;
+      fetch('whats_new_seen', { method: 'POST', credentials: 'same-origin' }).catch(function () {});
+      doc.body.removeAttribute('data-whats-new');
+      if (last && last.focus) last.focus();
+    }
+    fetch('whats_new', { credentials: 'same-origin', cache: 'no-store' })
+      .then(function (r) { return r.ok ? r.json() : null; })
+      .then(function (d) {
+        if (!d || !d.releases || !d.releases.length) return;
+        body.textContent = '';
+        d.releases.forEach(function (rel) {
+          body.appendChild(el('h3', null, rel.name));
+          rel.groups.forEach(function (g) {
+            if (g.name) body.appendChild(el('h4', null, g.name));
+            var ul = el('ul');
+            g.items.forEach(function (it) {
+              var li = el('li');
+              // Built on the server from the changelog that ships with this install.
+              li.innerHTML = it.html + ' ';
+              var ids = el('span', 'whats-new-ids');
+              it.commits.forEach(function (c, i) {
+                var a = el('a', null, c.id);
+                a.href = c.url; a.target = '_blank'; a.rel = 'noopener';
+                a.title = 'The commit that made this change';
+                if (i) ids.appendChild(doc.createTextNode(', '));
+                ids.appendChild(a);
+              });
+              li.appendChild(doc.createTextNode('('));
+              li.appendChild(ids);
+              li.appendChild(doc.createTextNode(')'));
+              ul.appendChild(li);
+            });
+            body.appendChild(ul);
+          });
+        });
+        if (d.changelog_url) $id('whats-new-more').href = d.changelog_url;
+        last = doc.activeElement;
+        box.hidden = false;
+        $id('whats-new-close').focus();
+      })
+      .catch(function () {});
+    $id('whats-new-close').addEventListener('click', close);
+    box.addEventListener('mousedown', function (e) { if (e.target === box) close(); });
+    box.addEventListener('keydown', function (e) { if (e.key === 'Escape') { e.preventDefault(); close(); } });
+  }
+
   // "More" menus (details.menu) close on an outside click, on Escape, and after a choice.
   function setupMenus() {
     function closeAll(except) {
@@ -756,6 +934,7 @@
   }
 
   function start() {
+    bridgeAjaxMsg();
     setupSortableTables();
     setupMenus();
     setupTabbedPage();
@@ -765,7 +944,18 @@
     setupJump();
     setupAddSeries();
     setupAppearance();
+    setupWhatsNew();
+    setupSecrets();
     window.addEventListener('hashchange', mark);
+  }
+
+  // input.secret boxes are masked by CSS. A browser that can't draw them as dots gets a
+  // real password box instead, so the value stays hidden (it may then offer to save it).
+  function setupSecrets() {
+    var ok = window.CSS && CSS.supports && CSS.supports('-webkit-text-security', 'disc');
+    if (ok) return;
+    var boxes = doc.querySelectorAll('input.secret');
+    for (var i = 0; i < boxes.length; i++) boxes[i].type = 'password';
   }
 
   if ($) $(start);

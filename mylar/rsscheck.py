@@ -50,10 +50,51 @@ def _start_newznab_attr(self, attrsD):
     else:
         context['newznab'][name] = value
 
+def _start_torznab_attr(self, attrsD):
+    # torznab:attr carries the size, seeders and so on, like newznab:attr.
+    # feedparser 6 renamed _getContext to _get_context.
+    context = (getattr(self, '_get_context', None) or self._getContext)()
+    context.setdefault('torznab', feedparser.FeedParserDict())
+    context['torznab'][attrsD.get('name')] = attrsD.get('value')
+
 if parse_version(feedparser.__version__) < parse_version('6.0.0'):
     feedparser._FeedParserMixin._start_newznab_attr = _start_newznab_attr
+    feedparser._FeedParserMixin._start_torznab_attr = _start_torznab_attr
 else:
     feedparser.mixin._FeedParserMixin._start_newznab_attr = _start_newznab_attr
+    feedparser.mixin._FeedParserMixin._start_torznab_attr = _start_torznab_attr
+
+
+def torznab_feed_hosts():
+    """The torznab indexers whose newest releases are read with the RSS check: enabled ones,
+    while torrent searching and torznab are on."""
+    if not (mylar.CONFIG.ENABLE_TORRENT_SEARCH and mylar.CONFIG.ENABLE_TORZNAB):
+        return []
+    return [t for t in (mylar.CONFIG.EXTRA_TORZNABS or [])
+            if str(t[5]) == '1' and t[1] and not helpers.block_provider_check(t[0])]
+
+
+def torznab_feed_request(torznab_host):
+    """(site, url, verify, params) for an indexer's newest releases: a torznab search with no
+    query, in its comic categories."""
+    site = (torznab_host[0] or torznab_host[1]).rstrip()
+    url = torznab_host[1].rstrip().rstrip('/')
+    cat = torznab_host[4]
+    if cat in (None, '', 'None'):
+        cat = '8020'
+    params = {'t': 'search', 'cat': ','.join(str(cat).split('#')), 'apikey': (torznab_host[3] or '').rstrip(), 'limit': '100'}
+    return site, url, bool(int(torznab_host[2] or 0)), params
+
+
+def torznab_entry_size(entry):
+    size = 0
+    try:
+        size = entry.enclosures[0]['length']
+    except Exception:
+        pass
+    if not size or str(size) == '0':
+        size = (entry.get('torznab') or {}).get('size') or size
+    return size
 
 def torrents(pickfeed=None, seriesname=None, issue=None, feedinfo=None):
     if pickfeed is None:
@@ -514,8 +555,10 @@ def nzbs(provider=None, forcerss=False):
                     hasattr(mylar.CONFIG, 'AIRDCPP_ANNOUNCE_HUB') and
                     len(mylar.CONFIG.AIRDCPP_ANNOUNCE_HUB) > 0)
 
-    providercount = len(newznab_hosts) + int(mylar.CONFIG.EXPERIMENTAL is True) + int(dcpp_enabled)
-    logger.fdebug('[RSS] You have enabled ' + str(providercount) + ' NZB RSS search providers.')
+    torznab_hosts = torznab_feed_hosts()
+
+    providercount = len(newznab_hosts) + len(torznab_hosts) + int(mylar.CONFIG.EXPERIMENTAL is True) + int(dcpp_enabled)
+    logger.fdebug('[RSS] You have enabled ' + str(providercount) + ' NZB and Torznab RSS search providers.')
 
     if providercount > 0:
         if mylar.CONFIG.EXPERIMENTAL is True:
@@ -589,13 +632,25 @@ def nzbs(provider=None, forcerss=False):
                 if check == 'disable':
                     helpers.disable_provider(site)
 
+        torznab_sites = set()
+        for torznab_host in torznab_hosts:
+            site, url, verify, params = torznab_feed_request(torznab_host)
+            torznab_sites.add(site)
+            check = _parse_feed(site, url, verify, params)
+            if check == 'disable':
+                helpers.disable_provider(site)
+
         feeddata = []
 
         for ft in feedthis:
             site = ft['site']
             logger.fdebug('[RSS] (' + site + ') now being updated...')
             for entry in ft['feed'].entries:
-                if site == 'experimental':
+                if site in torznab_sites:
+                    titlename = entry.title
+                    size = torznab_entry_size(entry)
+                    link = entry.link
+                elif site == 'experimental':
                     size = entry.enclosures[0]['length']
                     link = entry.enclosures[0]['url']
                     titlename = experimental_cleaner(entry.title_detail['value'])
