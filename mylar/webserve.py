@@ -62,6 +62,7 @@ from mylar import (
     carepackage,
     cvlink,
     discover,
+    want_from,
     config,
     db,
     Failed,
@@ -4904,6 +4905,11 @@ class WebInterface(object):
         self._attention_post()
         return self._attention_json({'ok': attention.stop_refile(), 'note': 'Stopping after the folder being filed now.'})
     attention_refile_stop.exposed = True
+
+    def want_from_set(self, comicid, number=''):
+        self._attention_post()
+        return self._attention_json(want_from.set_from(comicid, number))
+    want_from_set.exposed = True
 
     def match_files(self, comicid):
         return self._attention_json(matching.files(comicid))

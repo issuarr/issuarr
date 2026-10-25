@@ -24,7 +24,7 @@ import sys
 import calendar
 
 import mylar
-from mylar import db, logger, helpers, filechecker, matching, editions
+from mylar import db, logger, helpers, filechecker, matching, editions, want_from
 
 def addvialist(queue):
     while True:
@@ -323,6 +323,7 @@ def dbUpdate(ComicIDList=None, calledfrom=None, sched=False):
                                                     newVAL = {"Status": "Wanted"}
                                                 else:
                                                     newVAL = {"Status":  "Skipped"}
+                                                newVAL['Status'] = want_from.adjust(ComicID, issuenew['Issue_Number'], newVAL['Status'])
 
                                     if newVAL is not None:
                                         if issue['IssueDate_Edit'] is not None:
@@ -395,6 +396,7 @@ def dbUpdate(ComicIDList=None, calledfrom=None, sched=False):
                                 else:
                                     logger.info('setting to Skipped')
                                     newstatus = "Skipped"
+                                newstatus = want_from.adjust(ComicID, iss['Issue_Number'], newstatus)
                         logger.fdebug('[#%s]status is : %s' % (iss['Issue_Number'], newstatus))
 
                         newiss.append({"IssueID":      iss['IssueID'],
