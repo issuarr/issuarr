@@ -1,0 +1,33 @@
+<%inherit file="base.html" />
+<%!
+    import mylar
+%>
+
+<%def name="body()">
+    <input type="hidden" id="page_name" value="duplicates" />
+    <div class="page">
+        <div class="page-head">
+            <div class="head-text">
+                <h1><span class="page-crumb">Tools › </span>Duplicates</h1>
+                <p class="page-sub">Issues with more than one file in your library. The best copy is picked to keep: one that opens, then one with ComicInfo tags, then more pages, then the bigger file. Nothing moves until you say so, and the extra copies go to ${dest | h}.</p>
+            </div>
+            <div class="head-actions">
+                <button type="button" class="btn btn-primary" id="dp-scan">Find duplicates</button>
+                <button type="button" class="btn" id="dp-stop" hidden>Stop</button>
+            </div>
+        </div>
+
+        <section class="section" aria-label="Duplicates">
+            <p class="section-note" id="dp-note" aria-live="polite">Looks through every series folder. Series that share a folder with their trades, annuals and collected editions are left out.</p>
+            <div class="bulk-bar" id="dp-bulk" hidden>
+                <span class="bulk-count" id="dp-count"></span>
+                <button type="button" class="btn btn-sm btn-primary" id="dp-remove">Move the ticked copies</button>
+            </div>
+            <div id="dp-list" class="dp-list"></div>
+        </section>
+    </div>
+</%def>
+
+<%def name="javascriptIncludes()">
+    <script src="js/duplicates.js?v=${mylar.CURRENT_VERSION}"></script>
+</%def>
