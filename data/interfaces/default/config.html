@@ -631,7 +631,7 @@
                     <select id="ignore_words" name="ignore_search_words[]" multiple placeholder="Add a word"></select>
                 </div>
             </div>
-            ${toggle('use_minsize', 'Minimum file size', config['use_minsize'], id='use_minsize')}
+            ${toggle('use_minsize', 'Minimum file size', config['use_minsize'], id='use_minsize', help='Results under 1 MB are always skipped as fakes. Turn this on for a higher floor.')}
             <div class="set-sub">
                 ${field('minsize', 'At least', config['minsize'], attrs='inputmode="numeric" class="set-num"', suffix='<span class="set-unit">MB</span>')}
             </div>
