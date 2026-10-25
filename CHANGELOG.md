@@ -6,6 +6,7 @@ Releases come from the `main` branch and are the `latest` Docker image. Changes 
 
 ## Unreleased (on dev)
 
+- A series' ⋯ menu has "Want from issue…": issues from that number on are Wanted and earlier ones Skipped, also for issues ComicVine adds later. Issues you have, snatched, archived or ignored are left alone. ([`d845252`](https://github.com/issuarr/issuarr/commit/d845252))
 - Wanted can be grouped by series: one line per series with how many issues it's missing, a checkbox for all of them and a button to search them. Shift-click a checkbox to pick every row between it and the last one you clicked. ([`2d7bcf6`](https://github.com/issuarr/issuarr/commit/2d7bcf6))
 - Tools > Library check opens every comic in your library and lists the ones that are damaged, aren't comics, have no pages, or hold another .cbz/.cbr instead of pages. Wrapped files can be unwrapped in place, and damaged ones sent to the trash and downloaded again. ([`a5bfa3e`](https://github.com/issuarr/issuarr/commit/a5bfa3e))
 - Right-click a series in the Library (or long-press it on a phone) for its actions: open, search for missing issues, refresh, recheck files, pause or resume, select and remove. ([`06ebc71`](https://github.com/issuarr/issuarr/commit/06ebc71))
