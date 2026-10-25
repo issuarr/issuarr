@@ -1,3 +1,4 @@
+import contextlib
 import datetime
 import io
 import json
@@ -66,6 +67,24 @@ SAVINGS = ((80, 0.0), (86, 0.25), (92, 0.45), (99, 0.8))
 
 _busy = set()
 _busy_lock = threading.Lock()
+
+
+@contextlib.contextmanager
+def claim(path):
+    """Hold a file so WebP leaves it alone while something else rewrites it. Yields False
+    when it is being converted right now."""
+    with _busy_lock:
+        if path in _busy:
+            mine = False
+        else:
+            _busy.add(path)
+            mine = True
+    try:
+        yield mine
+    finally:
+        if mine:
+            with _busy_lock:
+                _busy.discard(path)
 _queue = queue.Queue()
 _worker = [None]
 _importing = [None]
