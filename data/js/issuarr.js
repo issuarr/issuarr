@@ -14,12 +14,87 @@
     if (text != null) n.textContent = text;
     return n;
   }
-  function toast(message, ok) {
-    if (!$) return;
-    var box = $('#ajaxMsg');
-    box.removeClass().addClass('ajaxMsg ' + (ok === false ? 'error' : 'success'));
-    box.html('<div class="msg"></div>').find('.msg').text(message);
-    box.stop(true, true).fadeIn().delay(3000).fadeOut();
+  // Messages stack in the corner. Errors stay longer, and pointing at a message (or focusing it) holds it
+  // until you move away. ok: false is an error, true or nothing a success, 'info' plain.
+  var TOAST_MS = { ok: 4500, info: 4500, error: 9000 };
+  var TOAST_MAX = 4;
+  function toastStack() {
+    var box = $id('toasts');
+    if (!box) {
+      box = el('div', 'toasts');
+      box.id = 'toasts';
+      box.setAttribute('aria-live', 'polite');
+      doc.body.appendChild(box);
+    }
+    return box;
+  }
+  function dismissToast(t) {
+    if (t.out) return;
+    t.out = true;
+    clearTimeout(t.timer);
+    t.node.classList.add('is-out');
+    setTimeout(function () { if (t.node.parentNode) t.node.parentNode.removeChild(t.node); }, 200);
+  }
+  function holdToast(t, hold) {
+    clearTimeout(t.timer);
+    if (!hold && !t.out) t.timer = setTimeout(function () { dismissToast(t); }, 2500);
+  }
+  var shown = [];
+  function pushToast(content, kind) {
+    kind = kind === false || kind === 'error' ? 'error' : kind === 'info' ? 'info' : 'ok';
+    var text = typeof content === 'string' ? content : content.textContent;
+    text = text.replace(/\s+/g, ' ').trim();
+    if (!text) return;
+    shown = shown.filter(function (t) { return !t.out; });
+    // The same message again (a retry, a spinner added to it) refreshes the one on screen.
+    for (var i = 0; i < shown.length; i++) {
+      if (shown[i].text === text && shown[i].kind === kind) { holdToast(shown[i], true); holdToast(shown[i], false); return; }
+    }
+    var node = el('div', 'toast is-' + kind);
+    node.setAttribute('role', kind === 'error' ? 'alert' : 'status');
+    var msg = el('div', 'toast-msg');
+    if (typeof content === 'string') msg.textContent = content;
+    else msg.appendChild(content);
+    var x = el('button', 'toast-x');
+    x.type = 'button';
+    x.setAttribute('aria-label', 'Dismiss');
+    x.innerHTML = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" aria-hidden="true"><path d="M6 6l12 12M18 6 6 18"/></svg>';
+    node.appendChild(msg);
+    node.appendChild(x);
+    var t = { node: node, text: text, kind: kind, out: false, timer: null };
+    x.addEventListener('click', function () { dismissToast(t); });
+    node.addEventListener('mouseenter', function () { holdToast(t, true); });
+    node.addEventListener('mouseleave', function () { holdToast(t, false); });
+    node.addEventListener('focusin', function () { holdToast(t, true); });
+    node.addEventListener('focusout', function () { holdToast(t, false); });
+    toastStack().appendChild(node);
+    shown.push(t);
+    t.timer = setTimeout(function () { dismissToast(t); }, TOAST_MS[kind]);
+    while (shown.filter(function (s) { return !s.out; }).length > TOAST_MAX) {
+      dismissToast(shown.filter(function (s) { return !s.out; })[0]);
+    }
+  }
+  function toast(message, ok) { pushToast(String(message == null ? '' : message), ok === false ? 'error' : 'ok'); }
+
+  // Older pages still write their messages into #ajaxMsg and fade it in. It stays hidden; whatever is
+  // written there becomes a toast, an error when the page marks it error or failure.
+  function bridgeAjaxMsg() {
+    var box = $id('ajaxMsg');
+    if (!box || !window.MutationObserver) return;
+    var queued = false;
+    new MutationObserver(function () {
+      if (queued) return;
+      queued = true;
+      // The class is set just after the text, so read both once the page's own code has run.
+      setTimeout(function () {
+        queued = false;
+        var copy = el('div');
+        copy.innerHTML = box.innerHTML;
+        copy.querySelectorAll('.ui-icon, .fa, img, script').forEach(function (n) { n.parentNode.removeChild(n); });
+        var cls = ' ' + box.className + ' ';
+        pushToast(copy, /\s(error|failure)\s/.test(cls) ? 'error' : /\ssuccess\s/.test(cls) ? 'ok' : 'info');
+      }, 0);
+    }).observe(box, { childList: true, subtree: true, characterData: true });
   }
   function mark() { return window.issuarrMarkNav ? window.issuarrMarkNav() : null; }
 
@@ -809,6 +884,7 @@
   }
 
   function start() {
+    bridgeAjaxMsg();
     setupSortableTables();
     setupMenus();
     setupTabbedPage();
