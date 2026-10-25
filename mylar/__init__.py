@@ -868,6 +868,7 @@ def dbcheck():
     #create some indexes
     c.execute('CREATE INDEX IF NOT EXISTS issues_id on issues(IssueID)')
     c.execute('CREATE INDEX IF NOT EXISTS comics_id on comics(ComicID)')
+    c.execute('CREATE INDEX IF NOT EXISTS importresults_location on importresults(ComicLocation)')
 
     #might enable these at a later date.
     #c.execute('''PRAGMA synchronous = EXTRA''')
