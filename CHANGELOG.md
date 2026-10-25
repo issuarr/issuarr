@@ -6,6 +6,7 @@ Releases come from the `main` branch and are the `latest` Docker image. Changes 
 
 ## Unreleased (on dev)
 
+- The Import results page loads much faster after a big scan. It used to count each series' files with separate lookups. ([`bbe35918`](https://github.com/issuarr/issuarr/commit/bbe35918))
 - On a series page, Issue details opens a new window with the cover, credits, summary and file name. The arrows (or the left and right keys) step to the previous and next issue without closing it, and clicking an issue's name opens it too. ([`d99df4e5`](https://github.com/issuarr/issuarr/commit/d99df4e5))
 - On a series page, selecting issues or annuals shows a bar with how many are picked and a button for each status (Mark wanted, Skip, Mark archived, Ignore), Write metadata and Clear selection, instead of the old drop-down. The issue list shows 50 issues per page by default instead of 25. ([`58cb0644`](https://github.com/issuarr/issuarr/commit/58cb0644))
 - Marking issues Wanted from the Ledger or a series page now also searches for picked issues that were already Wanted, instead of skipping them. ([`d66cacc`](https://github.com/issuarr/issuarr/commit/d66cacc))
