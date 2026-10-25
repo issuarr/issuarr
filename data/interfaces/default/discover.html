@@ -1,0 +1,43 @@
+<%inherit file="base.html" />
+<%!
+    import mylar
+%>
+
+<%def name="body()">
+    <input type="hidden" id="page_name" value="discover" />
+    <div class="page">
+        <div class="page-head">
+            <div class="head-text">
+                <h1>Discover</h1>
+                <p class="page-sub">New and recent series from the weekly release lists. Add one and Issuarr starts following it.</p>
+            </div>
+            <div class="head-actions">
+                <label class="field">
+                    <span class="sr-only">Look back</span>
+                    <select id="dc-weeks">
+                        %for w in weeks:
+                        <option value="${w}" ${'selected' if w == default_weeks else ''}>Last ${w} weeks</option>
+                        %endfor
+                    </select>
+                </label>
+                <label class="dc-hide"><input type="checkbox" id="dc-hide-owned" /> Hide series I have</label>
+            </div>
+        </div>
+
+        <section class="section" aria-label="Series to discover">
+            <div class="filter-tabs" role="group" aria-label="Feed" id="dc-tabs">
+                <button type="button" data-feed="new" aria-pressed="true">New series<span class="count" data-count="new"></span></button>
+                <button type="button" data-feed="foryou" aria-pressed="false">For you<span class="count" data-count="foryou"></span></button>
+                <button type="button" data-feed="latest" aria-pressed="false">Latest<span class="count" data-count="latest"></span></button>
+            </div>
+            <p class="section-note" id="dc-note"></p>
+            <div id="dc-grid" class="dc-grid" aria-live="polite">
+                <p class="empty-state">Loading the release lists…</p>
+            </div>
+        </section>
+    </div>
+</%def>
+
+<%def name="javascriptIncludes()">
+    <script src="js/discover.js?v=${mylar.CURRENT_VERSION}"></script>
+</%def>

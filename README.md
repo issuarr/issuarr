@@ -37,6 +37,7 @@ New issues of the series you follow arrive the same way, week after week.
 - **Direct download from GetComics.** Issuarr picks the right file even from posts with many links. You can order or switch off download hosts (GetComics' own server, Mega, Mediafire, Pixeldrain and others). Cloudflare is cleared with [FlareSolverr](https://github.com/FlareSolverr/FlareSolverr), and mirror links can be handed to [JDownloader 2](docs/JDOWNLOADER2.md).
 - **Scheduled searches and RSS.** Recent releases are searched actively; older wanted issues are caught as they appear in RSS feeds.
 - **Calendar (weekly pull list).** See every comic released this week, and look weeks ahead or months back. Weeks are numbered the way [TalkHard](https://talkhard.notaninja.party) numbers its pull lists. Upcoming issues of your series are wanted automatically.
+- **Discover.** Browse new #1s and the latest issues from recent weeks' release lists, or just the new series from the publishers you collect most, and add any of them in one click.
 - **Failed download handling:** a failed download is marked Failed and, with auto-retry on, searched for again.
 - **One download queue for every source.** SABnzbd, NZBGet, qBittorrent, Transmission, Deluge, rTorrent, uTorrent, GetComics and JDownloader 2 downloads show in one list with live progress, speed and time left, and direct downloads can be aborted, removed or restarted.
 
