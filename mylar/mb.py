@@ -53,17 +53,21 @@ if platform.python_version() == '2.7.6':
     http.client.HTTPConnection._http_vsn = 10
     http.client.HTTPConnection._http_vsn_str = 'HTTP/1.0'
 
-def pullsearch(comicapi, comicquery, offset, search_type):
+def pullsearch(comicapi, comicquery, offset, search_type, volumeid=None):
 
-    cnt = 1
-    for x in comicquery:
-       if cnt == 1:
-           filterline = '%s' % x
-       else:
-           filterline+= ',name:%s' % x
-       cnt+=1
+    if volumeid is not None:
+        # one series by its ComicVine id (a pasted ComicVine link), answered like a name search
+        filterline = 'id:%s' % volumeid
+    else:
+        cnt = 1
+        for x in comicquery:
+           if cnt == 1:
+               filterline = 'name:%s' % x
+           else:
+               filterline+= ',name:%s' % x
+           cnt+=1
 
-    PULLURL = mylar.CVURL + str(search_type) + 's?api_key=' + str(comicapi) + '&filter=name:' + filterline + '&field_list=id,name,start_year,site_detail_url,count_of_issues,image,publisher,deck,description,first_issue,last_issue&format=xml&sort=date_last_updated:desc&offset=' + str(offset) # 2012/22/02 - CVAPI flipped back to offset instead of page
+    PULLURL = mylar.CVURL + str(search_type) + 's?api_key=' + str(comicapi) + '&filter=' + filterline + '&field_list=id,name,start_year,site_detail_url,count_of_issues,image,publisher,deck,description,first_issue,last_issue&format=xml&sort=date_last_updated:desc&offset=' + str(offset) # 2012/22/02 - CVAPI flipped back to offset instead of page
 
     #all these imports are standard on most modern python implementations
     #logger.info('MB.PULLURL:' + PULLURL)
@@ -93,13 +97,16 @@ def pullsearch(comicapi, comicquery, offset, search_type):
             return
         return dom
 
-def findComic(name, mode, issue, limityear=None, search_type=None, annual_check=False, page=None, pageSize=None):
+def findComic(name, mode, issue, limityear=None, search_type=None, annual_check=False, page=None, pageSize=None, volumeid=None):
+    # volumeid: look up that one ComicVine series instead of searching by name
 
     #with mb_lock:
     comicResults = None
     comicLibrary = listLibrary()
     comiclist = []
     arcinfolist = []
+    if volumeid is not None:
+        name = ''
 
     commons = ['and', 'the', '&', '-']
     for x in commons:
@@ -143,7 +150,7 @@ def findComic(name, mode, issue, limityear=None, search_type=None, annual_check=
         search_type = 'volume'
 
     #let's find out how many results we get from the query...
-    searched = pullsearch(comicapi, comicquery, 0, search_type)
+    searched = pullsearch(comicapi, comicquery, 0, search_type, volumeid=volumeid)
     if searched is None:
         return False
     totalResults = searched.getElementsByTagName('number_of_total_results')[0].firstChild.wholeText
@@ -168,7 +175,7 @@ def findComic(name, mode, issue, limityear=None, search_type=None, annual_check=
         if countResults > 0:
             offsetcount = countResults
 
-            searched = pullsearch(comicapi, comicquery, offsetcount, search_type)
+            searched = pullsearch(comicapi, comicquery, offsetcount, search_type, volumeid=volumeid)
         comicResults = searched.getElementsByTagName(search_type)
         if page is not None and pageSize is not None:
             # Trim here to prevent excess processing of unused results if a page is specified
@@ -396,8 +403,8 @@ def findComic(name, mode, issue, limityear=None, search_type=None, annual_check=
                             else:
                                 xmlpub = "Unknown"
 
-                            #ignore specific publishers on a global scale here.
-                            if ignored_publisher_check(xmlpub):
+                            #ignore specific publishers on a global scale here (not for a series asked for by its link).
+                            if volumeid is None and ignored_publisher_check(xmlpub):
                                 continue
 
                             try:

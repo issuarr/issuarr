@@ -60,6 +60,7 @@ from mylar import (
     archives,
     webp,
     carepackage,
+    cvlink,
     config,
     db,
     Failed,
@@ -1305,15 +1306,15 @@ class WebInterface(object):
                 logger.error('[%s] Unable to perform required pull-list search for : [name: %s][issue: %s][mode:%s]' % (e, name, issue, smode))
                 return
         elif search_type == 'comic' and smode == 'series':
-            if name.startswith('4050-'):
-                mismatch = "no"
-                comicid = re.sub('4050-', '', name)
-                logger.info('Attempting to add directly by ComicVineID: ' + str(comicid) + '. I sure hope you know what you are doing.')
-                self.addbyid(comicid, calledby=False, nothread=False)
-                #threading.Thread(target=importer.addComictoDB, args=[comicid, mismatch, None]).start()
-                #raise cherrypy.HTTPRedirect("comicDetails?ComicID=%s" % comicid)
+            # a pasted ComicVine link (or a bare 4050-/4000- id) shows just its series; an issue link shows the issue's series
+            link = cvlink.resolve(name)
+            if link is not None:
+                logger.info('[SEARCH] Looking up the ComicVine %s link %s [series: %s]' % (link['kind'], name, link['comicid']))
             try:
-                searchresults = mb.findComic(name, smode, issue=None)
+                if link is not None:
+                    searchresults = mb.findComic(name, smode, issue=None, volumeid=link['comicid']) if link['comicid'] else []
+                else:
+                    searchresults = mb.findComic(name, smode, issue=None)
                 searchline = {'findComic': True, 'name': name, 'mode': smode, 'issue': None, 'searchtype': 'comic'}
             except TypeError as e:
                 logger.error('[%s] Unable to perform required search for : [name: %s][mode:%s]' % (e, name, smode))
@@ -4801,8 +4802,13 @@ class WebInterface(object):
     attention_issue_cover.exposed = True
 
     def attention_search(self, q=''):
-        return self._attention_json({'series': attention.search(q)})
+        return self._attention_json(attention.search_link(q) or {'series': attention.search(q)})
     attention_search.exposed = True
+
+    def cv_link(self, q=''):
+        # what a pasted ComicVine link points at: the series, and the issue for an issue link
+        return self._attention_json(cvlink.resolve(q) or {'kind': None})
+    cv_link.exposed = True
 
     def attention_find(self, q=''):
         return self._attention_json(attention.find_series(q))

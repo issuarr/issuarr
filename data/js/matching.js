@@ -79,7 +79,44 @@
   }
 
   function searchBox(placeholder) {
-    return '<input type="search" class="match-search" placeholder="' + esc(placeholder) + '" aria-label="' + esc(placeholder) + '" value="' + esc(state.q || '') + '" />';
+    return '<input type="search" class="match-search" placeholder="' + esc(placeholder) + '" aria-label="' + esc(placeholder) + '" value="' + esc(state.q || '') + '" />' +
+      '<p class="match-meta" data-link-note aria-live="polite" hidden></p>';
+  }
+
+  /* A ComicVine issue link pasted into the search opens that issue's Match a file. */
+  var CV_LINK = /comicvine(\.gamespot)?\.com\/\S*\b(4050|4000)-\d+|^\s*(4050|4000)-\d+\s*$/i;
+  var linkTimer = null;
+
+  function linkNote(text) {
+    var p = body.querySelector('[data-link-note]');
+    if (!p) return;
+    p.hidden = !text;
+    p.textContent = text || '';
+  }
+
+  function followLink(text) {
+    clearTimeout(linkTimer);
+    if (!CV_LINK.test(text)) { linkNote(''); return false; }
+    linkTimer = setTimeout(function () {
+      linkNote('Looking up that ComicVine link…');
+      fetch('cv_link?' + q({ q: text }), { credentials: 'same-origin' })
+        .then(function (r) { if (!r.ok) throw new Error(r.status); return r.json(); })
+        .then(function (d) {
+          if ((state.q || '') !== text) return;   // typed on meanwhile
+          if (!d.comicid) return linkNote(d.kind === 'issue' ? 'Couldn\'t find that issue on ComicVine.' : '');
+          if (String(d.comicid) !== String(state.comicid)) {
+            return linkNote('That link is ' + (d.kind === 'issue' ? 'an issue of ' : '') + 'another series' + (d.series ? ', ' + d.series : '') +
+                            '. If these files belong to it, use Wrong series… in the series menu.');
+          }
+          if (d.kind !== 'issue') return linkNote('That link is this series. Paste an issue link to match a file to that issue.');
+          if (!issueById(d.issueid)) return linkNote('#' + (d.number || '?') + ' isn\'t on this series here yet. Refresh the series to load it from ComicVine.');
+          state.issueid = d.issueid;
+          state.q = '';
+          load();
+        })
+        .catch(function () { linkNote('Couldn\'t look up that link. Check the log.'); });
+    }, 300);
+    return true;
   }
   function applySearch() {
     var words = (state.q || '').toLowerCase().split(/\s+/).filter(Boolean);
@@ -120,7 +157,7 @@
     intro.textContent = data.files.length || data.waiting.length
       ? 'Compare each file\'s cover with the issue\'s cover from ComicVine, then pick the issue it is. A match you make here stays through rechecks until you undo it.'
       : 'There are no comic files in the series folder, and nothing in Needs attention looks like this series.';
-    var html = searchBox('Search by file name, issue number or title');
+    var html = searchBox('Search by file name, issue number or title, or paste a ComicVine issue link');
     if (data.files.length) {
       html += '<section data-section><h3 class="match-h">In the series folder</h3><ul class="match-list">' +
         data.files.map(function (f, n) { return seriesRow(f, n, 'folder'); }).join('') + '</ul></section>';
@@ -162,7 +199,7 @@
     intro.innerHTML = 'Compare each file\'s cover with this issue\'s cover from ComicVine. ' +
       (issue.file ? 'Now ' + esc(issue.file) + (issue.pinned ? ' <span class="match-hand">matched by hand</span>' : '') + '.' : 'No file is matched to it yet.');
     body.innerHTML = '<div class="match-issue">' + issueCover(issue, '#' + issue.number + (issue.name ? ' · ' + issue.name : '')) +
-      '<div class="match-issue-side">' + searchBox('Search files by name or number') +
+      '<div class="match-issue-side">' + searchBox('Search files by name or number, or paste a ComicVine issue link') +
       (issue.pinned ? '<p class="match-undo"><button type="button" class="btn btn-sm" data-undo="' + esc(issue.issueid) + '">Match by file name again</button></p>' : '') +
       '</div></div>' +
       (files.length ? '' : '<p class="faint">There are no comic files in the series folder, and nothing in Needs attention looks like this series.</p>') +
@@ -199,7 +236,11 @@
         });
         var box = body.querySelector('.match-search');
         if (box) {
-          box.addEventListener('input', function () { state.q = box.value; applySearch(); });
+          box.addEventListener('input', function () {
+            state.q = box.value;
+            if (followLink(box.value)) return;
+            applySearch();
+          });
           applySearch();
         }
         busy(false);
@@ -215,6 +256,7 @@
     if (!dlg) return;
     document.querySelectorAll('details.menu[open]').forEach(function (m) { m.open = false; });
     clearTimeout(wrongTimer);
+    clearTimeout(linkTimer);
     state = { comicid: comicid, issueid: issueid || null, q: '' };
     title.textContent = issueid ? 'Match a file' : 'Match files';
     intro.textContent = 'Reading the series folder…';
@@ -237,8 +279,8 @@
     clearTimeout(wrongTimer);
     state = { comicid: comicid, name: name, label: name + (year ? ' (' + year + ')' : ''), wrong: true };
     title.textContent = 'Wrong series';
-    intro.textContent = 'Find the series these files belong to on ComicVine. The files move to it and are matched to its issues.';
-    body.innerHTML = '<form class="match-do" data-wrong-find><input type="search" class="match-search" aria-label="Series name" value="' + esc(name) + '" />' +
+    intro.textContent = 'Find the series these files belong to on ComicVine, or paste its ComicVine link. The files move to it and are matched to its issues.';
+    body.innerHTML = '<form class="match-do" data-wrong-find><input type="search" class="match-search" aria-label="Series name or ComicVine link" placeholder="Series name or ComicVine link" value="' + esc(name) + '" />' +
       '<button type="submit" class="btn btn-sm btn-primary">Search ComicVine</button></form><div data-wrong-out></div>';
     body.querySelector('[data-wrong-find]').addEventListener('submit', function (e) {
       e.preventDefault();
@@ -263,7 +305,10 @@
       .then(function (r) { if (!r.ok) throw new Error(r.status); return r.json(); })
       .then(function (d) {
         if (d.ok === false) { wrongOut('<p class="match-meta">' + esc(d.note) + '</p>'); return; }
-        if (!d.series.length) { wrongOut('<p class="match-meta">ComicVine has nothing called ' + esc(text) + '. Try fewer words.</p>'); return; }
+        if (!d.series.length) {
+          wrongOut('<p class="match-meta">' + (d.link ? 'ComicVine has no series at that link.' : 'ComicVine has nothing called ' + esc(text) + '. Try fewer words.') + '</p>');
+          return;
+        }
         var out = wrongOut('<ul class="match-list">' + d.series.map(function (s) {
           var same = String(s.comicid) === String(state.comicid);
           var meta = [s.publisher, s.issues != null ? s.issues + ' issues' : '', s.type, same ? 'this series' : s.watched ? 'on your watchlist' : '']
