@@ -401,7 +401,7 @@
       b.title = title;
     }
     function poll() {
-      if (doc.hidden) return;
+      if (doc.hidden || offline.down) return;
       fetch('pp_activity', { credentials: 'same-origin', headers: { 'Accept': 'application/json' } })
         .then(function (r) { if (!r.ok) throw new Error(r.status); return r.json(); })
         .then(function (d) {
@@ -425,8 +425,13 @@
           }
           refreshIdle();
         })
-        .catch(function () { if (timer) { clearInterval(timer); timer = null; } });
+        .catch(function (err) {
+          // The server not answering at all is a lost connection; keep polling once it's back.
+          if (err instanceof TypeError || /^50[234]$/.test(err.message)) { offline.lost(); return; }
+          if (timer) { clearInterval(timer); timer = null; }
+        });
     }
+    offline.onBack = poll;
     poll();
     timer = setInterval(poll, 20000);
     doc.addEventListener('visibilitychange', function () { if (!doc.hidden && timer) poll(); });
@@ -440,6 +445,51 @@
       new MutationObserver(refreshIdle).observe(importRow, { attributes: true, attributeFilter: ['style'] });
     }
   }
+
+  /* ---------- Lost connection ---------- */
+
+  // When Issuarr stops answering (restarting, updating, the container stopped), a notice says so instead of
+  // the page quietly going stale. It checks again every few seconds and goes away by itself once Issuarr is back.
+  var offline = {
+    down: false, onBack: null, timer: null, fails: 0, bar: null,
+    lost: function () {
+      if (offline.timer) return;
+      offline.fails = 0;
+      offline.check();
+    },
+    check: function () {
+      offline.timer = setTimeout(function () {
+        fetch('pp_activity', { credentials: 'same-origin', cache: 'no-store', headers: { 'Accept': 'application/json' } })
+          .then(function (r) { if (!r.ok && /^50[234]$/.test(String(r.status))) throw new Error(r.status); offline.back(); })
+          .catch(function () {
+            offline.fails += 1;
+            // One missed answer can be a blip; say something from the second one on.
+            if (offline.fails >= 2) offline.show();
+            offline.check();
+          });
+      }, offline.fails ? 5000 : 2000);
+    },
+    show: function () {
+      if (offline.down) return;
+      offline.down = true;
+      var bar = offline.bar;
+      if (!bar) {
+        bar = offline.bar = el('div', 'offline-bar');
+        bar.setAttribute('role', 'status');
+        bar.innerHTML = '<span class="offline-dot" aria-hidden="true"></span><span>Issuarr isn\'t answering. Trying again every few seconds…</span>';
+        doc.body.appendChild(bar);
+      }
+      bar.hidden = false;
+    },
+    back: function () {
+      offline.timer = null;
+      var was = offline.down;
+      offline.down = false;
+      if (offline.bar) offline.bar.hidden = true;
+      if (was) toast('Connected to Issuarr again. Reload the page if anything looks out of date.');
+      if (offline.onBack) offline.onBack();
+    }
+  };
 
   /* ---------- Ctrl K jump menu ---------- */
 
