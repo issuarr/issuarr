@@ -207,18 +207,6 @@ def stop_tagging():
     TAGGING['stop'] = True
 
 
-def _to_cbz(myDB, path):
-    """Make a .cbr a .cbz so it can hold tags, as Tag issues does. Returns the .cbz, or None."""
-    from mylar import webp
-    res = webp.to_cbz(path)
-    if res['status'] != 'converted':
-        logger.warn('[LIBRARY-CHECK] %s was left as a .cbr and not tagged: %s' % (os.path.basename(path), res['reason']))
-        return None
-    myDB.action('DELETE FROM library_check WHERE path=?', [res['target']])
-    myDB.action('UPDATE library_check SET path=? WHERE path=?', [res['target'], path])
-    return res['target']
-
-
 def _tag():
     from mylar import webp
     try:
@@ -236,12 +224,12 @@ def _tag():
                     continue    # changed since the check; the next check looks again
             except OSError:
                 continue
-            with webp.claim(path) as mine:
-                if not mine:
-                    continue    # being converted right now; WebP adds the tags itself
-                if not path.lower().endswith('.cbz'):
-                    path = _to_cbz(myDB, path)
-                ok = path is not None and quicktag.fill(path, myDB)
+            new = quicktag.fill(path, myDB, force=True)   # a .cbr comes back as its new .cbz
+            ok = new is not None
+            if ok and new != path:
+                myDB.action('DELETE FROM library_check WHERE path=?', [new])
+                myDB.action('UPDATE library_check SET path=? WHERE path=?', [new, path])
+                path = new
             if ok:
                 size, mtime = _stat(path)
                 myDB.action('UPDATE library_check SET size=?, mtime=?, tagged=1 WHERE path=?', [size, mtime, path])

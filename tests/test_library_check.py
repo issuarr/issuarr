@@ -128,39 +128,42 @@ def run_tagging():
         time.sleep(0.05)
 
 
-def test_scan_counts_untagged_issue_files_and_tagging_fills_them(lib, monkeypatch):
-    from mylar import comicinfo, quicktag, webp
+@pytest.fixture
+def stored(monkeypatch):
+    """Tag from a stand-in issue row; quicktag's own tests cover what the row turns into."""
+    from mylar import quicktag, webp
+    monkeypatch.setattr(quicktag, 'issue_for_path', lambda path, myDB=None: {'ComicName': 'Saga', 'Issue_Number': '1'})
+    monkeypatch.setattr(quicktag, 'build', lambda row: b'<ComicInfo><Series>Saga</Series></ComicInfo>')
+    monkeypatch.setattr(webp, '_update_size', lambda path, size: None)
+    monkeypatch.setattr(webp, '_relocate', lambda old, new: None)
+    return quicktag
+
+
+def test_scan_counts_untagged_issue_files_and_tagging_fills_them(lib, stored):
     db, folder, _ = lib
     (folder / 'Saga 005.cbz').write_bytes(cbz_bytes(20, {'ComicInfo.xml': '<ComicInfo/>'}))
-    (folder / 'Saga 006.cbz').write_bytes(cbz_bytes(20))      # no issue linked: can't be tagged
+    (folder / 'Saga 006.cbz').write_bytes(cbz_bytes(20))      # no issue linked: not counted
     db.c.execute("INSERT INTO issues VALUES ('i5', '1', '5', 'Saga 005.cbz', 'Downloaded')")
     run_scan()
     st = library_check.status()
     assert (st['untagged'], st['untagged_series']) == (1, 1)    # Saga 001; 002-004 aren't ok
-    written = []
-
-    def fill(path, myDB=None):
-        written.append(path)
-        return comicinfo.write(path, b'<ComicInfo><Series>Saga</Series></ComicInfo>')
-    monkeypatch.setattr(quicktag, 'fill', fill)
-    monkeypatch.setattr(webp, '_update_size', lambda path, size: None)
     run_tagging()
-    assert written == [str(folder / 'Saga 001.cbz')]
-    assert quicktag.tagged(str(folder / 'Saga 001.cbz'))
+    assert stored.tagged(str(folder / 'Saga 001.cbz'))
+    assert not stored.tagged(str(folder / 'Saga 006.cbz'))
     st = library_check.status()
     assert st['untagged'] == 0 and st['tagging']['tagged'] == 1
     run_scan()
     assert library_check.STATE['opened'] == 0     # the tagged file's new size and time were kept
 
 
-def test_tagging_skips_a_file_webp_is_converting(lib, monkeypatch):
-    from mylar import quicktag, webp
+def test_tagging_skips_a_file_webp_is_converting(lib, stored):
+    from mylar import webp
     db, folder, _ = lib
     run_scan()
-    monkeypatch.setattr(quicktag, 'fill', lambda path, myDB=None: pytest.fail('tagged a busy file'))
     with webp.claim(str(folder / 'Saga 001.cbz')) as mine:
         assert mine
         run_tagging()
+    assert not stored.tagged(str(folder / 'Saga 001.cbz'))
     assert library_check.status()['untagged'] == 1
 
 
@@ -173,15 +176,11 @@ def test_older_checks_learn_which_files_are_tagged(lib):
     assert library_check.status()['untagged'] == 1
 
 
-def test_tagging_makes_a_cbr_a_cbz_first(lib, monkeypatch):
-    from mylar import comicinfo, quicktag, webp
+def test_tagging_makes_a_cbr_a_cbz_first(lib, stored):
     db, folder, _ = lib
     (folder / 'Saga 007.cbr').write_bytes(cbz_bytes(20))       # a zip named .cbr
     db.c.execute("INSERT INTO issues VALUES ('i7', '1', '7', 'Saga 007.cbr', 'Downloaded')")
     run_scan()
-    monkeypatch.setattr(webp, '_relocate', lambda old, new: None)
-    monkeypatch.setattr(webp, '_update_size', lambda path, size: None)
-    monkeypatch.setattr(quicktag, 'fill', lambda path, myDB=None: comicinfo.write(path, b'<ComicInfo/>'))
     run_tagging()
-    assert not (folder / 'Saga 007.cbr').exists() and quicktag.tagged(str(folder / 'Saga 007.cbz'))
+    assert not (folder / 'Saga 007.cbr').exists() and stored.tagged(str(folder / 'Saga 007.cbz'))
     assert db.select("SELECT tagged FROM library_check WHERE path=?", [str(folder / 'Saga 007.cbz')])[0]['tagged'] == 1
