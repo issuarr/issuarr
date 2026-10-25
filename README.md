@@ -48,6 +48,7 @@ New issues of the series you follow arrive the same way, week after week.
 - **Tools > Library check** reads through every comic in the library and lists damaged files, files that aren't comics, and files that wrap another .cbz or .cbr. Unwrap them in place, or send a damaged one to the trash and search for the issue again.
 - Issues nothing on your watchlist wants are moved to a review folder or deleted, your choice. Issuarr can also add their series automatically.
 - Never silently replaces an issue you own: upgrades follow your duplicate rules.
+- **Tools > Duplicates** finds issues with more than one file in the library and moves the extra copies out, keeping the copy that opens, has tags, has more pages or is bigger. You see the list first.
 - Manual post-processing for a folder of files you drop in yourself.
 
 ### Metadata
