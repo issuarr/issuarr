@@ -14,6 +14,15 @@ import requests
 import mylar
 from mylar import db, logger
 
+# Issuarr puts this comment on every link it sends JD2. Downloads the user adds to JD2 with the
+# same comment (on the package or its links) are filed by Issuarr too.
+COMMENT = 'issuarr'
+
+
+def tagged(comment):
+    """Whether a JD2 package or link comment marks it for Issuarr."""
+    return str(comment or '').strip().lower() == COMMENT
+
 
 def local_folder():
     """JD2's download folder as Issuarr sees it. The two programs can see the same folder under
@@ -83,7 +92,7 @@ class JDownloader2(object):
             'assignJobID': True,
             'autostart': True,
             'packageName': package_name,
-           
+            'comment': COMMENT,
         }
         if self.destination_folder:
             query['destinationFolder'] = self.destination_folder
@@ -304,6 +313,32 @@ class JDownloader2(object):
         except Exception as err:
             logger.warn('[JD2] Unable to look up the folder of job %s: %s', job_id, err)
         return None
+
+    def tagged_packages(self) -> List[Dict[str, Any]]:
+        """The packages in JD2's download list marked for Issuarr: the package or one of its links
+        has the comment. Each is {'uuid', 'name', 'saveTo', 'links'}, with all of the package's links."""
+        r = self.session.get(self._url('downloadsV2/queryPackages'),
+                             params={'queryParams': json.dumps({'uuid': True, 'name': True, 'saveTo': True, 'comment': True,
+                                                                'maxResults': -1, 'startAt': 0})},
+                             timeout=self.timeout)
+        r.raise_for_status()
+        packages = {p.get('uuid'): p for p in (r.json() or {}).get('data') or [] if isinstance(p, dict) and p.get('uuid')}
+        links = self._links('downloadsV2/queryLinks', {'comment': True, 'enabled': True})
+        by_package = {}
+        for l in links:
+            by_package.setdefault(l.get('packageUUID'), []).append(l)
+        out = []
+        for uuid, p in packages.items():
+            package_links = by_package.get(uuid) or []
+            if tagged(p.get('comment')) or any(tagged(l.get('comment')) for l in package_links):
+                out.append({'uuid': uuid, 'name': p.get('name'), 'saveTo': p.get('saveTo'), 'links': package_links})
+        return out
+
+    def remove_packages(self, packages: List[Any]) -> None:
+        """Take packages off JD2's download list. Their files stay where they are."""
+        if packages:
+            self.session.get(self._url('downloadsV2/removeLinks'), params={'linkIds': '[]', 'packageIds': json.dumps(list(packages))},
+                             timeout=self.timeout)
 
     def remove(self, job_id: str, record_id: Optional[str] = None) -> None:
         if not job_id and not record_id:

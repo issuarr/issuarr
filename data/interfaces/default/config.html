@@ -368,7 +368,7 @@
         </section>
 
         <section class="set-group" aria-labelledby="sg-jd2">
-            <div class="set-group-head"><h2 id="sg-jd2">JDownloader 2</h2><p>Used for direct downloads. When it's on, the mirror links in GetComics posts go to JDownloader 2, including hosts Issuarr can't download from itself, such as TeraBox. Issuarr still downloads from GetComics' own server.</p></div>
+            <div class="set-group-head"><h2 id="sg-jd2">JDownloader 2</h2><p>Used for direct downloads. When it's on, the mirror links in GetComics posts go to JDownloader 2, including hosts Issuarr can't download from itself, such as TeraBox. Issuarr still downloads from GetComics' own server. Everything Issuarr sends gets the comment <code>issuarr</code>, and downloads you add to JDownloader 2 yourself with that comment are filed too.</p></div>
             ${toggle('jd2_enable', 'Send mirror links to JDownloader 2', config['jd2_enable'], id='jd2_enable')}
             <div class="set-sub" id="jd2_options" style="display:none">
                 ${field('jd2_url', 'JDownloader 2 address', config['jd2_url'], id='jd2_url', placeholder='http://127.0.0.1:3128')}
