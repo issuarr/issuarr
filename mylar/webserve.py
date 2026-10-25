@@ -77,6 +77,7 @@ from mylar import (
     librarysync,
     logger,
     matching,
+    volume_check,
     mb,
     moveit,
     notifiers,
@@ -4890,6 +4891,14 @@ class WebInterface(object):
         return self._attention_json(matching.move_to(comicid, newid))
     match_move.exposed = True
 
+    def match_suspects(self, comicid):
+        return self._attention_json(volume_check.check(comicid))
+    match_suspects.exposed = True
+
+    def match_send_away(self, comicid, name):
+        self._attention_post()
+        return self._attention_json(volume_check.send_away(comicid, name))
+    match_send_away.exposed = True
     def match_wrong_series(self, comicid, newid, name=None, year=None, move=None, remove=None):
         self._attention_post()
         return self._attention_json(matching.wrong_series(comicid, newid, name, year, move=move == '1', remove=remove == '1'))
