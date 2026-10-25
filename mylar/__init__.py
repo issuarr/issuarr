@@ -513,6 +513,12 @@ def start():
             SCHED.add_job(func=webp.gradual_tick, id='webp', name='WebP Gradual', max_instances=1, coalesce=True,
                           trigger=IntervalTrigger(hours=0, minutes=webp.GRADUAL_TICK, timezone='UTC'))
 
+            # Untagged issue files get tags from the stored issue info while tagging is on (does nothing otherwise)
+            from mylar import autotag
+            SCHED.add_job(func=autotag.tick, id='autotag', name='Auto-Tag', max_instances=1, coalesce=True,
+                          next_run_time=datetime.datetime.utcnow() + datetime.timedelta(minutes=10),
+                          trigger=IntervalTrigger(hours=0, minutes=autotag.TICK, timezone='UTC'))
+
             # Snatched issues whose download was lost or removed, or whose files were moved into the library by hand
             from mylar import downloadqueue
             SCHED.add_job(func=downloadqueue.clear_stuck_tick, id='snatched', name='Stuck Snatched', max_instances=1, coalesce=True,
