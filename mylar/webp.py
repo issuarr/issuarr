@@ -633,9 +633,32 @@ def _relocate(old, new):
         logger.warn('[WEBP] Renamed %s to .cbz but could not update the database: %s' % (os.path.basename(old), e))
 
 
-def to_cbz(path):
+def rar_tool():
+    """Whether unrar (or unar or bsdtar) is there to read .cbr files with."""
+    try:
+        from lib.rarfile import rarfile
+        rarfile.tool_setup()
+        return True
+    except Exception:
+        return False
+
+
+def _bad_rar(e):
+    # The RAR itself can't be read, as opposed to a missing tool, a full disk or a locked file.
+    try:
+        from lib.rarfile import rarfile
+    except Exception:
+        return False
+    return isinstance(e, (rarfile.BadRarFile, rarfile.NotRarFile, rarfile.RarCRCError, rarfile.RarFatalError,
+                          rarfile.RarOpenError, EOFError)) and not isinstance(e, rarfile.RarCannotExec)
+
+
+def to_cbz(path, backup_dir=None, backup_root=None):
+    """Turn a .cbr into a .cbz with the same entries: a RAR is repacked (and checked entry for entry
+    before the .cbr is removed), a zip that was only named .cbr is renamed. With backup_dir, a
+    repacked .cbr is copied there first. The issue's Location is moved to the new name."""
     target = os.path.splitext(path)[0] + '.cbz'
-    res = {'path': path, 'target': target, 'status': 'failed', 'reason': '', 'repacked': False}
+    res = {'path': path, 'target': target, 'status': 'failed', 'reason': '', 'repacked': False, 'backup': None}
     try:
         st = os.stat(path)
     except OSError as e:
@@ -647,7 +670,7 @@ def to_cbz(path):
         if not zipfile.is_zipfile(path):
             from lib.rarfile import rarfile
             if not rarfile.is_rarfile(path):
-                return dict(res, status='skipped', reason='not a rar or zip archive')
+                return dict(res, reason='not a rar or zip archive', damaged=True)
             if shutil.disk_usage(os.path.dirname(path)).free < st.st_size * 1.2:
                 return dict(res, reason='not enough free space')
             problem = _repack_rar(path, tmp)
@@ -660,6 +683,13 @@ def to_cbz(path):
                 return dict(res, reason='file changed while repacking')
             if os.path.exists(target):
                 return dict(res, status='skipped', reason='%s already exists' % os.path.basename(target))
+            if res['repacked'] and backup_dir:
+                keep = _backup_target(path, backup_dir, backup_root)
+                os.makedirs(os.path.dirname(keep), exist_ok=True)
+                shutil.copy2(path, keep)
+                if os.path.getsize(keep) != st.st_size:
+                    return dict(res, reason='backup copy is incomplete')
+                res['backup'] = keep
             if res['repacked']:
                 shutil.copymode(path, tmp)
                 try:
@@ -673,7 +703,7 @@ def to_cbz(path):
             _relocate(path, target)
         return dict(res, status='converted')
     except Exception as e:
-        return dict(res, reason='%s: %s' % (type(e).__name__, e))
+        return dict(res, reason='%s: %s' % (type(e).__name__, e), damaged=_bad_rar(e))
     finally:
         if os.path.exists(tmp):
             try:
@@ -719,21 +749,40 @@ def _drain():
             _importing[0] = None
 
 
+def _from_cbr(path, label, source, backup_dir=None, backup_root=None):
+    """Make a .cbr a .cbz before converting it. Returns the .cbz, or None with a result to remember."""
+    rp = to_cbz(path, backup_dir, backup_root)
+    _journal(dict(rp, source=source + '-cbz'))
+    if rp['status'] != 'converted':
+        logger.warn('[WEBP]%s %s was left as a .cbr: %s' % (label, os.path.basename(path), rp['reason']))
+        size = os.path.getsize(path) if os.path.exists(path) else 0
+        return None, dict(rp, before=size, after=size)
+    logger.info('[WEBP]%s %s %s to %s before converting%s.' % (
+        label, 'Repacked' if rp['repacked'] else 'Renamed', os.path.basename(path), os.path.basename(rp['target']),
+        ', original kept in %s' % rp['backup'] if rp['backup'] else ''))
+    return rp, None
+
+
+def convert_any(path, label, source, quality=None, min_source_q=None, backup_dir=None, backup_root=None, threads=None, pool=None):
+    """convert() for a .cbz or a .cbr (made a .cbz first, which stays even when WebP saves nothing)."""
+    if path.lower().endswith('.cbr'):
+        rp, failed = _from_cbr(path, label, source, backup_dir, backup_root)
+        if rp is None:
+            return failed
+        path = rp['target']
+        if rp['backup']:
+            backup_dir = None   # the .cbr is the original that was kept
+    return convert(path, quality=quality, min_source_q=min_source_q, backup_dir=backup_dir, backup_root=backup_root,
+                   threads=threads, pool=pool)
+
+
 def _process(path):
     if not available():
         logger.warn('[WEBP] This install of Pillow cannot write WebP - leaving %s as it is.' % os.path.basename(path))
         return None
-    if path.lower().endswith('.cbr'):
-        rp = to_cbz(path)
-        if rp['status'] != 'converted':
-            logger.warn('[WEBP][IMPORT] %s was left as a .cbr: %s' % (os.path.basename(path), rp['reason']))
-            _journal(dict(rp, source='import-cbz'))
-            return rp
-        logger.info('[WEBP][IMPORT] %s %s to %s before converting.' % (
-            'Repacked' if rp['repacked'] else 'Renamed', os.path.basename(path), os.path.basename(rp['target'])))
-        _journal(dict(rp, source='import-cbz'))
-        path = rp['target']
-    res = convert(path)
+    res = convert_any(path, '[IMPORT]', 'import')
+    if 'target' in res:   # left as a .cbr
+        return res
     _log(res, '[IMPORT]')
     if res['status'] != 'skipped':
         _journal(dict(res, source='import'))
@@ -877,7 +926,8 @@ def start_preview(opts):
 
 
 def select(root, since, unknown=False, limit=0, stop=None, progress=None):
-    """The .cbz files under root worth converting, largest first. Files a run already handled
+    """The .cbz and .cbr files under root worth converting, largest first. A .cbr is made a .cbz
+    when it's converted; while no RAR tool is installed, .cbr files are counted as other files. Files a run already handled
     (and that haven't changed since) aren't opened again, so each run moves on through the
     library. Only stat()s the whole tree; dates and pages are read from the largest down until
     limit files are found."""
@@ -885,6 +935,7 @@ def select(root, since, unknown=False, limit=0, stop=None, progress=None):
            'remembered': 0, 'stopped': False}
     stop = stop or (lambda: False)
     known = remembered()
+    rar = rar_tool()
     pool = []
     for folder, dirs, names in os.walk(root):
         dirs[:] = sorted(d for d in dirs if not d.startswith('.'))
@@ -892,7 +943,7 @@ def select(root, since, unknown=False, limit=0, stop=None, progress=None):
             if stop():
                 out['stopped'] = True
                 return out
-            if not name.lower().endswith('.cbz'):
+            if not name.lower().endswith(('.cbz', '.cbr') if rar else '.cbz'):
                 if name.lower().endswith(('.cbr', '.cb7', '.pdf')):
                     out['other'] += 1
                 continue
@@ -1025,12 +1076,13 @@ def _one(path, opts):
         BULK.setdefault('active', []).append(path)
         BULK['current'] = ', '.join(os.path.basename(p) for p in BULK['active'])
     try:
-        res = convert(path, quality=opts['quality'], min_source_q=opts['min_q'], threads=opts['threads'],
-                      backup_dir=opts['backup_dir'] or None, backup_root=opts['root'], pool=opts.get('pool'))
+        res = convert_any(path, '[BULK]', 'bulk', quality=opts['quality'], min_source_q=opts['min_q'], threads=opts['threads'],
+                          backup_dir=opts['backup_dir'] or None, backup_root=opts['root'], pool=opts.get('pool'))
     except Exception as e:
         res = {'path': path, 'status': 'failed', 'reason': str(e), 'before': 0, 'after': 0}
-    _log(res, '[BULK]')
-    if res['status'] != 'skipped':
+    if 'target' not in res:   # a .cbr left as it is was logged and journalled already
+        _log(res, '[BULK]')
+    if res['status'] != 'skipped' and 'target' not in res:
         _journal(dict(res, source='bulk'))
     if remember(res) == 'damaged':
         res['status'] = 'damaged'
@@ -1273,12 +1325,13 @@ def _gradual_night(myDB, row, opts, cfg, clock, busy):
             active.append(path)
             _set_current(active)
         try:
-            res = convert(path, quality=run['quality'], min_source_q=run['min_q'], threads=run['threads'],
-                          backup_dir=run['backup_dir'] or None, backup_root=run['root'], pool=run['pool'])
+            res = convert_any(path, '[GRADUAL]', 'gradual', quality=run['quality'], min_source_q=run['min_q'], threads=run['threads'],
+                              backup_dir=run['backup_dir'] or None, backup_root=run['root'], pool=run['pool'])
         except Exception as e:
             res = {'path': path, 'status': 'failed', 'reason': str(e), 'before': 0, 'after': 0}
-        _log(res, '[GRADUAL]')
-        if res['status'] != 'skipped':
+        if 'target' not in res:   # a .cbr left as it is was logged and journalled already
+            _log(res, '[GRADUAL]')
+        if res['status'] != 'skipped' and 'target' not in res:
             _journal(dict(res, source='gradual'))
         status = remember(res)
         with lock:
