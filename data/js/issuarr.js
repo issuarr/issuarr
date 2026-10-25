@@ -765,7 +765,17 @@
     setupJump();
     setupAddSeries();
     setupAppearance();
+    setupSecrets();
     window.addEventListener('hashchange', mark);
+  }
+
+  // input.secret boxes are masked by CSS. A browser that can't draw them as dots gets a
+  // real password box instead, so the value stays hidden (it may then offer to save it).
+  function setupSecrets() {
+    var ok = window.CSS && CSS.supports && CSS.supports('-webkit-text-security', 'disc');
+    if (ok) return;
+    var boxes = doc.querySelectorAll('input.secret');
+    for (var i = 0; i < boxes.length; i++) boxes[i].type = 'password';
   }
 
   if ($) $(start);
