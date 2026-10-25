@@ -164,3 +164,24 @@
     });
   });
 })();
+
+/* Want from issue…: issues from #N on are Wanted, earlier ones Skipped; a blank number goes back to the usual rules. */
+(function () {
+  var btn = document.getElementById('want-from-btn');
+  if (!btn) return;
+  btn.addEventListener('click', function () {
+    var current = btn.getAttribute('data-current');
+    var answer = prompt('Want issues from which number on? Earlier issues you don\'t have are set to Skipped.' +
+                        (current ? ' Leave it blank to go back to your usual settings.' : ''), current || btn.getAttribute('data-latest') || '');
+    if (answer === null) return;
+    fetch('want_from_set', { method: 'POST', credentials: 'same-origin',
+                             headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+                             body: new URLSearchParams({ comicid: btn.getAttribute('data-comicid'), number: answer }).toString() })
+      .then(function (r) { if (!r.ok) throw new Error(r.status); return r.json(); })
+      .then(function (d) {
+        Issuarr.toast(d.note, !!d.ok);
+        if (d.ok) setTimeout(function () { location.reload(); }, 1200);
+      })
+      .catch(function () { Issuarr.toast('That didn\'t work. Check the log.', false); });
+  });
+})();
