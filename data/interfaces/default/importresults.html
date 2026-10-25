@@ -190,6 +190,15 @@
             });
         }
         function failed() { Issuarr.toast('That didn\'t work. Check the log.', false); }
+        // Links can open a tab: importResults#needs-a-choice (from the sidebar count and Tasks > Jobs)
+        var HASH = {'#not-imported': 'Not Imported', '#needs-a-choice': 'Manual Intervention', '#no-results': 'No Results', '#imported': 'Imported'};
+        function fromHash() {
+            if (HASH[location.hash] && document.querySelector('#imp-tabs [data-status="' + HASH[location.hash] + '"]')) { status = HASH[location.hash]; applyTab(); }
+        }
+        fromHash();
+        window.addEventListener('hashchange', fromHash);
+        // the same link clicked again changes no hash
+        document.addEventListener('click', function (e) { if (e.target.closest('a[href^="importResults#"]')) setTimeout(fromHash, 0); });
 
         document.addEventListener('click', function (e) {
             var t = e.target;
