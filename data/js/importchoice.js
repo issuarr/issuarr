@@ -36,13 +36,14 @@
     var nums = s.files.map(function (f) { return f.number; }).filter(function (x) { return x != null && x !== ''; });
     var range = nums.length ? ' · #' + esc(num(nums[0])) + (nums.length > 1 ? '–#' + esc(num(nums[nums.length - 1])) : '') : '';
     return '<div class="choose-files">' +
-      '<div class="match-covers" data-file-cover>' + fileCover(s.files[0]) + '</div>' +
+      '<div class="match-covers" data-file-cover>' + fileCover(s.files.filter(function (f) { return !f.missing; })[0]) + '</div>' +
       '<div class="match-file">' +
         '<p class="choose-name">' + esc(s.name) + (s.year ? ' <span class="muted">(' + esc(s.year) + ')</span>' : '') +
           (s.volume ? ' <span class="muted mono">' + esc(s.volume) + '</span>' : '') + '</p>' +
         '<p class="match-meta">' + n + (n === 1 ? ' file' : ' files') + range + '. Click a file to see its cover.</p>' +
         '<ul class="choose-filelist">' + s.files.map(function (f, i) {
-          return '<li><button type="button" class="link-btn mono' + (i === 0 ? ' is-current' : '') + '" data-file="' + i + '">' + esc(f.name) + '</button></li>';
+          if (f.missing) return '<li class="mono faint" title="Not on disk any more">' + esc(f.name) + ' (missing)</li>';
+          return '<li><button type="button" class="link-btn mono" data-file="' + i + '">' + esc(f.name) + '</button></li>';
         }).join('') + '</ul>' +
       '</div></div>';
   }
@@ -187,6 +188,7 @@
       if (!im.matches || !im.matches('[data-choose-img]')) return;
       var tries = +(im.getAttribute('data-tries') || 0);
       var src = im.getAttribute('data-src') || im.getAttribute('src');
+      im.style.visibility = 'hidden';   // not its alt text while it retries
       if (tries < 3 && src.indexOf('import_cover?') === 0) {
         im.setAttribute('data-src', src);
         im.setAttribute('data-tries', tries + 1);
@@ -194,6 +196,9 @@
         return;
       }
       im.parentNode.innerHTML = '<span class="match-nocover">No cover</span>';
+    }, true);
+    dlg.addEventListener('load', function (e) {
+      if (e.target.matches && e.target.matches('[data-choose-img]')) e.target.style.visibility = '';
     }, true);
   }
   if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', init); else init();
