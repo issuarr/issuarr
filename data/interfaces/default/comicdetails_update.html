@@ -332,11 +332,11 @@
                     <label class="set-label" for="ss-continuing"><b>Always treat as continuing</b><span>Keep checking for new issues even when ComicVine says the series has ended.</span></label>
                     <input type="checkbox" class="switch" name="force_continuing" id="ss-continuing" value="1" ${comicConfig['force_continuing']} />
                 </div>
-                %if all([mylar.CONFIG.ENABLE_32P is True, mylar.CONFIG.ENABLE_TORRENT_SEARCH is True, mylar.CONFIG.MODE_32P == 1]):
                 <div class="set-row set-tog">
-                    <label class="set-label" for="ss-packs"><b>Allow pack downloads</b><span>Several issues in one file. Single issues are still searched first.</span></label>
+                    <label class="set-label" for="ss-packs"><b>Allow pack downloads</b><span>Let search grab a GetComics post that holds several issues of this series in one download. Turn off to grab issues one at a time.</span></label>
                     <input type="checkbox" class="switch" name="allow_packs" id="ss-packs" value="1" ${comicConfig['allow_packs']} />
                 </div>
+                %if all([mylar.CONFIG.ENABLE_32P is True, mylar.CONFIG.ENABLE_TORRENT_SEARCH is True, mylar.CONFIG.MODE_32P == 1]):
                 <div class="set-row">
                     <label class="set-label" for="ss-32p"><b>32P series ID</b></label>
                     <div class="set-ctl"><input type="text" name="torrentid_32p" id="ss-32p" value="${_blank(comicConfig['torrentid_32p']) | h}" /></div>
