@@ -810,7 +810,8 @@ def _from_cbr(path, label, source, backup_dir=None, backup_root=None):
 
 
 def convert_any(path, label, source, quality=None, min_source_q=None, backup_dir=None, backup_root=None, threads=None, pool=None):
-    """convert() for a .cbz or a .cbr (made a .cbz first, which stays even when WebP saves nothing)."""
+    """convert() for a .cbz or a .cbr (made a .cbz first, which stays even when WebP saves nothing).
+    A file with no ComicInfo.xml then gets one from the stored issue info, when tagging is on."""
     if path.lower().endswith('.cbr'):
         rp, failed = _from_cbr(path, label, source, backup_dir, backup_root)
         if rp is None:
@@ -818,8 +819,21 @@ def convert_any(path, label, source, quality=None, min_source_q=None, backup_dir
         path = rp['target']
         if rp['backup']:
             backup_dir = None   # the .cbr is the original that was kept
-    return convert(path, quality=quality, min_source_q=min_source_q, backup_dir=backup_dir, backup_root=backup_root,
-                   threads=threads, pool=pool)
+    res = convert(path, quality=quality, min_source_q=min_source_q, backup_dir=backup_dir, backup_root=backup_root,
+                  threads=threads, pool=pool)
+    if res['status'] != 'failed' and res.get('reason') != 'already being converted':
+        _add_tags(res)
+    return res
+
+
+def _add_tags(res):
+    from mylar import quicktag
+    try:
+        if quicktag.fill(res['path']):
+            res['tagged'] = True
+            _update_size(res['path'], os.path.getsize(res['path']))
+    except Exception as e:
+        logger.warn('[WEBP] Unable to add tags to %s: %s' % (os.path.basename(res['path']), e))
 
 
 def _process(path):
