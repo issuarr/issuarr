@@ -2205,54 +2205,7 @@ class WebInterface(object):
 
     def deleteSeries(self, ComicID, delete_dir=None, ajax=None):
         # ajax=1 (the Ledger page) gets a JSON answer instead of a redirect to the home page.
-        myDB = db.DBConnection()
-        deleted = False
-        comic = myDB.selectone('SELECT * from comics WHERE ComicID=?', [ComicID]).fetchone()
-        try:
-            if comic['ComicName'] is None:
-                ComicName = 'None'
-            else:
-                ComicName = comic['ComicName']
-        except Exception as e:
-            logger.warn('Unable to reference ID in database - was ComicID: %s already deleted? Error returned: %s' % (ComicID, e))
-        else:
-            seriesdir = comic['ComicLocation']
-            seriesyear = comic['ComicYear']
-            seriesvol = comic['ComicVersion']
-            logger.info("Deleting all traces of Comic: " + ComicName)
-            myDB.action('DELETE from comics WHERE ComicID=?', [ComicID])
-            myDB.action('DELETE from issues WHERE ComicID=?', [ComicID])
-
-            if mylar.CONFIG.ANNUALS_ON:
-                myDB.action('DELETE from annuals WHERE ComicID=?', [ComicID])
-            myDB.action('DELETE from upcoming WHERE ComicID=?', [ComicID])
-            myDB.action('DELETE from readlist WHERE ComicID=?', [ComicID])
-            myDB.action("UPDATE weekly SET Status='Skipped' WHERE ComicID=? AND Status='Wanted'", [ComicID])
-            dropped = search.drop_series(ComicID)
-            if dropped:
-                logger.info('Removed %s queued searches for %s.' % (dropped, ComicName))
-            if delete_dir: #mylar.CONFIG.DELETE_REMOVE_DIR:
-                logger.fdebug('Remove directory on series removal enabled.')
-                if seriesdir is not None:
-                    if os.path.exists(seriesdir):
-                        logger.fdebug('Attempting to remove the directory and contents of : ' + seriesdir)
-                        try:
-                            shutil.rmtree(seriesdir)
-                        except:
-                            logger.warn('Unable to remove directory after removing series from Mylar.')
-                        else:
-                            logger.info('Successfully removed directory: %s' % (seriesdir))
-                    else:
-                        logger.warn('Unable to remove directory as it does not exist in : ' + seriesdir)
-                else:
-                    logger.warn('Unable to remove directory as it does not exist.')
-            if seriesvol is None:
-                dspline = '%s (%s)' % (ComicName, seriesyear)
-            else:
-                dspline = '%s %s (%s)' % (ComicName, seriesvol, seriesyear)
-            logger.info('Successful deletion of %s from your watchlist' % (dspline))
-            helpers.ComicSort(sequence='update')
-            deleted = True
+        deleted = helpers.remove_series(ComicID, delete_dir=bool(delete_dir))
         if ajax:
             cherrypy.response.headers['Content-Type'] = 'application/json'
             return json.dumps({'ok': deleted})
@@ -4936,6 +4889,15 @@ class WebInterface(object):
         self._attention_post()
         return self._attention_json(matching.move_to(comicid, newid))
     match_move.exposed = True
+
+    def match_wrong_series(self, comicid, newid, name=None, year=None, move=None, remove=None):
+        self._attention_post()
+        return self._attention_json(matching.wrong_series(comicid, newid, name, year, move=move == '1', remove=remove == '1'))
+    match_wrong_series.exposed = True
+
+    def match_wrong_series_state(self, comicid):
+        return self._attention_json(matching.wrong_series_state(comicid))
+    match_wrong_series_state.exposed = True
 
     def cblimport(self):
         return serve_template(templatename="cblimport.html", title="CBL Import")
