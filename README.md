@@ -69,7 +69,7 @@ New issues of the series you follow arrive the same way, week after week.
 
 ### Reading lists and story arcs
 - Track story arcs across many series and keep them in reading order, optionally in their own folder.
-- Import [CBL reading lists](https://github.com/DieselTech/CBL-ReadingLists) to add a whole event to your wanted list.
+- Import [CBL reading lists](https://github.com/DieselTech/CBL-ReadingLists) to add a whole event to your wanted list. Pick one from the community lists right on the import page, or choose a .cbl file.
 - A reading list, with optional syncing to a tablet.
 
 ### Integrations

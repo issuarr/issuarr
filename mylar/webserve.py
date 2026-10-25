@@ -61,6 +61,7 @@ from mylar import (
     webp,
     carepackage,
     cvlink,
+    cbl_catalog,
     discover,
     config,
     db,
@@ -4931,6 +4932,19 @@ class WebInterface(object):
     def cblimport(self):
         return serve_template(templatename="cblimport.html", title="CBL Import")
     cblimport.exposed = True
+
+    def cbl_catalog_lists(self, refresh='0'):
+        return self._attention_json(cbl_catalog.catalog(refresh=refresh == '1'))
+    cbl_catalog_lists.exposed = True
+
+    def cbl_catalog_file(self, path):
+        name, content = cbl_catalog.fetch(path)
+        if name is None:
+            cherrypy.response.status = 404
+            return self._attention_json({'ok': False, 'note': content})
+        cherrypy.response.headers['Content-Type'] = 'application/xml'
+        return content
+    cbl_catalog_file.exposed = True
 
     def flushImports(self):
         myDB = db.DBConnection()
