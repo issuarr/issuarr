@@ -34,8 +34,12 @@ def movefiles(comicid, comlocation, imported):
             if mylar.CONFIG.IMP_RENAME and mylar.CONFIG.FILE_FORMAT != '':
                 logger.fdebug("Renaming files according to configuration details : " + str(mylar.CONFIG.FILE_FORMAT))
                 renameit = helpers.rename_param(comicid, imported['ComicName'], impr['issuenumber'], orig_filename)
-                nfilename = renameit['nfilename']
-                dstimp = os.path.join(comlocation, nfilename)
+                if renameit is None:
+                    # no matching issue in the series (e.g. a collected edition): file it under its own name
+                    logger.warn('[IMPORT] No issue %s in %s to name %s after - keeping its own filename.' % (impr['issuenumber'], imported['ComicName'], orig_filename))
+                    dstimp = os.path.join(comlocation, orig_filename)
+                else:
+                    dstimp = os.path.join(comlocation, renameit['nfilename'])
             else:
                 logger.fdebug("Renaming files not enabled, keeping original filename(s)")
                 dstimp = os.path.join(comlocation, orig_filename)
