@@ -171,24 +171,28 @@
             var m = t.closest('#rl-bulk [data-mark]');
             if (m) {
                 var action = m.getAttribute('data-mark'), sel = picked();
-                if (action === 'Remove' && !window.confirm('Remove ' + sel.length + ' issues from the reading list? The issues and files stay in your library.')) return;
-                var q = new URLSearchParams({ action: action });
-                sel.forEach(function (tr) { var id = tr.querySelector('[data-id]').getAttribute('data-id'); q.append(id, id); });
-                fetch('markreads?' + q.toString(), { credentials: 'same-origin' })
-                    .then(function (r) {
-                        if (!r.ok) throw new Error(r.status);
-                        Issuarr.toast(action === 'Send' ? 'Sending ' + sel.length + ' issues to the tablet.' : 'Updated ' + sel.length + ' issues.');
-                        setTimeout(function () { location.reload(); }, 800);
-                    })
-                    .catch(fail);
+                var go = function () {
+                    var q = new URLSearchParams({ action: action });
+                    sel.forEach(function (tr) { var id = tr.querySelector('[data-id]').getAttribute('data-id'); q.append(id, id); });
+                    fetch('markreads?' + q.toString(), { credentials: 'same-origin' })
+                        .then(function (r) {
+                            if (!r.ok) throw new Error(r.status);
+                            Issuarr.toast(action === 'Send' ? 'Sending ' + sel.length + ' issues to the tablet.' : 'Updated ' + sel.length + ' issues.');
+                            setTimeout(function () { location.reload(); }, 800);
+                        })
+                        .catch(fail);
+                };
+                if (action === 'Remove') Issuarr.ask('Remove ' + sel.length + ' issues from the reading list? The issues and files stay in your library.', { ok: 'Remove', danger: true }, go);
+                else go();
                 return;
             }
             if (t.closest('#rl-none')) { rows().forEach(function (tr) { tr.querySelector('[data-id]').checked = false; }); renderBulk(); return; }
             if (t.closest('#rl-clear-read')) {
-                if (!window.confirm('Remove every issue marked read from the reading list? The issues and files stay in your library.')) return;
-                fetch('removefromreadlist?AllRead=1', { credentials: 'same-origin' })
-                    .then(function (r) { if (!r.ok) throw new Error(r.status); Issuarr.toast('Removed the read issues.'); setTimeout(function () { location.reload(); }, 800); })
-                    .catch(fail);
+                Issuarr.ask('Remove every issue marked read from the reading list? The issues and files stay in your library.', { ok: 'Remove read issues', danger: true }, function () {
+                    fetch('removefromreadlist?AllRead=1', { credentials: 'same-origin' })
+                        .then(function (r) { if (!r.ok) throw new Error(r.status); Issuarr.toast('Removed the read issues.'); setTimeout(function () { location.reload(); }, 800); })
+                        .catch(fail);
+                });
             }
         });
         document.addEventListener('change', function (e) {

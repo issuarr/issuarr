@@ -138,12 +138,14 @@
 
     $(document).ready(function() {
         $('#ip_stop').on('click', function() {
-            if (confirm('Stop the running ' + ($(this).text().indexOf('scan') > -1 ? 'library scan' : 'import') + '? An import stops after the current series; pending series can be resumed later.')) {
-                action('import_stop', this);
-            }
+            var btn = this;
+            Issuarr.ask('Stop the running ' + ($(this).text().indexOf('scan') > -1 ? 'library scan' : 'import') + '? An import stops after the current series; pending series can be resumed later.', { ok: 'Stop', danger: true }, function () {
+                action('import_stop', btn);
+            });
         });
         $('#ip_resume').on('click', function() {
-            if (confirm('Resume importing all pending (Not Imported) series?')) action('import_resume', this);
+            var btn = this;
+            Issuarr.ask('Resume importing all pending (Not Imported) series?', { ok: 'Resume' }, function () { action('import_resume', btn); });
         });
         $('#ip_log_filter, #ip_log_lines').on('change', pollLog);
         if (window.importStatusInitial) {

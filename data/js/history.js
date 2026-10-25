@@ -120,17 +120,19 @@
       var kind = clear.getAttribute('data-clear');
       var what = kind === 'all' ? 'all history' : 'every ' + kind.toLowerCase() + ' entry';
       $id('h-clear-menu').open = false;
-      if (!window.confirm('Clear ' + what + '? Issue statuses in your library don\'t change.')) return;
-      get('clearhistory?status_type=' + encodeURIComponent(kind))
-        .then(function () { I().toast('History cleared'); st.sel = {}; renderBulk(); st.start = 0; load(); })
-        .catch(function () { I().toast('That didn\'t work. Check the log.', false); });
+      I().ask('Clear ' + what + '? Issue statuses in your library don\'t change.', { ok: 'Clear', danger: true }, function () {
+        get('clearhistory?status_type=' + encodeURIComponent(kind))
+          .then(function () { I().toast('History cleared'); st.sel = {}; renderBulk(); st.start = 0; load(); })
+          .catch(function () { I().toast('That didn\'t work. Check the log.', false); });
+      });
       return;
     }
 
     if (e.target.closest('[data-wipe-nzblog]')) {
       $id('h-clear-menu').open = false;
-      if (!window.confirm('Clear the download log? Issuarr forgets which issue each grabbed download belongs to. Downloads that haven\'t been filed yet are then matched by file name only, and failed-download handling can\'t link them back to their issue. Don\'t do this while anything is downloading.')) return;
-      get('wipenzblog').then(function () { I().toast('Download log cleared.'); }).catch(function () { I().toast('That didn\'t work. Check the log.', false); });
+      I().ask('Clear the download log? Issuarr forgets which issue each grabbed download belongs to. Downloads that haven\'t been filed yet are then matched by file name only, and failed-download handling can\'t link them back to their issue. Don\'t do this while anything is downloading.', { ok: 'Clear the log', danger: true }, function () {
+        get('wipenzblog').then(function () { I().toast('Download log cleared.'); }).catch(function () { I().toast('That didn\'t work. Check the log.', false); });
+      });
       return;
     }
 
@@ -138,14 +140,17 @@
     if (bulk) {
       var action = bulk.getAttribute('data-bulk');
       var ids = Object.keys(st.sel);
-      if (action === 'Clear' && !window.confirm('Clear ' + ids.length + ' entries from history?')) return;
-      var body = new URLSearchParams();
-      body.append('action', action);
-      ids.forEach(function (id) { body.append('issueids[]', id); });
-      fetch('markissues', { method: 'POST', credentials: 'same-origin', body: body })
-        .then(function (r) { if (!r.ok) throw new Error(r.status); I().toast(action === 'Retry' ? 'Searching again for ' + ids.length + ' issues' : 'Cleared ' + ids.length + ' entries'); })
-        .catch(function () { I().toast('That didn\'t work. Check the log.', false); })
-        .then(function () { st.sel = {}; renderBulk(); load(); });
+      var go = function () {
+        var body = new URLSearchParams();
+        body.append('action', action);
+        ids.forEach(function (id) { body.append('issueids[]', id); });
+        fetch('markissues', { method: 'POST', credentials: 'same-origin', body: body })
+          .then(function (r) { if (!r.ok) throw new Error(r.status); I().toast(action === 'Retry' ? 'Searching again for ' + ids.length + ' issues' : 'Cleared ' + ids.length + ' entries'); })
+          .catch(function () { I().toast('That didn\'t work. Check the log.', false); })
+          .then(function () { st.sel = {}; renderBulk(); load(); });
+      };
+      if (action === 'Clear') I().ask('Clear ' + ids.length + ' entries from history?', { ok: 'Clear', danger: true }, go);
+      else go();
     }
   });
 

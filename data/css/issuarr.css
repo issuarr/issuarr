@@ -914,6 +914,9 @@ table.display_log tr.gradeZ td, table.display_log tr.gradeW td { background: var
 
 /* ---------- Ctrl K jump menu ---------- */
 
+.ask { width: min(480px, 100%); }
+.ask .add-head p { white-space: pre-line; }
+.ask-foot { display: flex; justify-content: flex-end; gap: 8px; padding: 12px 18px; border-top: 1px solid var(--line); }
 /* Settings sections with unsaved changes. */
 .nav-child.has-unsaved::after { content: ""; flex: none; width: 7px; height: 7px; margin-left: auto; border-radius: 50%; background: var(--snatched); }
 .offline-bar {
@@ -1557,6 +1560,8 @@ a.w-where:hover { color: var(--text); text-decoration-color: currentColor; }
   .dc-grid { grid-template-columns: repeat(auto-fill, minmax(130px, 1fr)); }
 }
 
+/* Settings > Prowlarr: the indexers to add */
+.prowlarr-list { list-style: none; margin: 0 0 12px; padding: 0; display: flex; flex-direction: column; gap: 6px; }
 /* CBL import: pick a list from CBL-ReadingLists */
 .cbl-catalog-list { list-style: none; margin: 8px 0 0; padding: 0; max-height: 360px; overflow-y: auto; border: 1px solid var(--line); border-radius: var(--radius); }
 .cbl-catalog-list li { border-bottom: 1px solid var(--line); }
