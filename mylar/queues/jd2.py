@@ -2,6 +2,8 @@
 
 import datetime
 import os
+import re
+import shutil
 import threading
 import time
 
@@ -9,7 +11,7 @@ import mylar
 from .. import logger, helpers
 from mylar import db, getcomics
 from . import ddl
-from mylar.downloaders.jdownloader2 import JDownloader2, local_folder
+from mylar.downloaders.jdownloader2 import JDownloader2, local_folder, local_path, job_ids
 
 # The record id of the item the monitor is working on. It's out of the queue while the monitor
 # checks it and sleeps before putting it back, but it's still at JD2.
@@ -24,6 +26,16 @@ NO_PROGRESS_LIMIT = 6 * 60 * 60
 NO_PROGRESS_TEXT = '6 hours'
 # JD2 job id -> (last progress seen, when it last changed)
 PROGRESS = {}
+
+# How often JD2's download list is checked for finished downloads the user added with the comment.
+PICKUP_EVERY = 60
+LAST_PICKUP = [0.0]
+# JD2 job ids Issuarr sent since it started. With the ones saved in ddl_info, they tell Issuarr's
+# own packages from the user's, which carry the same comment.
+SENT = set()
+# Tagged user packages already sent to post-processing, or already warned about, by package uuid.
+PICKED = set()
+WARNED = set()
 
 
 def at_jd2():
@@ -43,6 +55,9 @@ def jd2_queue_monitor(queue):
     jd2_client = JDownloader2()
     myDB = db.DBConnection()
     while True:
+        if time.monotonic() - LAST_PICKUP[0] >= PICKUP_EVERY:
+            LAST_PICKUP[0] = time.monotonic()
+            pickup_user_downloads(jd2_client, myDB)
         if queue.qsize() >= 1:
             item = queue.get(True)
             HOLDING[0] = str(item.get('id') or item.get('ID')) if isinstance(item, dict) else None
@@ -120,6 +135,7 @@ def jd2_queue_monitor(queue):
                         mylar.DDL_QUEUE.put(queue_payload)
                         continue
                     queue_payload['jd2_job_id'] = job_id
+                    SENT.update(job_ids(job_id))
                     mylar.JD2_QUEUE.put(queue_payload)
                     logger.info('[JD2] JD2 job %s submitted for %s', job_id, package_name)
                     time.sleep(10)
@@ -272,6 +288,103 @@ def jd2_queue_monitor(queue):
 def jd2_folder(jd2_client, job_id, record_id, package=None):
     folder = getattr(jd2_client, 'folder', None)
     return folder(job_id, record_id, package) if folder else None
+
+
+def own_package(package, own_jobs, own_records):
+    """Whether a JD2 package is one Issuarr sent: a link carries one of its job ids, or it still has
+    the name Issuarr gave it, 'Series (Year) - <record id>'."""
+    if any(str(l.get('jobUUID')) in own_jobs for l in package.get('links') or [] if l.get('jobUUID') is not None):
+        return True
+    m = re.search(r' - ([^ ]+)$', str(package.get('name') or ''))
+    return bool(m) and m.group(1) in own_records
+
+
+def package_finished(package):
+    """Whether JD2 is done with every link of a package: at least one finished, the rest finished or
+    dead, and nothing still being unpacked."""
+    links = [l for l in package.get('links') or [] if l.get('enabled') is not False]
+    if not links:
+        return False
+    st = lambda l: str(l.get('status') or '').lower()
+    done = lambda l: l.get('finished') is True or any(d in st(l) for d in JDownloader2.DONE)
+    dead = lambda l: any(d in st(l) for d in JDownloader2.DEAD)
+    extracting = lambda l: 'extract' in st(l) and not any(x in st(l) for x in ('ok', 'error', 'fail'))
+    if any(extracting(l) for l in links):
+        return False
+    return any(done(l) for l in links) and all(done(l) or dead(l) for l in links)
+
+
+def user_folder(package):
+    """The folder Issuarr should file a finished user package from, as Issuarr sees it. A folder of
+    its own is used as it is. When the package shares a folder (JD2's download folder itself, or one
+    holding other things), its files are moved into a folder of their own first, so filing never
+    touches anything else there. None when none of its files can be found."""
+    folder = local_path(package.get('saveTo'))
+    if not folder or not os.path.isdir(folder):
+        return None
+    names = {str(l.get('name')) for l in package.get('links') or [] if l.get('name')}
+    present = sorted(n for n in names if os.path.isfile(os.path.join(folder, n)))
+    if not present:
+        return None
+    root = local_folder()
+    shared = (root and os.path.normpath(folder) == os.path.normpath(root)) or not set(os.listdir(folder)) <= names
+    if not shared:
+        return folder
+    own = os.path.join(folder, 'Issuarr - %s' % (re.sub(r'[\\/:*?"<>|]', '_', str(package.get('name') or package.get('uuid'))).strip() or package.get('uuid')))
+    os.makedirs(own, exist_ok=True)
+    for n in present:
+        shutil.move(os.path.join(folder, n), os.path.join(own, n))
+    return own
+
+
+def pickup_user_downloads(jd2_client, myDB):
+    """File downloads the user added to JD2 with the comment 'issuarr', once JD2 has finished them,
+    then take them off JD2's list. Issuarr's own packages carry the comment too; they're left to the
+    monitor, which follows them by job id."""
+    if not getattr(mylar.CONFIG, 'POST_PROCESSING', False) or not hasattr(jd2_client, 'tagged_packages'):
+        return
+    try:
+        packages = jd2_client.tagged_packages()
+    except Exception as err:
+        logger.fdebug('[JD2-QUEUE] Unable to check JD2 for downloads marked "issuarr": %s' % err)
+        return
+    if not packages:
+        return
+    try:
+        rows = myDB.select('SELECT ID, jd2_job_id FROM ddl_info') or []
+    except Exception as err:
+        logger.warn('[JD2-QUEUE] Unable to read the direct download queue, not checking JD2 for your own downloads: %s', err)
+        return
+    own_jobs = set(SENT)
+    own_records = set()
+    for row in rows:
+        own_records.add(str(row['ID']))
+        own_jobs.update(job_ids(row['jd2_job_id']))
+    for package in packages:
+        uuid = package.get('uuid')
+        if uuid in PICKED or own_package(package, own_jobs, own_records) or not package_finished(package):
+            continue
+        name = package.get('name') or uuid
+        try:
+            folder = user_folder(package)
+        except Exception as err:
+            folder = None
+            logger.warn('[JD2-QUEUE] Unable to set aside the files of %s for filing: %s', name, err)
+        if not folder:
+            if uuid not in WARNED:
+                WARNED.add(uuid)
+                logger.warn('[JD2-QUEUE] JD2 finished %s (marked "issuarr"), but Issuarr can\'t find its files under %s.'
+                            ' Check "Same folder, as Issuarr sees it" under Settings > Download clients > JDownloader 2.',
+                            name, local_path(package.get('saveTo')) or package.get('saveTo'))
+            continue
+        PICKED.add(uuid)
+        logger.info('[JD2-QUEUE] JD2 finished %s, which you marked "issuarr" - filing it from %s.', name, folder)
+        mylar.PP_QUEUE.put({'nzb_name': 'Manual Run', 'nzb_folder': folder, 'failed': False, 'issueid': None,
+                            'comicid': None, 'apicall': False, 'ddl': False, 'download_info': None})
+        try:
+            jd2_client.remove_packages([uuid])
+        except Exception as err:
+            logger.warn('[JD2-QUEUE] Unable to take %s off JD2\'s download list: %s', name, err)
 
 
 COMIC_FILES = ('.cbz', '.cbr', '.cb7', '.cbt', '.pdf', '.zip', '.rar', '.7z')

@@ -11,6 +11,21 @@ This is optional. Direct downloads work without it.
 - If JD2 can't be reached or refuses the links, Issuarr hands the download back to its built-in downloader.
 - If JD2 gives up on a download (links offline, blocked, or the job never shows up in JD2's download list within about three minutes), Issuarr tries its own downloaders for the same post: file hosts first for big files, GetComics' own server last. The issue is marked Failed only when none of them work, so it doesn't sit at Snatched.
 - When JD2 finishes, Issuarr post-processes the download from JD2's download folder like any other download.
+- Everything Issuarr sends JD2 gets the comment `issuarr`, so you can tell its downloads apart in JD2.
+
+## Filing downloads you add to JD2 yourself
+
+Issuarr also files downloads you add to JD2 by hand, as long as they carry the comment `issuarr`:
+
+1. Add the links in JD2 as usual.
+2. Select the package (or its links) and type `issuarr` in the **Comment** field of JD2's properties panel below the list. Upper or lower case doesn't matter. A Packagizer rule can also set the comment for you.
+3. Let JD2 download it to its download folder, the one set under **Download folder**.
+
+About once a minute Issuarr checks JD2's download list. When every link of a marked package has finished (dead mirrors are skipped) and JD2 is done unpacking, Issuarr files the package's comics against your watchlist like a run over the folder Issuarr watches, then takes the package off JD2's download list. The files themselves stay until filing moves them. Comics that don't match a series go to **Downloads > Needs attention**.
+
+- A package in a folder of its own is filed from that folder. When it shares a folder with other things (JD2's download folder itself, say), its files are first moved into a new folder named `Issuarr - <package name>` there, so nothing else in that folder is touched.
+- Issuarr's own downloads carry the same comment but are never filed twice: Issuarr knows them by the job id JD2 gave them and the name it gave the package.
+- **Post-process downloads** has to be on, and Issuarr has to be able to see JD2's download folder (see step 2 above).
 
 ## 1. Set up JD2
 
@@ -69,4 +84,5 @@ Search for a wanted issue whose GetComics post has mirror links. **Tasks > Logs*
 | `Submission failed ... falling back to DDL queue` | Issuarr couldn't reach JD2. Check the address, the port, and the two Remote API settings. |
 | `never reached the JD2 download list` | JD2 got the links but didn't start them, usually because the host is offline or needs an account. |
 | `JD2 destination is not configured` | The **Download folder** setting is empty. |
+| `Issuarr can't find its files under` | A download you marked `issuarr` finished, but Issuarr can't see its files. Set **Same folder, as Issuarr sees it**. |
 | `Issuarr can't reach JD2's download folder` | Issuarr sees the folder under another path, or doesn't have it mapped. Set **Same folder, as Issuarr sees it**. |
