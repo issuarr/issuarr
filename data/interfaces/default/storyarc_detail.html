@@ -267,10 +267,11 @@
             }
             var rm = e.target.closest('[data-remove-arc]');
             if (rm) {
-                if (!window.confirm('Remove this arc? Its reading order is removed from Issuarr. Issues and files in your library stay.')) return;
-                fetch(rm.getAttribute('data-remove-arc'), { credentials: 'same-origin' })
-                    .then(function (r) { if (!r.ok) throw new Error(r.status); location.href = 'storyarc_main'; })
-                    .catch(fail);
+                Issuarr.ask('Remove this arc? Its reading order is removed from Issuarr. Issues and files in your library stay.', { ok: 'Remove arc', danger: true }, function () {
+                    fetch(rm.getAttribute('data-remove-arc'), { credentials: 'same-origin' })
+                        .then(function (r) { if (!r.ok) throw new Error(r.status); location.href = 'storyarc_main'; })
+                        .catch(fail);
+                });
                 return;
             }
             var z = e.target.closest('[data-zoom]');
@@ -283,15 +284,18 @@
             var bn = e.target.closest('[data-banner]');
             if (bn) {
                 var action = bn.getAttribute('data-banner'), im = document.getElementById('banner');
-                if (action === 'delete' && !window.confirm('Remove the banner image?')) return;
-                var q = new URLSearchParams({ comicid: arcId, action: action, height: im ? im.clientHeight : '' });
-                fetch('manageBanner?' + q.toString(), { credentials: 'same-origin' })
-                    .then(function (r) {
-                        if (!r.ok) throw new Error(r.status);
-                        Issuarr.toast(action === 'save' ? 'Banner height saved.' : 'Banner removed.');
-                        if (action === 'delete') setTimeout(function () { location.reload(); }, 700);
-                    })
-                    .catch(fail);
+                var go = function () {
+                    var q = new URLSearchParams({ comicid: arcId, action: action, height: im ? im.clientHeight : '' });
+                    fetch('manageBanner?' + q.toString(), { credentials: 'same-origin' })
+                        .then(function (r) {
+                            if (!r.ok) throw new Error(r.status);
+                            Issuarr.toast(action === 'save' ? 'Banner height saved.' : 'Banner removed.');
+                            if (action === 'delete') setTimeout(function () { location.reload(); }, 700);
+                        })
+                        .catch(fail);
+                };
+                if (action === 'delete') Issuarr.ask('Remove the banner image?', { ok: 'Remove', danger: true }, go);
+                else go();
             }
         });
     })();

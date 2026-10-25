@@ -890,6 +890,9 @@ table.display_log tr.gradeZ td, table.display_log tr.gradeW td { background: var
 
 /* ---------- Ctrl K jump menu ---------- */
 
+.ask { width: min(480px, 100%); }
+.ask .add-head p { white-space: pre-line; }
+.ask-foot { display: flex; justify-content: flex-end; gap: 8px; padding: 12px 18px; border-top: 1px solid var(--line); }
 .jump-backdrop {
   position: fixed; inset: 0; z-index: 1000; display: flex; align-items: flex-start; justify-content: center;
   padding: 12vh 16px 16px; background: rgba(0, 0, 0, .55);

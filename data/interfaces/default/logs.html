@@ -7,7 +7,7 @@
 <%def name="headerIncludes()">
     <div id="subhead_container">
         <div id="subhead_menu">
-            <a id="menu_link_delete" href="#" onclick="if (confirm('Clear the whole log? This can\'t be undone.')) { doAjaxCall('clearLogs',$(this),'table'); } return false;" data-success="All logs cleared">Clear log</a>
+            <a id="menu_link_delete" href="#" onclick="var a = $(this); Issuarr.ask('Clear the whole log? This can\'t be undone.', { ok: 'Clear log', danger: true }, function () { doAjaxCall('clearLogs', a, 'table'); }); return false;" data-success="All logs cleared">Clear log</a>
             <a id="menu_link_searchmissing" href="toggleVerbose"><span id="toggle_check"></span></a>
                         <a id="menu_link_edit" title="Manage Exceptions" href="javascript:void(0)" onclick="manageTheExceptions()">Exceptions and tracebacks</a>
                         <div id="manage_exceptions_dialog" title="View currently logged tracebacks / exceptions" style="display:none">
