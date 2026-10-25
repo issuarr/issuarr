@@ -600,6 +600,7 @@
                 ${field('airdcpp_remote_dir', 'AirDC++ download folder, as AirDC++ sees it', config['airdcpp_remote_dir'], id='airdcpp_remote_dir', placeholder='/downloads', help='Optional. Lets Issuarr swap AirDC++\'s path for its own, so files in subfolders are found too.')}
                 </div>
                 ${field('airdcpp_hubs', 'Hubs to search', config['airdcpp_hubs'], id='airdcpp_hubs', help='Comma-separated. Leave empty for all hubs.')}
+                ${toggle('airdcpp_folder_packs', 'Grab other wanted issues from the same folder', config['airdcpp_folder_packs'], id='airdcpp_folder_packs', help='After an issue downloads, open the folder it came from on that user and queue the other Wanted issues of the series found there, one file each. Uses no extra hub searches.')}
                 ${field('airdcpp_announce_hub', 'Announcement hub', config['airdcpp_announce_hub'], id='airdcpp_announce_hub', help='One hub, as address:port, to watch for new releases the way an RSS feed would.')}
                 ${field('airdcpp_announce_bots', 'Announcement bots', config['airdcpp_announce_bots'], id='airdcpp_announce_bots', help='Nicknames whose announcements are read.')}
                 <%

@@ -34,7 +34,7 @@ from mylar import (
     downloaders,
 )
 from mylar.downloaders import external_server as exs
-from mylar.downloaders import airdcpp
+from mylar.downloaders import airdcpp, airdcpp_pack
 from mylar import archiveorg, ddlsources
 
 import feedparser
@@ -3442,6 +3442,9 @@ def searcher(
                     prov=tnzbprov,
                     oneoff=oneoff
                 )
+            if all([IssueArcID is None, oneoff is not True, isinstance(comicinfo, list), len(comicinfo) > 0]):
+                # the peer's folder may hold more of this series' Wanted issues
+                airdcpp_pack.start(ComicID, tmp_issueid, comicinfo[0].get('entry'))
         else:
             logger.info('[%s] Failed to download %s from AirDC++.' % (tnzbprov, filename))
             return "ddl-fail"
