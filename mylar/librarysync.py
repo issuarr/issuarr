@@ -363,7 +363,8 @@ def libraryScan(dir=None, append=False, ComicID=None, ComicName=None, cron=None,
 
                     if issueinfo is None or issueinfo['metadata'] is None:
                         logger.fdebug('[IMPORT-CBZ] No valid metadata contained within filename. Dropping down to parsing the filename itself.')
-                        pass
+                        # without this the file was dropped: only issueinfo None goes on to the filename route
+                        issueinfo = None
                     else:
                         issuenotes_id = None
                         logger.info('[IMPORT-CBZ] Successfully retrieved some tags. Lets see what I can figure out.')

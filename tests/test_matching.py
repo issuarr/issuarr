@@ -92,7 +92,7 @@ def test_matching_a_file_to_another_issue_moves_it(series):
     assert matching.match('500', '1003', 'Foo 002 (2020).cbz')['ok']
     assert issue('1003')['Location'] == 'Foo 002 (2020).cbz'
     # its old issue has no file now, and the tagged file has nowhere left to go
-    assert issue('1002')['Status'] == 'Archived'
+    assert (issue('1002')['Status'], issue('1002')['Location']) == ('Skipped', None)
     assert issue('1001')['Location'] == 'Foo 001 (2020).cbz'
 
 
@@ -113,7 +113,20 @@ def test_a_match_whose_file_is_gone_is_dropped(series):
     os.remove(series / 'Bar 007.cbz')
     updater.forceRescan('500')
     assert issue('1004')['forced_file'] == 0
+    assert (issue('1004')['Status'], issue('1004')['Location']) == ('Skipped', None)
+
+
+@pytest.mark.unit
+def test_a_downloaded_issue_whose_file_is_gone_is_skipped_and_archived_ones_are_kept(series):
+    updater.forceRescan('500')
+    db.DBConnection().action("UPDATE issues SET Status='Archived' WHERE IssueID='1004'")
+    os.remove(series / 'Foo 002 (2020).cbz')
+    updater.forceRescan('500')
+    assert (issue('1002')['Status'], issue('1002')['Location']) == ('Skipped', None)
+    assert issue('1001')['Status'] == 'Downloaded'
     assert issue('1004')['Status'] == 'Archived'
+    have, total = db.DBConnection().selectone("SELECT Have, Total FROM comics WHERE ComicID='500'").fetchone()
+    assert (have, total) == (3, 4)
 
 
 @pytest.mark.unit
