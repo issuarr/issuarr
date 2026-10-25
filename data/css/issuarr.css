@@ -890,6 +890,14 @@ table.display_log tr.gradeZ td, table.display_log tr.gradeW td { background: var
 
 /* ---------- Ctrl K jump menu ---------- */
 
+.offline-bar {
+  position: fixed; top: 12px; left: 50%; transform: translateX(-50%); z-index: 1100; display: flex; align-items: center; gap: 10px;
+  max-width: calc(100vw - 32px); padding: 10px 16px; border-radius: 999px; background: var(--snatched); color: #16171B;
+  font-size: 14px; font-weight: 600; box-shadow: 0 12px 32px rgba(0, 0, 0, .35);
+}
+.offline-bar[hidden] { display: none; }
+.offline-dot { flex: none; width: 8px; height: 8px; border-radius: 50%; background: currentColor; animation: offline-pulse 1.2s ease-in-out infinite; }
+@keyframes offline-pulse { 50% { opacity: .25; } }
 .jump-backdrop {
   position: fixed; inset: 0; z-index: 1000; display: flex; align-items: flex-start; justify-content: center;
   padding: 12vh 16px 16px; background: rgba(0, 0, 0, .55);
