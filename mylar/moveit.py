@@ -1,5 +1,5 @@
 import mylar
-from mylar import db, logger, helpers, updater, filechecker
+from mylar import db, logger, helpers, updater, filechecker, webp
 import os
 import shutil
 import ast
@@ -48,6 +48,8 @@ def movefiles(comicid, comlocation, imported):
                                     'import_id':  impr['import_id']})
             except (OSError, IOError):
                 logger.error("Failed to move files - check directories and manually re-run.")
+            else:
+                convert(dstimp)
 
         logger.fdebug("all files moved.")
         #now that it's moved / renamed ... we remove it from importResults or mark as completed.
@@ -71,6 +73,19 @@ def movefiles(comicid, comlocation, imported):
                             "ComicID":           comicid}
             myDB.upsert("importresults", newValue, controlValue)
     return
+
+def convert(path):
+    """Give an imported file what a download gets when it's filed: a .cbr becomes a .cbz
+    when CBR to CBZ or metadata tagging is on, then WebP on import if that's on."""
+    if path.lower().endswith('.cbr') and any([mylar.CONFIG.ENABLE_META, mylar.CONFIG.CBR2CBZ_ONLY]):
+        res = webp.to_cbz(path)
+        if res['status'] == 'converted':
+            logger.info('[IMPORT] %s %s to %s' % ('Repacked' if res['repacked'] else 'Renamed', os.path.basename(path), os.path.basename(res['target'])))
+            path = res['target']
+        else:
+            logger.warn('[IMPORT] Left %s as a .cbr: %s' % (os.path.basename(path), res['reason']))
+    webp.after_import(path)
+    return path
 
 def archivefiles(comicid, comlocation, imported):
     myDB = db.DBConnection()
