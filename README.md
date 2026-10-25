@@ -34,6 +34,7 @@ New issues of the series you follow arrive the same way, week after week.
 ### Finding and downloading
 - **Usenet:** any number of Newznab indexers, sent to SABnzbd, NZBGet or a blackhole folder.
 - **Torrents:** Torznab indexers, searched and read with the RSS check, sent to qBittorrent, Transmission, Deluge, rTorrent or uTorrent.
+- **Prowlarr:** load your Prowlarr indexers as Newznab and Torznab indexers, and optionally keep them in sync.
 - **Direct download from GetComics.** Issuarr picks the right file even from posts with many links. You can order or switch off download hosts (GetComics' own server, Mega, Mediafire, Pixeldrain and others). Cloudflare is cleared with [FlareSolverr](https://github.com/FlareSolverr/FlareSolverr), and mirror links can be handed to [JDownloader 2](docs/JDOWNLOADER2.md).
 - **Scheduled searches and RSS.** Recent releases are searched actively; older wanted issues are caught as they appear in RSS feeds.
 - **Calendar (weekly pull list).** See every comic released this week, and look weeks ahead or months back. Weeks are numbered the way [TalkHard](https://talkhard.notaninja.party) numbers its pull lists. Upcoming issues of your series are wanted automatically.
@@ -168,7 +169,7 @@ Open `http://<your-server>:8090`. Every page is in the sidebar on the left, and 
 
 1. **Settings > General:** enter your **ComicVine API key** and set the **Comic folder** to your library (`/comics` in Docker).
 2. **Settings > Download clients:** connect your Usenet or torrent client.
-3. **Settings > Search providers:** add your Newznab or Torznab indexers, or turn on **Download directly from sites** for GetComics. If you use direct downloads, set its **Download folder** there too, and see [Using JDownloader 2](docs/JDOWNLOADER2.md) if you want JDownloader 2 to handle mirror links.
+3. **Settings > Search providers:** add your Newznab or Torznab indexers (or load them all from Prowlarr), or turn on **Download directly from sites** for GetComics. If you use direct downloads, set its **Download folder** there too, and see [Using JDownloader 2](docs/JDOWNLOADER2.md) if you want JDownloader 2 to handle mirror links.
 4. **Settings > Files & post-processing:** turn on **Post-process downloads** and **Watch a folder for new comics**, and point it at the folder where finished downloads land. Turn on **Write metadata into files** if you want ComicInfo written to your files.
 5. **Settings > Notifications & advanced:** check the **Series folder name** and **File name** formats.
 6. **Add comics.** Use **Add series** in the sidebar to search for a series (or paste its ComicVine link) and add it, or **Tools > Import & scan** to import the comics you already have.
