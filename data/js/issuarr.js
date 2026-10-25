@@ -445,16 +445,17 @@
       if (s.busy) return 'Checking RSS feeds' + waiting;
       return n ? n + ' queued for search' : '';
     }
-    // Live counts next to Downloads and Wanted, before the Needs attention count if there is one.
-    function liveCount(sel, n, title) {
+    // Live counts next to Downloads (searches queued, then downloads), before the Needs attention count if there is one.
+    function liveCount(sel, n, title, kind) {
       var link = doc.querySelector(sel);
       if (!link) return;
-      var b = link.querySelector('.nav-badge.is-live');
+      var cls = 'is-live' + (kind ? ' is-' + kind : '');
+      var b = link.querySelector('.nav-badge.' + cls.replace(/ /g, '.') + (kind ? '' : ':not(.is-search)'));
       if (!n) { if (b) b.remove(); return; }
       if (!b) {
         b = doc.createElement('span');
-        b.className = 'nav-badge is-live';
-        link.insertBefore(b, link.querySelector('.nav-badge.is-attention'));
+        b.className = 'nav-badge ' + cls;
+        link.insertBefore(b, kind ? link.querySelector('.nav-badge.is-live, .nav-badge.is-attention') : link.querySelector('.nav-badge.is-attention'));
       }
       b.textContent = n;
       b.title = title;
@@ -480,7 +481,7 @@
           }
           if (d.search) {
             var s = (d.search.current ? 1 : 0) + (d.search.waiting || []).length;
-            liveCount('#sidebar .nav-link[href="wanted"]', s, s + ' in the search queue');
+            liveCount('#sidebar .nav-link[href="queueManage"]', s, s + ' issues in the search queue', 'search');
           }
           refreshIdle();
         })

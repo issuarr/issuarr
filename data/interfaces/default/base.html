@@ -1,7 +1,9 @@
 <%
 	import mylar
-	from mylar import ui, attention, whatsnew
+	from mylar import ui, attention, whatsnew, navcounts
 	_attention = attention.count()
+	_wanted = navcounts.wanted()
+	_choices = navcounts.import_choices()
 	try:
 	    _whats_new = len(whatsnew.pending())
 	except Exception:
@@ -33,22 +35,22 @@
 	    ('Find', [
 	        dict(label='Add series', href='#', match='searchit', action='add'),
 	        dict(label='Discover', href='discover', match='discover'),
-	        dict(label='Wanted', href='wanted', match='wanted', disabled=bool(mylar.WANTED_TAB_OFF)),
+	        dict(label='Wanted', href='wanted', match='wanted', disabled=bool(mylar.WANTED_TAB_OFF), total=_wanted, total_title='%s issues on the Wanted list' % _wanted),
 	        dict(label='Calendar', href='pullist', match='pullist upcoming', badge=('New' if mylar.PULLNEW != 'no' else None), children=[
 	            ('This week', 'pullist', 'pullist'),
 	            ('Upcoming', 'upcoming', 'upcoming'),
 	        ]),
 	    ]),
 	    ('Operations', [
-	        dict(label='Downloads', href='queueManage', match='queuemanage', count=_attention, children=[
+	        dict(label='Downloads', href='queueManage', match='queuemanage', count=_attention, count_title='%s files waiting in Needs attention' % _attention, children=[
 	            ('Queue', 'queueManage', 'queuemanage'),
-	            ('Needs attention', 'needsAttention', 'needsattention', _attention),
+	            ('Needs attention', 'needsAttention', 'needsattention', _attention, '%s files waiting for you to file, rename or remove' % _attention),
 	            ('History', 'history', 'history'),
 	            ('Failed', 'manageFailed', 'managefailed'),
 	        ]),
-	        dict(label='Tools', href='manage#tabs-1', children=[
+	        dict(label='Tools', href='manage#tabs-1', count=_choices, count_title='%s series on Import results need you to choose their ComicVine match' % _choices, children=[
 	            ('Import & scan', 'manage#tabs-1', 'manage manage#tabs-1'),
-	            ('Import results', 'importResults', 'importresults'),
+	            ('Import results', 'importResults#needs-a-choice' if _choices else 'importResults', 'importresults', _choices, '%s series need you to choose their ComicVine match' % _choices),
 	            ('Post-processing', 'manage#tabs-2', 'manage#tabs-2'),
 	            ('WebP conversion', 'webpConvert', 'webpconvert'),
             ('Library check', 'libraryCheck', 'librarycheck'),
@@ -128,11 +130,11 @@
 				%endif
 				%for _it in _items:
 				<div class="nav-item">
-					<a class="nav-link${' is-disabled' if _it.get('disabled') else ''}" href="${'#' if _it.get('disabled') else _it['href']}" data-label="${_it['label'] | h}"${(' data-match="%s"' % _it['match']) if _it.get('match') else ''}${(' data-action="%s"' % _it['action']) if _it.get('action') else ''}${' aria-disabled="true" title="Unavailable while the pull list is being rebuilt"' if _it.get('disabled') else ''}>${_it['label'] | h}${('<span class="nav-badge is-new">%s</span>' % _it['badge']) if _it.get('badge') else ''}${('<span class="nav-badge is-attention" title="%s files waiting in Needs attention">%s</span>' % (_it['count'], _it['count'])) if _it.get('count') else ''}</a>
+					<a class="nav-link${' is-disabled' if _it.get('disabled') else ''}" href="${'#' if _it.get('disabled') else _it['href']}" data-label="${_it['label'] | h}"${(' data-match="%s"' % _it['match']) if _it.get('match') else ''}${(' data-action="%s"' % _it['action']) if _it.get('action') else ''}${' aria-disabled="true" title="Unavailable while the pull list is being rebuilt"' if _it.get('disabled') else ''}>${_it['label'] | h}${('<span class="nav-badge is-new">%s</span>' % _it['badge']) if _it.get('badge') else ''}${('<span class="nav-badge is-total" title="%s">%s</span>' % (_it['total_title'], '{:,}'.format(_it['total']))) if _it.get('total') else ''}${('<span class="nav-badge is-attention" title="%s">%s</span>' % (_it['count_title'], _it['count'])) if _it.get('count') else ''}</a>
 					%if _it.get('children'):
 					<div class="nav-children">
 						%for _c in _it['children']:
-						<a class="nav-child" href="${_c[1]}" data-label="${_c[0] | h}" data-match="${_c[2]}">${_c[0] | h}${('<span class="nav-badge is-attention" title="%s files waiting for you to file, rename or remove">%s</span>' % (_c[3], _c[3])) if len(_c) > 3 and _c[3] else ''}</a>
+						<a class="nav-child" href="${_c[1]}" data-label="${_c[0] | h}" data-match="${_c[2]}">${_c[0] | h}${('<span class="nav-badge is-attention" title="%s">%s</span>' % (_c[4], _c[3])) if len(_c) > 3 and _c[3] else ''}</a>
 						%endfor
 					</div>
 					%endif

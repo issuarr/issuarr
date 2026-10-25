@@ -76,7 +76,10 @@
         $('#ip_issueids').text(ratio(d.issueids_resolved, d.issueids_total));
         $('#ip_rl_waits').text(d.ratelimit.waits || '-');
         $('#ip_series').text(ratio(d.series_done, d.series_total));
-        $('#ip_series_breakdown').text(d.series_total ? (d.series_added + ' / ' + d.series_manual + ' / ' + d.series_noresults + ' / ' + d.series_failed) : '-');
+        // Manual = ComicVine had several possible series: they wait on Import results under Needs a choice.
+        $('#ip_series_breakdown').html(d.series_total ? (esc(d.series_added) + ' / ' +
+            (d.series_manual ? '<a href="importResults#needs-a-choice" title="Choose their ComicVine match on Import results">' + esc(d.series_manual) + '</a>' : '0') +
+            ' / ' + esc(d.series_noresults) + ' / ' + esc(d.series_failed)) : '-');
         $('#ip_current').text(d.series_current ? d.series_current + (d.series_started ? ' (for ' + dur(Date.now() / 1000 - d.series_started) + ')' : '') : '-');
 
         var rl = d.ratelimit;
