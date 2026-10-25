@@ -6,6 +6,7 @@ Releases come from the `main` branch and are the `latest` Docker image. Changes 
 
 ## Unreleased (on dev)
 
+- Tools > Library check opens every comic in your library and lists the ones that are damaged, aren't comics, have no pages, or hold another .cbz/.cbr instead of pages. Wrapped files can be unwrapped in place, and damaged ones sent to the trash and downloaded again. ([`a5bfa3e`](https://github.com/issuarr/issuarr/commit/a5bfa3e))
 - Right-click a series in the Library (or long-press it on a phone) for its actions: open, search for missing issues, refresh, recheck files, pause or resume, select and remove. ([`06ebc71`](https://github.com/issuarr/issuarr/commit/06ebc71))
 - Tools > Duplicates finds issues you have more than one file of and keeps the best copy (one that opens, then tagged, then more pages, then larger). The others go to the duplicate folder if one is set, or to the trash. ([`5862221`](https://github.com/issuarr/issuarr/commit/5862221))
 - "Are you sure?" questions now open in Issuarr's own window instead of the browser's pop-up, with a button that says what will happen (Remove, Restart, Clear log…). For risky actions, Cancel is selected first. ([`da4d4ad`](https://github.com/issuarr/issuarr/commit/da4d4ad))
