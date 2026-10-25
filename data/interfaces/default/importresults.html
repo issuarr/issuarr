@@ -125,6 +125,10 @@
                                 <a class="btn btn-sm btn-primary" href="importresults_popup?${urlencode({'SRID': r['SRID'], 'ComicName': r['ComicName'], 'imported': 'yes', 'ogcname': r['ComicName'], 'DynamicName': r['DynamicName'], 'Volume': r['Volume']}) | h}"
                                    title="ComicVine has more than one possible match">Choose match</a>
                                 %endif
+                                %if x['status'] not in ('Imported', 'Importing'):
+                                <button type="button" class="btn btn-sm btn-ghost" data-cvid="${urlencode({'ComicName': r['ComicName'], 'DynamicName': r['DynamicName'], 'Volume': r['Volume']}) | h}"
+                                        data-title="${x['name'] | h}" title="Import with a ComicVine series you pick">ComicVine ID</button>
+                                %endif
                                 <a class="btn btn-sm btn-ghost" href="deleteimport?${urlencode({'ComicName': r['ComicName'], 'volume': r['Volume'], 'DynamicName': r['DynamicName'], 'Status': r['Status']}) | h}">Remove</a>
                             </td>
                         </tr>
@@ -136,6 +140,15 @@
                 </table>
             </div>
         </section>
+    </div>
+    <div id="imp-cvid" title="ComicVine ID" style="display:none">
+        <form id="imp-cvid-form">
+            <label for="imp-cvid-input">ComicVine ID or link</label>
+            <input type="text" id="imp-cvid-input" class="mono" autocomplete="off" placeholder="https://comicvine.gamespot.com/invincible/4050-39340/" style="width: 100%" />
+            <p class="muted">A series or issue link, 4050-39340 (a series), 4000-664333 (an issue, which stands for its series), or just the number. The series is added and its files are moved and renamed like any other import.</p>
+            <p class="set-warn" id="imp-cvid-note" hidden></p>
+            <button type="submit" class="btn btn-primary">Import</button>
+        </form>
     </div>
     <div id="imp-files" title="Files" style="display:none"><p class="muted" id="imp-files-count"></p><ul class="imp-file-list" id="imp-file-list"></ul></div>
 </%def>
@@ -174,6 +187,15 @@
             if (act) {
                 act.disabled = true;
                 get(act.getAttribute('data-act'), act.getAttribute('data-done') + ' Follow it in Tasks › Jobs.').catch(function () { act.disabled = false; failed(); });
+                return;
+            }
+            var cvid = t.closest('[data-cvid]');
+            if (cvid) {
+                cvidFor = cvid;
+                document.getElementById('imp-cvid-input').value = '';
+                document.getElementById('imp-cvid-note').hidden = true;
+                jQuery('#imp-cvid').dialog({ modal: true, title: 'ComicVine ID for ' + cvid.getAttribute('data-title'), width: Math.min(560, window.innerWidth - 32) });
+                document.getElementById('imp-cvid-input').focus();
                 return;
             }
             var files = t.closest('[data-files]');
@@ -220,6 +242,22 @@
                     get('flushImports', 'Cleared the import results.').then(function () { setTimeout(function () { location.reload(); }, 900); }).catch(failed);
                 });
             }
+        });
+        var cvidFor = null;
+        document.getElementById('imp-cvid-form').addEventListener('submit', function (e) {
+            e.preventDefault();
+            var note = document.getElementById('imp-cvid-note');
+            var body = new URLSearchParams(cvidFor.getAttribute('data-cvid'));
+            body.set('cvid', document.getElementById('imp-cvid-input').value);
+            fetch('importByCvid', { method: 'POST', credentials: 'same-origin', body: body })
+                .then(function (r) { if (!r.ok) throw new Error(r.status); return r.json(); })
+                .then(function (d) {
+                    if (!d.ok) { note.textContent = d.note; note.hidden = false; return; }
+                    jQuery('#imp-cvid').dialog('close');
+                    cvidFor.disabled = true;
+                    Issuarr.toast('Importing ' + cvidFor.getAttribute('data-title') + ' as ComicVine ' + d.comicid + '. Follow it in Tasks › Jobs.');
+                })
+                .catch(failed);
         });
         document.addEventListener('change', function (e) {
             if (e.target.id === 'imp-check-all') {

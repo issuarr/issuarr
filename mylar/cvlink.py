@@ -81,3 +81,39 @@ def resolve(text, ask_cv=True):
     if issue is None:
         return {'kind': kind, 'comicid': None, 'issueid': cvid}
     return dict(issue, kind=kind)
+
+
+def cv_series(comicid):
+    """True when ComicVine has a series with this ID, False when it hasn't, None when it couldn't
+    be asked. Goes through the shared ComicVine schedule."""
+    from mylar import cv
+    key = mylar.CONFIG.COMICVINE_API
+    if not key or key == 'None':
+        return None
+    url = mylar.CVURL + 'volumes/?api_key=' + str(key) + '&format=json&filter=id:' + str(comicid) + '&field_list=id,name'
+    try:
+        found = (cv.cv_request(url).json() or {}).get('results') or []
+    except Exception as e:
+        logger.warn('[COMICVINE] Couldn\'t look up series %s: %s' % (comicid, e))
+        return None
+    return any(str(x.get('id')) == str(comicid) for x in found)
+
+
+def series_for_number(number):
+    """The series a bare ComicVine number stands for: the number itself when it's a series ID,
+    the issue's series when it's an issue ID. Looks on the watchlist first, then asks ComicVine
+    (a series ID wins when both exist). None when ComicVine has neither; the number itself when
+    ComicVine can't be asked."""
+    number = str(number)
+    if db.DBConnection().selectone('SELECT ComicID FROM comics WHERE ComicID=?', [number]).fetchone():
+        return number
+    issue = local_issue(number)
+    if issue:
+        return issue['comicid']
+    series = cv_series(number)
+    if series is None:
+        return number
+    if series:
+        return number
+    issue = cv_issue(number)
+    return issue['comicid'] if issue else None

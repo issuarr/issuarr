@@ -6,6 +6,7 @@ Releases come from the `main` branch and are the `latest` Docker image. Changes 
 
 ## Unreleased (on dev)
 
+- On Import results, a series that wasn't matched (or was matched wrongly) has a ComicVine ID button. Paste the series' or one of its issues' ComicVine link, or an ID like 4050-39340, 4000-664333 or just the number, and Issuarr adds that series and imports its files, moving and renaming them like any other match. ([`ff49aeab`](https://github.com/issuarr/issuarr/commit/ff49aeab), [`0983337a`](https://github.com/issuarr/issuarr/commit/0983337a))
 - Files moved into your library by Import & scan now get the same treatment as downloads: a .cbr becomes a .cbz when CBR to CBZ (or metadata tagging) is on, and WebP on import converts them if it's on. ([`3cebfd60`](https://github.com/issuarr/issuarr/commit/3cebfd60))
 - The Import results page loads much faster after a big scan. It used to count each series' files with separate lookups. ([`bbe35918`](https://github.com/issuarr/issuarr/commit/bbe35918))
 - Scanning the same folder again in Import & scan replaces its import results instead of listing every file again, so file counts no longer double with each scan. The next scan also clears copies left by earlier scans. ([`b7301db7`](https://github.com/issuarr/issuarr/commit/b7301db7))
