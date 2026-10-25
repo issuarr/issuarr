@@ -6,6 +6,7 @@ Releases come from the `main` branch and are the `latest` Docker image. Changes 
 
 ## Unreleased (on dev)
 
+- Tools > Library check opens every comic in your library and lists the ones that are damaged, aren't comics, have no pages, or hold another .cbz/.cbr instead of pages. Wrapped files can be unwrapped in place, and damaged ones sent to the trash and downloaded again. ([`a5bfa3e`](https://github.com/issuarr/issuarr/commit/a5bfa3e))
 - "Are you sure?" questions now open in Issuarr's own window instead of the browser's pop-up, with a button that says what will happen (Remove, Restart, Clear log…). For risky actions, Cancel is selected first. ([`da4d4ad`](https://github.com/issuarr/issuarr/commit/da4d4ad))
 - In Settings, a dot next to a section in the sidebar shows which sections have changes you haven't saved yet. ([`fbfb054`](https://github.com/issuarr/issuarr/commit/fbfb054))
 - After an update, a What's new window lists what changed since you last saw it, with a link to each change on GitHub. It shows once; closing it marks those changes as seen. ([`949ab99`](https://github.com/issuarr/issuarr/commit/949ab99))
