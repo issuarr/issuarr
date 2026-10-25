@@ -408,23 +408,19 @@
 
      <div class="table_wrapper" id="issue_wrapper">
        <form action="mark_the_issues" method="get" id="markissues" name="markissues">
-        <div style="display:none;" id="markissue" class="issue-markbar">Mark the selected issues as
-                <select name="action" id="mark_issues" onChange="mark_the_issues('issues')" data-success="selected issues marked">
-                        <option disabled="disabled" selected="selected">Choose...</option>
-                        <option value="Wanted">Wanted</option>
-                        <option value="Skipped">Skipped</option>
-                        <option value="Archived">Archived</option>
-                        <option value="Ignored">Ignored</option>
-                        %if mylar.CONFIG.FAILED_DOWNLOAD_HANDLING:
-                            <option value="Failed">Failed</option>
-                        %endif
-                </select>
-                <input type="hidden" value="Go">
+        <div class="bulk-bar issue-markbar" id="markissue" hidden>
+                <span class="bulk-count" id="markissue-count"></span>
+                <button type="button" class="btn btn-sm" data-ui onclick="mark_the_issues('issues', 'Wanted')">Mark wanted</button>
+                <button type="button" class="btn btn-sm" data-ui onclick="mark_the_issues('issues', 'Skipped')">Skip</button>
+                <button type="button" class="btn btn-sm" data-ui onclick="mark_the_issues('issues', 'Archived')">Mark archived</button>
+                <button type="button" class="btn btn-sm" data-ui onclick="mark_the_issues('issues', 'Ignored')">Ignore</button>
+                %if mylar.CONFIG.FAILED_DOWNLOAD_HANDLING:
+                    <button type="button" class="btn btn-sm" data-ui onclick="mark_the_issues('issues', 'Failed')">Mark failed</button>
+                %endif
                 %if any([mylar.CONFIG.ENABLE_META, mylar.CONFIG.CBR2CBZ_ONLY]):
-                    <div class="issue-markbar-more">
-                        <a id="metatag_issues" href="#" class="btn btn-sm" title="Write ComicInfo metadata into the selected issues" onclick="metatag_the_issues(${comic['ComicID']}, 'issues'); return false;">Write metadata</a>
-                    </div>     
-                %endif          
+                    <button type="button" class="btn btn-sm" data-ui title="Write ComicInfo metadata into the selected issues" onclick="metatag_the_issues(${comic['ComicID']}, 'issues');">Write metadata</button>
+                %endif
+                <button type="button" class="btn btn-sm btn-ghost" data-ui onclick="clear_checks('issues');">Clear selection</button>
         </div>
 
           <table class="display select" id="issue_table">
@@ -455,24 +451,19 @@
     <div class="table_wrapper" id="annual_wrapper">
        <h2 class="annuals-title">Annuals</h2>
        <form action="mark_the_issues" method="get" id="markannuals" name="markannuals">
-        <div style="display:none;" id="markannual" class="issue-markbar">Mark the selected annuals as
-                <select name="action" id="mark_annuals" onChange="mark_the_issues('annuals')" data-success="selected annuals marked">
-                        <option disabled="disabled" selected="selected">Choose...</option>
-                        <option value="Wanted">Wanted</option>
-                        <option value="Skipped">Skipped</option>
-                        <option value="Archived">Archived</option>
-                        <option value="Ignored">Ignored</option>
-                        %if mylar.CONFIG.FAILED_DOWNLOAD_HANDLING:
-                            <option value="Failed">Failed</option>
-                        %endif
-                </select>
-                selected annuals
-                <input type="hidden" value="Go">
-                %if any([mylar.CONFIG.ENABLE_META, mylar.CONFIG.CBR2CBZ_ONLY]):
-                    <div class="issue-markbar-more">
-                        <a id="metatag_issues" href="#" class="btn btn-sm" title="Write ComicInfo metadata into the selected issues" onclick="metatag_the_issues(${comic['ComicID']}, 'annuals'); return false;">Write metadata</a>
-                    </div>   
+        <div class="bulk-bar issue-markbar" id="markannual" hidden>
+                <span class="bulk-count" id="markannual-count"></span>
+                <button type="button" class="btn btn-sm" data-ui onclick="mark_the_issues('annuals', 'Wanted')">Mark wanted</button>
+                <button type="button" class="btn btn-sm" data-ui onclick="mark_the_issues('annuals', 'Skipped')">Skip</button>
+                <button type="button" class="btn btn-sm" data-ui onclick="mark_the_issues('annuals', 'Archived')">Mark archived</button>
+                <button type="button" class="btn btn-sm" data-ui onclick="mark_the_issues('annuals', 'Ignored')">Ignore</button>
+                %if mylar.CONFIG.FAILED_DOWNLOAD_HANDLING:
+                    <button type="button" class="btn btn-sm" data-ui onclick="mark_the_issues('annuals', 'Failed')">Mark failed</button>
                 %endif
+                %if any([mylar.CONFIG.ENABLE_META, mylar.CONFIG.CBR2CBZ_ONLY]):
+                    <button type="button" class="btn btn-sm" data-ui title="Write ComicInfo metadata into the selected annuals" onclick="metatag_the_issues(${comic['ComicID']}, 'annuals');">Write metadata</button>
+                %endif
+                <button type="button" class="btn btn-sm btn-ghost" data-ui onclick="clear_checks('annuals');">Clear selection</button>
         </div>
             <table class="display select" id="annual_table">
                 <thead>
@@ -725,12 +716,10 @@
             });
         }
 
-        function mark_the_issues(tabletype){
+        function mark_the_issues(tabletype, action){
             if (tabletype == 'issues'){
-                var action=$("#mark_issues option:selected").val();
                 var checks = document.getElementsByName("issueid[]");
             } else {
-                var action=$("#mark_annuals option:selected").val();
                 var checks = document.getElementsByName("aissueid[]");
             }
             var checkboxesChecked = [];
@@ -1420,18 +1409,19 @@
                 var checks = document.getElementsByName("aissueid[]");
                 cc = document.getElementById("markannual");
             }
-            var checkfound = false;
+            var picked = 0;
             for (var i=0; i<checks.length; i++) {
-                if (checks[i].checked) {
-                    checkfound = true;
-                    break;
-                }
+                if (checks[i].checked) picked++;
             }
-            if (checkfound == true){
-                cc.style.display = "block";
-            } else {
-                cc.style.display = "none";
-            }
+            cc.hidden = picked == 0;
+            document.getElementById(cc.id + "-count").textContent = picked + (tabletype == 'issues' ? (picked == 1 ? ' issue' : ' issues') : (picked == 1 ? ' annual' : ' annuals')) + ' selected';
+        }
+
+        function clear_checks(tabletype){
+            var checks = document.getElementsByName(tabletype == 'issues' ? "issueid[]" : "aissueid[]");
+            for (var i=0; i<checks.length; i++) checks[i].checked = false;
+            document.getElementById(tabletype == 'issues' ? "issues-select-all" : "annuals-select-all").checked = false;
+            count_checks(tabletype);
         }
 
         function title_loading() {
@@ -1600,10 +1590,7 @@
                         pageScrollPos = $('#issue_table div.datatables_scrollBody').scrollTop();
                         // make sure the filter counts are up-to-date
                         update_filters();
-                        // reset the mark_issues dropdown so it won't keep the last selection
-                        dropdown = document.getElementById("mark_issues");
-                        dropdown.selectedIndex = 0;
-                        document.getElementById("markissue").style.display = "none";
+                        document.getElementById("markissue").hidden = true;
                         document.getElementById("issues-select-all").checked = false;
                     },
                     "sDom": '<"dt-top"fl>rt<"dt-bottom"ip>',
@@ -1720,7 +1707,7 @@
                     ],
                     "paginationType": "simple_numbers",
                     "aaSorting": [[1, 'desc']],
-                    "displayLength": 25,
+                    "displayLength": 50,
                     "lengthMenu": [[10, 15, 25, 50, 100, 200, -1], [10, 15, 25, 50, 100, 200, 'All' ]],
                     "language": {
                          "search": "",
@@ -1785,10 +1772,7 @@
                 $('#annual_table').dataTable( {
                     "preDrawCallback": function (settings){
                         pageScrollPos = $('#annual_table div.datatables_scrollBody').scrollTop();
-                        // reset the mark_annuals dropdown so it won't keep the last selection
-                        dropdown = document.getElementById("mark_annuals");
-                        dropdown.selectedIndex = 0;
-                        document.getElementById("markannual").style.display = "none";
+                        document.getElementById("markannual").hidden = true;
                         document.getElementById("annuals-select-all").checked = false;
                     },
                     "sDom": 'rt<"dt-bottom"i>',

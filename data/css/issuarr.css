@@ -677,9 +677,7 @@ table.dt tr.is-picked td { background: color-mix(in srgb, var(--text) 8%, var(--
 .issue-acts > .btn-sm { min-width: 96px; }
 .issue-acts .row-menu { margin-left: 0; }
 .issue-acts .row-menu > summary.btn { min-width: 0 !important; padding: 0 10px; }
-.issue-markbar { margin-bottom: 10px; padding: 10px 14px !important; font-weight: 600; }
-.issue-markbar select { min-height: 34px; margin: 0 8px; padding: 0 8px; font: 600 14px var(--font-body); }
-.issue-markbar-more { display: inline-block; margin-left: 6px; }
+.issue-markbar { margin-bottom: 10px; padding: 10px 12px 10px 16px !important; }
 #tabs-issues table.display th, #tabs-issues table.display td { text-align: left !important; }
 #tabs-issues table.display th:last-child, #tabs-issues table.display td:last-child { text-align: right !important; }
 #tabs-issues table.display th, #tabs-issues table.display td { border-left: 0 !important; border-right: 0 !important; }
