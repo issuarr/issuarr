@@ -61,8 +61,10 @@ from mylar import (
     webp,
     carepackage,
     cvlink,
+    cbl_catalog,
     discover,
     duplicates,
+    search_rank,
     config,
     db,
     Failed,
@@ -77,6 +79,7 @@ from mylar import (
     librarysync,
     logger,
     matching,
+    volume_check,
     mb,
     moveit,
     notifiers,
@@ -90,6 +93,7 @@ from mylar import (
     ui,
     updater,
     weeklypull,
+    whatsnew,
 )
 from mylar.queues import queue_info
 from mylar.queues import ddl as ddl_queue
@@ -1189,7 +1193,32 @@ class WebInterface(object):
                 out.append(row)
         return out
 
-    def loadSearchResults(self, query=None, iDisplayStart=0, iDisplayLength=25, iSortCol_0='1', sSortDir_0="desc", sSearch="", hide_already='0', hide_tpb='0', **kwargs):
+    def _sort_search_results(self, filtered, iSortCol_0, sSortDir_0):
+        sortcolumn = 'comicname'
+        if iSortCol_0 == '1':
+            sortcolumn = 'comicname'
+        elif iSortCol_0 == '2':
+            sortcolumn = 'publisher'
+        elif iSortCol_0 == '3':
+            sortcolumn = 'comicyear'
+        elif iSortCol_0 == '4':
+            sortcolumn = 'issues'
+
+        def sortvalue(v):
+            # Issue counts and years sort as numbers (9 before 10), names ignore case.
+            if sortcolumn in ('issues', 'comicyear'):
+                try:
+                    return (0, int(v), '')
+                except (TypeError, ValueError):
+                    return (1, 0, str(v).lower())
+            return (0, 0, str(v).lower())
+        # Results with nothing in the column stay at the bottom whichever way it's sorted.
+        blank = [x for x in filtered if x.get(sortcolumn) in (None, '', 'None')]
+        filtered = sorted((x for x in filtered if x.get(sortcolumn) not in (None, '', 'None')),
+                          key=lambda x: sortvalue(x[sortcolumn]), reverse=sSortDir_0 == "desc") + blank
+        return filtered
+
+    def loadSearchResults(self, query=None, iDisplayStart=0, iDisplayLength=25, iSortCol_0='1', sSortDir_0="desc", sSearch="", hide_already='0', hide_tpb='0', name='', **kwargs):
 
         logger.fdebug('query: %s' % query)
         if query is None:
@@ -1247,28 +1276,10 @@ class WebInterface(object):
         if hide_tpb:
             filtered = [row for row in filtered if (row['type'] or '').upper() != 'TPB']
 
-        sortcolumn = 'comicname'
-        if iSortCol_0 == '1':
-            sortcolumn = 'comicname'
-        elif iSortCol_0 == '2':
-            sortcolumn = 'publisher'
-        elif iSortCol_0 == '3':
-            sortcolumn = 'comicyear'
-        elif iSortCol_0 == '4':
-            sortcolumn = 'issues'
-
-        def sortvalue(v):
-            # Issue counts and years sort as numbers (9 before 10), names ignore case.
-            if sortcolumn in ('issues', 'comicyear'):
-                try:
-                    return (0, int(v), '')
-                except (TypeError, ValueError):
-                    return (1, 0, str(v).lower())
-            return (0, 0, str(v).lower())
-        # Results with nothing in the column stay at the bottom whichever way it's sorted.
-        blank = [x for x in filtered if x.get(sortcolumn) in (None, '', 'None')]
-        filtered = sorted((x for x in filtered if x.get(sortcolumn) not in (None, '', 'None')),
-                          key=lambda x: sortvalue(x[sortcolumn]), reverse=sSortDir_0 == "desc") + blank
+        if iSortCol_0 == 'best':
+            filtered = search_rank.rank(filtered, name, search_rank.library_publishers(myDB))
+        else:
+            filtered = self._sort_search_results(filtered, iSortCol_0, sSortDir_0)
 
         logger.info('# of results: %s' % len(filtered))
         total_display_records = len(filtered)
@@ -2197,54 +2208,7 @@ class WebInterface(object):
 
     def deleteSeries(self, ComicID, delete_dir=None, ajax=None):
         # ajax=1 (the Ledger page) gets a JSON answer instead of a redirect to the home page.
-        myDB = db.DBConnection()
-        deleted = False
-        comic = myDB.selectone('SELECT * from comics WHERE ComicID=?', [ComicID]).fetchone()
-        try:
-            if comic['ComicName'] is None:
-                ComicName = 'None'
-            else:
-                ComicName = comic['ComicName']
-        except Exception as e:
-            logger.warn('Unable to reference ID in database - was ComicID: %s already deleted? Error returned: %s' % (ComicID, e))
-        else:
-            seriesdir = comic['ComicLocation']
-            seriesyear = comic['ComicYear']
-            seriesvol = comic['ComicVersion']
-            logger.info("Deleting all traces of Comic: " + ComicName)
-            myDB.action('DELETE from comics WHERE ComicID=?', [ComicID])
-            myDB.action('DELETE from issues WHERE ComicID=?', [ComicID])
-
-            if mylar.CONFIG.ANNUALS_ON:
-                myDB.action('DELETE from annuals WHERE ComicID=?', [ComicID])
-            myDB.action('DELETE from upcoming WHERE ComicID=?', [ComicID])
-            myDB.action('DELETE from readlist WHERE ComicID=?', [ComicID])
-            myDB.action("UPDATE weekly SET Status='Skipped' WHERE ComicID=? AND Status='Wanted'", [ComicID])
-            dropped = search.drop_series(ComicID)
-            if dropped:
-                logger.info('Removed %s queued searches for %s.' % (dropped, ComicName))
-            if delete_dir: #mylar.CONFIG.DELETE_REMOVE_DIR:
-                logger.fdebug('Remove directory on series removal enabled.')
-                if seriesdir is not None:
-                    if os.path.exists(seriesdir):
-                        logger.fdebug('Attempting to remove the directory and contents of : ' + seriesdir)
-                        try:
-                            shutil.rmtree(seriesdir)
-                        except:
-                            logger.warn('Unable to remove directory after removing series from Mylar.')
-                        else:
-                            logger.info('Successfully removed directory: %s' % (seriesdir))
-                    else:
-                        logger.warn('Unable to remove directory as it does not exist in : ' + seriesdir)
-                else:
-                    logger.warn('Unable to remove directory as it does not exist.')
-            if seriesvol is None:
-                dspline = '%s (%s)' % (ComicName, seriesyear)
-            else:
-                dspline = '%s %s (%s)' % (ComicName, seriesvol, seriesyear)
-            logger.info('Successful deletion of %s from your watchlist' % (dspline))
-            helpers.ComicSort(sequence='update')
-            deleted = True
+        deleted = helpers.remove_series(ComicID, delete_dir=bool(delete_dir))
         if ajax:
             cherrypy.response.headers['Content-Type'] = 'application/json'
             return json.dumps({'ok': deleted})
@@ -4929,9 +4893,39 @@ class WebInterface(object):
         return self._attention_json(matching.move_to(comicid, newid))
     match_move.exposed = True
 
+    def match_suspects(self, comicid):
+        return self._attention_json(volume_check.check(comicid))
+    match_suspects.exposed = True
+
+    def match_send_away(self, comicid, name):
+        self._attention_post()
+        return self._attention_json(volume_check.send_away(comicid, name))
+    match_send_away.exposed = True
+    def match_wrong_series(self, comicid, newid, name=None, year=None, move=None, remove=None):
+        self._attention_post()
+        return self._attention_json(matching.wrong_series(comicid, newid, name, year, move=move == '1', remove=remove == '1'))
+    match_wrong_series.exposed = True
+
+    def match_wrong_series_state(self, comicid):
+        return self._attention_json(matching.wrong_series_state(comicid))
+    match_wrong_series_state.exposed = True
+
     def cblimport(self):
         return serve_template(templatename="cblimport.html", title="CBL Import")
     cblimport.exposed = True
+
+    def cbl_catalog_lists(self, refresh='0'):
+        return self._attention_json(cbl_catalog.catalog(refresh=refresh == '1'))
+    cbl_catalog_lists.exposed = True
+
+    def cbl_catalog_file(self, path):
+        name, content = cbl_catalog.fetch(path)
+        if name is None:
+            cherrypy.response.status = 404
+            return self._attention_json({'ok': False, 'note': content})
+        cherrypy.response.headers['Content-Type'] = 'application/xml'
+        return content
+    cbl_catalog_file.exposed = True
 
     def flushImports(self):
         myDB = db.DBConnection()
@@ -7948,6 +7942,7 @@ class WebInterface(object):
                     "airdcpp_folder_mode": mylar.CONFIG.AIRDCPP_FOLDER_MODE,
                     "airdcpp_remote_dir": mylar.CONFIG.AIRDCPP_REMOTE_DIR,
                     "airdcpp_hubs": mylar.CONFIG.AIRDCPP_HUBS,
+                    "airdcpp_folder_packs": helpers.checked(mylar.CONFIG.AIRDCPP_FOLDER_PACKS),
                     "airdcpp_announce_hub": mylar.CONFIG.AIRDCPP_ANNOUNCE_HUB,
                     "airdcpp_announce_bots": mylar.CONFIG.AIRDCPP_ANNOUNCE_BOTS,
                     "ddl_prefer_upscaled": helpers.checked(mylar.CONFIG.DDL_PREFER_UPSCALED),
@@ -8466,7 +8461,7 @@ class WebInterface(object):
                            'prowl_enabled', 'prowl_onsnatch', 'pushover_enabled', 'pushover_onsnatch', 'pushover_image', 'mattermost_enabled', 'mattermost_onsnatch', 'boxcar_enabled',
                            'boxcar_onsnatch', 'pushbullet_enabled', 'pushbullet_onsnatch', 'telegram_enabled', 'telegram_onsnatch', 'telegram_image', 'discord_enabled', 'discord_onsnatch', 'slack_enabled', 'slack_onsnatch',
                            'email_enabled', 'email_enc', 'email_ongrab', 'email_onpost', 'gotify_enabled', 'gotify_server_url', 'gotify_token', 'gotify_onsnatch', 'ntfy_enabled', 'ntfy_onsnatch', 'webhook_enabled', 'webhook_onsnatch', 'opds_enable', 'opds_authentication', 'opds_metainfo', 'opds_pagesize', 'enable_ddl',
-                           'enable_getcomics', 'enable_flaresolverr', 'enable_airdcpp', 'jd2_enable', 'enable_external_server', 'ddl_prefer_upscaled', 'ddl_main_large_last', 'deluge_pause',
+                           'enable_getcomics', 'enable_flaresolverr', 'enable_airdcpp', 'airdcpp_folder_packs', 'jd2_enable', 'enable_external_server', 'ddl_prefer_upscaled', 'ddl_main_large_last', 'deluge_pause',
                            'custom_css_enabled'] #enable_public
 
         for checked_config in checked_configs:
@@ -8626,6 +8621,25 @@ class WebInterface(object):
             out['webp'] = None
         return json.dumps(out)
     pp_activity.exposed = True
+
+    def whats_new(self, **kwargs):
+        # The changelog lines this install hasn't shown since its last update.
+        cherrypy.response.headers['Content-Type'] = 'application/json'
+        cherrypy.response.headers['Cache-Control'] = 'no-cache'
+        return json.dumps(whatsnew.payload())
+    whats_new.exposed = True
+
+    def whats_new_seen(self, **kwargs):
+        cherrypy.response.headers['Content-Type'] = 'application/json'
+        if cherrypy.request.method != 'POST':
+            raise cherrypy.HTTPError(405)
+        try:
+            whatsnew.mark_seen()
+        except OSError as e:
+            logger.warn('[WHATS-NEW] Could not save which changes were shown: %s' % e)
+            return json.dumps({'status': 'failure'})
+        return json.dumps({'status': 'success'})
+    whats_new_seen.exposed = True
 
     def custom_css(self, **kwargs):
         cherrypy.response.headers['Content-Type'] = 'text/css; charset=utf-8'

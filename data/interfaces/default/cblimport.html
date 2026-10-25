@@ -24,6 +24,16 @@
                     <span id="cblfilenamelabel" class="mono muted cbl-file">No file chosen</span>
                 </div>
                 <span id="cblfilenameerror" class="cbl-error"></span>
+                <div class="cbl-catalog" id="cbl_catalog">
+                    <h3 class="panel-title">Or pick one from CBL-ReadingLists</h3>
+                    <p class="muted">The community lists at <a href="https://github.com/DieselTech/CBL-ReadingLists" target="_blank" rel="noopener">DieselTech/CBL-ReadingLists</a>, fetched from GitHub. Pick one to see what's in it, the same as choosing a file.</p>
+                    <div class="btn-row">
+                        <input type="search" id="cbl_catalog_q" placeholder="Search by name or publisher" aria-label="Search the reading lists" autocomplete="off" />
+                        <button type="button" class="btn btn-sm btn-ghost" id="cbl_catalog_refresh" title="Get the list of reading lists from GitHub again">Refresh</button>
+                    </div>
+                    <p class="muted" id="cbl_catalog_note" aria-live="polite">Loading the reading lists…</p>
+                    <ul class="cbl-catalog-list" id="cbl_catalog_list"></ul>
+                </div>
                 <div class="switch-list">
                     <label class="switch-row">
                         <input type="checkbox" ${'' if mylar.CONFIG.AUTOWANT_ALL else 'disabled'} name="issuesonly" id="issuesonly" value="1" ${checked(mylar.CONFIG.CBL_IMPORT_ISSUESONLY)} />
@@ -69,7 +79,18 @@
 <%def name="javascriptIncludes()">
         <script src="js/libs/jquery.dataTables.min.js"></script>
         <script>
+            var cblFile = null;
+
             function cblUpload() {
+                if ($(this).prop('files').length == 0) {
+                    $('#cblfilenamelabel').text("No File Selected");
+                    $('#status_text').text("No Reading List Loaded")
+                    return
+                }
+                cblCheck($(this).prop('files')[0]);
+            }
+
+            function cblCheck(file) {
                 var cblImportTableBody = $('#cblimporttable > tbody')
                 cblImportTableBody.empty();
                 $('#cblfilenameerror').text("");
@@ -78,16 +99,8 @@
                 $('#processlistconfirm').toggle(false);
                 $('#cblimporttable').DataTable().clear();
 
-                var file = null;
-
-                if ($(this).prop('files').length == 0) {
-                    $('#cblfilenamelabel').text("No File Selected");
-                    $('#status_text').text("No Reading List Loaded")
-                    return
-                } else {
-                    file = $(this).prop('files')[0]
-                    $('#cblfilenamelabel').text(file.name);
-                }
+                cblFile = file;
+                $('#cblfilenamelabel').text(file.name);
 
                 formdata = new FormData();
                 formdata.append("cblFile",file);
@@ -129,7 +142,7 @@
         </script>
         <script>
             function processCBL() {
-                file = $('#cblfileinput').prop('files')[0]
+                var file = cblFile;
 
                 formdata = new FormData();
                 formdata.append("cblFile",file);
@@ -159,6 +172,47 @@
             }
         </script>
         <script>
+        /* CBL-ReadingLists: pick a list instead of a file */
+        var catalogLists = [];
+
+        function catalogLoad(refresh) {
+            $('#cbl_catalog_note').text('Loading the reading lists…');
+            fetch('cbl_catalog_lists?' + new URLSearchParams({ refresh: refresh ? '1' : '0' }).toString(), { credentials: 'same-origin' })
+                .then(function (r) { return r.json(); })
+                .then(function (d) {
+                    catalogLists = d.lists || [];
+                    $('#cbl_catalog_note').text(d.ok ? catalogLists.length + ' reading lists.' + (d.note ? ' ' + d.note : '') : d.note);
+                    catalogShow();
+                })
+                .catch(function () { $('#cbl_catalog_note').text('Couldn\'t get the reading lists. Check the log.'); });
+        }
+
+        function catalogShow() {
+            var words = ($('#cbl_catalog_q').val() || '').toLowerCase().split(/\s+/).filter(Boolean);
+            var hits = catalogLists.filter(function (l) {
+                var t = (l.folder + ' ' + l.name).toLowerCase();
+                return words.every(function (w) { return t.indexOf(w) >= 0; });
+            });
+            var shown = hits.slice(0, 200);
+            var esc = function (t) { return $('<div>').text(t).html(); };
+            $('#cbl_catalog_list').html(shown.map(function (l, n) {
+                return '<li><button type="button" class="cbl-catalog-pick" data-path="' + esc(l.path) + '">' +
+                    '<span>' + esc(l.name) + '</span><small class="muted">' + esc(l.folder) + '</small></button></li>';
+            }).join('') + (hits.length > shown.length ? '<li class="muted">' + (hits.length - shown.length) + ' more. Search to narrow the list.</li>' : '')
+              + (catalogLists.length && !hits.length ? '<li class="muted">No list matches that search.</li>' : ''));
+        }
+
+        function catalogPick(path) {
+            $('#status_text').text('Getting ' + path + '…');
+            fetch('cbl_catalog_file?' + new URLSearchParams({ path: path }).toString(), { credentials: 'same-origin' })
+                .then(function (r) {
+                    if (!r.ok) return r.json().then(function (d) { throw new Error(d.note); });
+                    return r.blob();
+                })
+                .then(function (blob) { cblCheck(new File([blob], path.split('/').pop(), { type: 'application/xml' })); })
+                .catch(function (e) { $('#status_text').text(e.message || 'Couldn\'t get that list. Check the log.'); });
+        }
+
         function triggerFileSelect() {
             $(cblfileinput).click();
         }
@@ -171,6 +225,10 @@
                 $('#cblfileselectbutton').click(triggerFileSelect);
                 $('#cblfilenamelabel').click(triggerFileSelect);
                 $('#processlistbutton').click(processCBL);
+                $('#cbl_catalog_q').on('input', catalogShow);
+                $('#cbl_catalog_refresh').click(function () { catalogLoad(true); });
+                $('#cbl_catalog_list').on('click', '.cbl-catalog-pick', function () { catalogPick(this.getAttribute('data-path')); });
+                catalogLoad(false);
                 
                 $('#cblimporttable').dataTable(
                         {

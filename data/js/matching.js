@@ -1,4 +1,5 @@
-/* Series page: Match files (every file in the series folder) and Match a file (one issue).
+/* Series page: Match files (every file in the series folder) and Match a file (one issue), and
+   a notice when files in the folder look like they belong to another series.
    Each file shows its own cover next to the ComicVine cover of the issue it would be, so the two
    can be compared. A match made here holds through rechecks until it is undone or the file goes.
    Files waiting in Needs attention that look like this series are listed too; matching one files it. */
@@ -287,7 +288,14 @@
       wrongSearch(body.querySelector('.match-search').value);
     });
     if (!dlg.open) dlg.showModal();
-    wrongSearch(name);
+    // a job already running for this series shows how it's going instead of a new search
+    fetch('match_wrong_series_state?' + q({ comicid: comicid }), { credentials: 'same-origin', cache: 'no-store' })
+      .then(function (r) { if (!r.ok) throw new Error(r.status); return r.json(); })
+      .then(function (d) {
+        if (d.state === 'adding' || d.state === 'moving' || d.state === 'removing') { wrongShow(d); wrongWatch(comicid); }
+        else wrongSearch(name);
+      })
+      .catch(function () { wrongSearch(name); });
   }
 
   function wrongOut(html) {
@@ -330,49 +338,65 @@
       .catch(function () { wrongOut('<p class="match-meta">Couldn\'t search ComicVine. Check the log.</p>'); });
   }
 
+  /* The choices come first, so the dialog can be closed while the right series loads (it can take
+     a minute with many issues). The server carries on and the page says when it's done. */
   function wrongPick(newid, cvName, year) {
     var name = cvName + (year ? ' (' + year + ')' : '');
-    wrongOut('<p class="match-meta">Adding ' + esc(name) + ' and loading its issues…</p>');
-    post('attention_add_series', { comicid: newid, name: cvName, year: year }).then(function (d) {
-      if (d.ok === false) { wrongOut('<p class="match-meta">' + esc(d.note) + '</p>'); return; }
-      if (d.state === 'ready') return wrongReady(newid, name);
-      wrongWait(newid, name, 0);
-    }).catch(function () { wrongOut('<p class="match-meta">That didn\'t work. Check the log.</p>'); });
-  }
-
-  function wrongWait(newid, name, tries) {
-    fetch('attention_series_state?' + q({ comicid: newid }), { credentials: 'same-origin', cache: 'no-store' })
-      .then(function (r) { if (!r.ok) throw new Error(r.status); return r.json(); })
-      .then(function (d) {
-        if (!state.wrong || !dlg.open) return;
-        if (d.state === 'ready') return wrongReady(newid, name);
-        if (tries < 60) { wrongTimer = setTimeout(function () { wrongWait(newid, name, tries + 1); }, 3000); return; }
-        wrongOut('<p class="match-meta">' + esc(name) + ' is still being added. Open Wrong series again when it shows up in your library.</p>');
-      })
-      .catch(function () { wrongTimer = setTimeout(function () { wrongWait(newid, name, tries + 1); }, 10000); });
-  }
-
-  function wrongReady(newid, name) {
-    var out = wrongOut('<p class="match-meta">' + esc(name) + ' is on your watchlist. Move the files of ' + esc(state.label) + ' to it?</p>' +
-      '<div class="match-do"><button type="button" class="btn btn-sm btn-primary" data-wrong-move>Move the files</button></div>');
-    out.querySelector('[data-wrong-move]').addEventListener('click', function (e) {
+    var out = wrongOut('<p class="match-meta">Use ' + esc(name) + ' for the files of ' + esc(state.label) + '?</p>' +
+      '<label class="match-meta"><input type="checkbox" data-wrong-move checked /> Move the files to it and match them to its issues</label><br />' +
+      '<label class="match-meta"><input type="checkbox" data-wrong-remove /> Then remove ' + esc(state.label) + ' from your library (its folder stays)</label>' +
+      '<div class="match-do"><button type="button" class="btn btn-sm btn-primary" data-wrong-start>Add ' + esc(name) + '</button></div>');
+    out.querySelector('[data-wrong-start]').addEventListener('click', function (e) {
       e.target.disabled = true;
-      wrongOut('<p class="match-meta">Moving the files and matching them…</p>');
-      post('match_move', { comicid: state.comicid, newid: newid }).then(function (d) {
-        if (!d.ok) { wrongOut('<p class="match-meta">' + esc(d.note) + '</p>'); return; }
-        wrongDone(d);
-      }).catch(function () { wrongOut('<p class="match-meta">That didn\'t work. Check the log.</p>'); });
+      var move = out.querySelector('[data-wrong-move]').checked, remove = out.querySelector('[data-wrong-remove]').checked;
+      post('match_wrong_series', { comicid: state.comicid, newid: newid, name: cvName, year: year, move: move ? 1 : '', remove: remove ? 1 : '' })
+        .then(function (d) {
+          if (d.ok === false && !d.state) { wrongOut('<p class="match-meta">' + esc(d.note) + '</p>'); return; }
+          wrongShow(d);
+          wrongWatch(state.comicid);
+        })
+        .catch(function () { wrongOut('<p class="match-meta">That didn\'t work. Check the log.</p>'); });
     });
   }
 
-  function wrongDone(d) {
-    var go = 'comicDetails?' + q({ ComicID: d.series.comicid });
-    var out = wrongOut('<p class="match-meta">' + esc(d.note) + '</p>' +
-      '<div class="match-do"><button type="button" class="btn btn-sm" data-wrong-remove>Remove ' + esc(state.label) + ' from your library</button>' +
+  function wrongVisible(comicid) {
+    return dlg && dlg.open && state.wrong && String(state.comicid) === String(comicid);
+  }
+
+  // Keeps asking while the job runs, whether the dialog is open or not.
+  function wrongWatch(comicid) {
+    clearTimeout(wrongTimer);
+    fetch('match_wrong_series_state?' + q({ comicid: comicid }), { credentials: 'same-origin', cache: 'no-store' })
+      .then(function (r) { if (!r.ok) throw new Error(r.status); return r.json(); })
+      .then(function (d) {
+        if (d.state === 'done' || d.state === 'failed') {
+          reloadTable();
+          if (wrongVisible(comicid)) wrongShow(d);
+          else window.Issuarr.toast(d.note, d.state === 'done');
+          return;
+        }
+        if (wrongVisible(comicid)) wrongShow(d);
+        wrongTimer = setTimeout(function () { wrongWatch(comicid); }, 3000);
+      })
+      .catch(function () { wrongTimer = setTimeout(function () { wrongWatch(comicid); }, 10000); });
+  }
+
+  function wrongShow(d) {
+    if (d.state === 'failed') { wrongOut('<p class="match-meta">' + esc(d.note) + '</p>'); return; }
+    if (d.state !== 'done') {
+      wrongOut('<p class="match-meta">' + esc(d.note) + '</p>' +
+        '<p class="match-meta">You can close this window. It carries on in the background and says when it\'s done.</p>');
+      return;
+    }
+    var go = 'comicDetails?' + q({ ComicID: d.newid });
+    var out = wrongOut('<p class="match-meta">' + esc(d.note) + '</p><div class="match-do">' +
+      (d.removed ? '' : '<button type="button" class="btn btn-sm" data-wrong-remove>Remove ' + esc(d.old) + ' from your library</button>') +
       '<a class="btn btn-sm btn-primary" href="' + esc(go) + '">Go to the right series</a></div>');
-    out.querySelector('[data-wrong-remove]').addEventListener('click', function (e) {
+    var rm = out.querySelector('[data-wrong-remove]');
+    if (!rm) return;
+    rm.addEventListener('click', function (e) {
       e.target.disabled = true;
-      fetch('deleteSeries?' + q({ ComicID: state.comicid, ajax: 1 }), { credentials: 'same-origin' })
+      fetch('deleteSeries?' + q({ ComicID: d.comicid, ajax: 1 }), { credentials: 'same-origin' })
         .then(function (r) { if (!r.ok) throw new Error(r.status); return r.json(); })
         .then(function (r) {
           if (r.ok) location.href = go;
@@ -410,6 +434,65 @@
   document.addEventListener('load', function (e) {
     if (e.target.matches && e.target.matches('#match-dialog [data-cover-img]')) e.target.style.visibility = '';
   }, true);
+
+  /* Files that may belong to another series: past the series' last issue (another volume), or a
+     collected edition in a series of single issues (by name, or far bigger than its other files). */
+  function suspectsCheck() {
+    var box = document.getElementById('series_suspects');
+    if (!box) return;
+    var id = box.getAttribute('data-comicid');
+    fetch('match_suspects?' + q({ comicid: id }), { credentials: 'same-origin', cache: 'no-store' })
+      .then(function (r) { if (!r.ok) throw new Error(r.status); return r.json(); })
+      .then(function (d) {
+        var n = d.ok ? d.files.length : 0;
+        box.hidden = !n;
+        if (!n) return;
+        box.innerHTML = '<span>' + (d.whole
+          ? 'Most files here are numbered past the end of this series. It may have been added as the wrong ComicVine volume.'
+          : n + (n === 1 ? ' file here looks like it belongs' : ' files here look like they belong') + ' to another series.') + '</span>' +
+          '<button type="button" class="btn btn-sm" data-suspects>Review</button>' +
+          (d.whole ? '<button type="button" class="btn btn-sm btn-primary" data-suspects-wrong>Wrong series…</button>' : '');
+        box.querySelector('[data-suspects]').addEventListener('click', function () { suspectsOpen(id, d); });
+        var w = box.querySelector('[data-suspects-wrong]');
+        if (w) w.addEventListener('click', function () { wrongOpen(id, box.getAttribute('data-name'), box.getAttribute('data-year')); });
+      })
+      .catch(function () { box.hidden = true; });
+  }
+
+  function suspectsOpen(comicid, d) {
+    dlg = document.getElementById('match-dialog');
+    title = document.getElementById('match-title');
+    intro = document.getElementById('match-intro');
+    body = document.getElementById('match-body');
+    if (!dlg) return;
+    state = { comicid: comicid, suspects: true };
+    title.textContent = 'Files that may belong elsewhere';
+    intro.textContent = 'Move a file to Needs attention, then use File as there to put it in the series it belongs to. ' +
+      'If a file is right where it is, leave it.';
+    body.innerHTML = '<ul class="match-list">' + d.files.map(function (f, n) {
+      return '<li class="match-row" data-n="' + n + '"><div class="match-covers">' + fileCover(f) + '</div>' +
+        '<div class="match-file"><span class="match-name">' + fileName(f) + '</span>' +
+        '<span class="match-meta">' + (f.number ? 'Now #' + esc(f.number) + ' · ' : '') + esc(f.note) + ' · ' + mb(f.size) + '</span>' +
+        '<div class="match-do"><button type="button" class="btn btn-sm btn-primary" data-away>Move to Needs attention</button></div></div></li>';
+    }).join('') + '</ul>';
+    body.querySelectorAll('[data-away]').forEach(function (b) {
+      b.addEventListener('click', function () {
+        var f = d.files[+b.closest('[data-n]').getAttribute('data-n')];
+        b.disabled = true;
+        post('match_send_away', { comicid: comicid, name: f.name }).then(function (r) {
+          window.Issuarr.toast(r.note || (r.ok ? 'Done.' : 'That didn\'t work.'), !!r.ok);
+          if (!r.ok) { b.disabled = false; return; }
+          b.closest('.match-row').remove();
+          reloadTable();
+          suspectsCheck();
+        }).catch(function () { window.Issuarr.toast('That didn\'t work. Check the log.', false); b.disabled = false; });
+      });
+    });
+    if (!dlg.open) dlg.showModal();
+  }
+
+  if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', suspectsCheck);
+  else suspectsCheck();
 
   window.IssuarrMatch = { open: open, wrongSeries: wrongOpen };
 })();

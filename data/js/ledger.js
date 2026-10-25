@@ -1,12 +1,12 @@
 (function () {
   var MK = ['--lg-gap', '--lg-unrec', '--lg-after', '--lg-before', '--lg-cut', '--lg-done'];
   var ML = ['Gap', 'Files not recognised', 'After last owned', 'Before first owned', 'After collection ended', 'Complete'];
-  var MH = ['Owned issues on both sides', 'Series has files Mylar can\'t match', 'Past your last owned issue', 'Before your first owned issue', 'Released after your cutoff date', 'Series where you have every issue'];
+  var MH = ['Owned issues on both sides', 'Series has files Issuarr can\'t match', 'Past your last owned issue', 'Before your first owned issue', 'Released after your cutoff date', 'Series where you have every issue'];
   var COMPLETE = 5;
   var CK = ['fills_gaps', 'covered', 'partly', 'not_in_library', 'unknown'];
   var CC = ['--lg-c-fills', '--lg-c-dupe', '--lg-c-part', '--lg-c-out', '--lg-c-unknown', '--lg-done'];
   var CL = ['Fills gaps', 'Duplicates singles', 'Partly covered', 'Not in library', 'No contents info', 'Replaces a whole series'];
-  var CH = ['Collects issues you don\'t have as singles', 'You own every tracked issue it collects', 'Its own series has issues Mylar doesn\'t track', 'Collects series you don\'t track', 'No source lists what it collects', 'Your trades collect every issue of a single-issue series you track, gaps included'];
+  var CH = ['Collects issues you don\'t have as singles', 'You own every tracked issue it collects', 'Its own series has issues Issuarr doesn\'t track', 'Collects series you don\'t track', 'No source lists what it collects', 'Your trades collect every issue of a single-issue series you track, gaps included'];
   var WHOLE = 5;
   var BOOK = '<svg class="lg-ico" viewBox="0 0 16 16" aria-hidden="true"><path d="M8 4.2C6.6 3 4.4 2.6 1.5 2.8v9.6c2.9-.2 5.1.2 6.5 1.4 1.4-1.2 3.6-1.6 6.5-1.4V2.8c-2.9-.2-5.1.2-6.5 1.4zM8 4.2v9.6"/></svg>';
 
@@ -50,7 +50,7 @@
 
   // One bar per series, by status: on disk, wanted, snatched, failed, missing and not wanted, and the rest
   // (Ignored issues aren't listed as missing, so they make up most of it). The last item is what the colour means, on hover.
-  var SEGS = [['have', 'seg-have', 'Have', 'On disk: downloaded or archived'], ['w', 'seg-wanted', 'Wanted', 'Mylar searches for these'],
+  var SEGS = [['have', 'seg-have', 'Have', 'On disk: downloaded or archived'], ['w', 'seg-wanted', 'Wanted', 'Issuarr searches for these'],
               ['s', 'seg-snatched', 'Snatched', 'Grabbed, not filed yet'], ['f', 'seg-failed', 'Failed', 'The download or filing failed'],
               ['m', 'seg-missing', 'Missing, not marked Wanted', 'Not on disk and not searched for'], ['rest', 'seg-ignored', 'Ignored or not listed', 'Ignored, or not counted as missing']];
   function counts(si) {
@@ -281,7 +281,7 @@
     }).join('') : '<tr><td class="lg-empty" colspan="9">' + (st.kinds.missing.length === 1 && st.kinds.missing[0] === COMPLETE ? 'Complete series are listed in the By series view.' : 'No issues match. Turn on more kinds above or clear the search.') + '</td></tr>');
     countLine(Math.min(st.limit, f.length), f.length, 'issues', sf.wanted);
     $id('lg-more').hidden = f.length <= st.limit;
-    $id('lg-note').textContent = KEYS + ' Trades: a filled book means a trade you own collects the issue; an outlined one means a trade you don\'t own collects it. Wanted starts a search for those issues. Ignored stops Mylar from ever searching for them. Series lost completely aren\'t in Mylar, so they can\'t show here.';
+    $id('lg-note').textContent = KEYS + ' Trades: a filled book means a trade you own collects the issue; an outlined one means a trade you don\'t own collects it. Wanted starts a search for those issues. Ignored stops Issuarr from ever searching for them. Series lost completely aren\'t in Issuarr, so they can\'t show here.';
   }
 
   function renderSeries() {
@@ -460,7 +460,7 @@
     $('.lg-actions button').prop('disabled', true);
     $.ajax({ url: 'markissues', type: 'POST', traditional: true, data: { action: action, 'issueids[]': list } })
       .done(function () { done(); })
-      .fail(function () { $('.lg-actions button').prop('disabled', false); $id('lg-selcount').textContent = 'Mylar didn\'t accept the change. Check the log.'; });
+      .fail(function () { $('.lg-actions button').prop('disabled', false); $id('lg-selcount').textContent = 'Issuarr didn\'t accept the change. Check the log.'; });
   }
   function reload(then) {
     st.sel = {}; st.ssel = {}; st.confirm = null;
