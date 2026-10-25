@@ -169,7 +169,7 @@ Open `http://<your-server>:8090`. Every page is in the sidebar on the left, and 
 3. **Settings > Search providers:** add your Newznab or Torznab indexers, or turn on **Download directly from sites** for GetComics. If you use direct downloads, set its **Download folder** there too, and see [Using JDownloader 2](docs/JDOWNLOADER2.md) if you want JDownloader 2 to handle mirror links.
 4. **Settings > Files & post-processing:** turn on **Post-process downloads** and **Watch a folder for new comics**, and point it at the folder where finished downloads land. Turn on **Write metadata into files** if you want ComicInfo written to your files.
 5. **Settings > Notifications & advanced:** check the **Series folder name** and **File name** formats.
-6. **Add comics.** Use **Add series** in the sidebar to search for a series and add it, or **Tools > Import & scan** to import the comics you already have.
+6. **Add comics.** Use **Add series** in the sidebar to search for a series (or paste its ComicVine link) and add it, or **Tools > Import & scan** to import the comics you already have.
 
 Issuarr marks the missing issues of new series *Wanted* and starts searching. Watch progress on the **Wanted** page, **Downloads > Queue**, and **Tasks > Jobs**.
 

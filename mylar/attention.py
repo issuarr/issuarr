@@ -37,7 +37,7 @@ import threading
 import time
 
 import mylar
-from mylar import db, logger, editions
+from mylar import db, logger, editions, cvlink
 
 COMIC_EXT = ('.cbz', '.cbr', '.cb7', '.pdf')
 # Most telling first: a file that failed on volume for one series and on name for the rest
@@ -385,6 +385,18 @@ def status():
     return {'jobs': dict(JOBS), 'refile': refile, 'count': count()}
 
 
+def search_link(text):
+    """For a ComicVine link pasted into the manual pick: its series when it's on the watchlist,
+    and for an issue link which issue to pick. None when text isn't a link. Never asks
+    ComicVine, since this runs as the user types (find_series does)."""
+    link = cvlink.resolve(text, ask_cv=False)
+    if link is None:
+        return None
+    row = link['comicid'] and db.DBConnection().selectone('SELECT ComicID, ComicName, ComicYear, ComicVersion FROM comics WHERE ComicID=?', [link['comicid']]).fetchone()
+    series = [{'comicid': row['ComicID'], 'name': row['ComicName'], 'year': row['ComicYear'], 'volume': row['ComicVersion']}] if row else []
+    return {'series': series, 'link': link}
+
+
 def search(text, limit=12):
     """Watchlist series for the manual pick."""
     want = _norm(text)
@@ -408,15 +420,22 @@ def _cv_key():
 
 def find_series(text, limit=20):
     """Series on ComicVine for the manual pick, for when the right one isn't on the watchlist yet.
-    Uses the same search as Add series, one page of it."""
+    Uses the same search as Add series, one page of it. A pasted ComicVine link finds just its
+    series; for an issue link, link.issueid says which issue to pick."""
     from mylar import mb
     text = (text or '').strip()
     if not text:
         return {'ok': True, 'series': []}
     if not _cv_key():
         return {'ok': False, 'note': 'Searching ComicVine needs a ComicVine API key (Settings).', 'series': []}
+    link = cvlink.resolve(text)
+    if link is not None and link['comicid'] is None:
+        return {'ok': False, 'note': 'Couldn\'t find that issue on ComicVine. If ComicVine was busy or down, the log says so.', 'series': [], 'link': link}
     try:
-        found = mb.findComic(text, 'series', None, page=1, pageSize=limit) or []
+        if link is not None:
+            found = mb.findComic(text, 'series', None, volumeid=link['comicid']) or []
+        else:
+            found = mb.findComic(text, 'series', None, page=1, pageSize=limit) or []
     except Exception as e:
         logger.warn('[ATTENTION] ComicVine search for %s failed: %s' % (text, e))
         return {'ok': False, 'note': 'The ComicVine search didn\'t work. The log has why.', 'series': []}
@@ -424,7 +443,7 @@ def find_series(text, limit=20):
     return {'ok': True, 'series': [{'comicid': str(x['comicid']), 'name': x['name'], 'year': x.get('comicyear'),
                                     'publisher': x.get('publisher'), 'issues': x.get('issues'), 'volume': x.get('volume'),
                                     'thumb': x.get('comicthumb'), 'type': x.get('type'),
-                                    'watched': str(x['comicid']) in watched} for x in found]}
+                                    'watched': str(x['comicid']) in watched} for x in found], 'link': link}
 
 
 def add_series(comicid, name=None, year=None):
