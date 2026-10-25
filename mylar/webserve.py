@@ -61,6 +61,7 @@ from mylar import (
     webp,
     carepackage,
     cvlink,
+    discover,
     config,
     db,
     Failed,
@@ -4763,6 +4764,32 @@ class WebInterface(object):
 
         return serve_template(templatename="managefailed.html", title="Failed DB Management", failed=results)
     manageFailed.exposed = True
+
+    def discover(self):
+        return serve_template(templatename="discover.html", title="Discover", weeks=discover.WEEK_CHOICES, default_weeks=discover.DEFAULT_WEEKS)
+    discover.exposed = True
+
+    def discover_feed(self, weeks=None):
+        try:
+            count = int(weeks)
+        except (TypeError, ValueError):
+            count = discover.DEFAULT_WEEKS
+        if count not in discover.WEEK_CHOICES:
+            count = discover.DEFAULT_WEEKS
+        span = discover.recent_weeks(count)
+        loading = discover.fill_weeks(span)
+        data = discover.feeds(db.DBConnection(), span)
+        ids = [c['issueid'] for f in ('new', 'latest') for c in data[f] if c['issueid']]
+        discover.want_covers(ids)
+        data.update({'weeks': count, 'loading': loading,
+                     'covers': mylar.CONFIG.COMICVINE_API not in (None, '', 'None'),
+                     'missing': len(discover.missing_weeks(db.DBConnection(), span))})
+        return self._attention_json(data)
+    discover_feed.exposed = True
+
+    def discover_cover(self, issueid, r=None):   # r: a retry after the server was busy
+        return self._attention_image(discover.cover(issueid))
+    discover_cover.exposed = True
 
     def needsAttention(self):
         return serve_template(templatename="attention.html", title="Needs attention",

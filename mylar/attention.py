@@ -567,9 +567,14 @@ def issue_cover(issueid):
     """The issue's cover from ComicVine, fetched once and cached, or None."""
     row = db.DBConnection().selectone('SELECT ImageURL, ImageURL_ALT FROM issues WHERE IssueID=?', [issueid]).fetchone()
     url = row and (row['ImageURL'] or row['ImageURL_ALT'])
+    return url_cover('issue-%s' % re.sub(r'[^0-9A-Za-z_-]', '', str(issueid)), url)
+
+
+def url_cover(name, url):
+    """A cover image from url, fetched once and cached as name.jpg, BUSY, or None."""
     if not url or not str(url).startswith('http'):
         return None
-    out = os.path.join(_cover_dir(), 'issue-%s.jpg' % re.sub(r'[^0-9A-Za-z_-]', '', str(issueid)))
+    out = os.path.join(_cover_dir(), '%s.jpg' % name)
     if os.path.isfile(out):
         return out
     if _remembered_none(out, NO_COVER_DAYS):
@@ -585,7 +590,7 @@ def issue_cover(issueid):
                              verify=getattr(mylar.CONFIG, 'CV_VERIFY', True))
             r.raise_for_status()
         except Exception as e:
-            logger.fdebug('[ATTENTION] Could not fetch the cover for issue %s: %s' % (issueid, e))
+            logger.fdebug('[ATTENTION] Could not fetch the cover %s: %s' % (name, e))
             _remember_none(out)
             return None
         if not r.headers.get('Content-Type', '').startswith('image/'):

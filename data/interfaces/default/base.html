@@ -28,6 +28,7 @@
 	    ]),
 	    ('Find', [
 	        dict(label='Add series', href='#', match='searchit', action='add'),
+	        dict(label='Discover', href='discover', match='discover'),
 	        dict(label='Wanted', href='wanted', match='wanted', disabled=bool(mylar.WANTED_TAB_OFF)),
 	        dict(label='Calendar', href='pullist', match='pullist upcoming', badge=('New' if mylar.PULLNEW != 'no' else None), children=[
 	            ('This week', 'pullist', 'pullist'),
