@@ -31,7 +31,7 @@ import requests
 import threading
 
 import mylar
-from mylar import logger, filers, helpers, db, mb, cv, parseit, filechecker, search, updater, moveit, comicbookdb, series_metadata
+from mylar import logger, filers, helpers, db, mb, cv, parseit, filechecker, search, updater, moveit, comicbookdb, series_metadata, want_from
 
 
 def is_exists(comicid):
@@ -1198,6 +1198,7 @@ def issue_collection(issuedata, nostatus, serieslast_updated=None, suppress_adda
                                 newValueDict['Status'] = "Wanted"
                             else:
                                 newValueDict['Status'] = "Skipped"
+                            newValueDict['Status'] = want_from.adjust(issue['ComicID'], issue['Issue_Number'], newValueDict['Status'])
                         #logger.fdebug('status is : %s' % (newValueDict,))
                 else:
                     #logger.fdebug('Existing status for issue #%s : %s' % (issue['Issue_Number'], iss_exists['Status']))

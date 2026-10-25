@@ -1067,6 +1067,11 @@ def dbcheck():
         c.execute('ALTER TABLE comics ADD COLUMN cv_removed INT')
 
     try:
+        c.execute('SELECT WantFrom from comics')
+    except sqlite3.OperationalError:
+        c.execute('ALTER TABLE comics ADD COLUMN WantFrom TEXT')
+
+    try:
         c.execute('SELECT DynamicComicName from comics')
         if CONFIG.DYNAMIC_UPDATE < 3:
             dynamic_upgrade = True
