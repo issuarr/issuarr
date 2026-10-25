@@ -18,8 +18,10 @@
                Archived: 'Marked {n} as archived', OppositeTier: 'Switched the tier of {n}' };
   var STATUS = { Wanted: 'is-wanted', Snatched: 'is-snatched', Failed: 'is-failed' };
 
+  var GROUP_KEY = 'issuarr-wanted-group';
   var st = { rows: [], tab: 'all', q: '', sort: 'release-desc', col: null, limit: CHUNK, sel: {}, loaded: false,
-             flow: {}, current: null };
+             flow: {}, current: null, group: false, open: {}, lastPick: null };
+  try { st.group = localStorage.getItem(GROUP_KEY) === '1'; } catch (e) {}
 
   function $id(id) { return document.getElementById(id); }
   function I() { return window.Issuarr; }
@@ -132,33 +134,84 @@
     }).join('');
   }
 
+  function rowHtml(r) {
+    var picked = !!st.sel[r.id];
+    var canSearch = r.watch !== 'oneoff';
+    return '<tr' + (picked ? ' class="is-picked"' : '') + '><td class="check"><input type="checkbox" data-pick="' + esc(r.id) + '" aria-label="Select ' +
+      esc(r.name) + ' #' + esc(r.issue) + '"' + (picked ? ' checked' : '') + '></td>' +
+      '<td>' + seriesCell(r) + '</td>' +
+      '<td class="mono nowrap">#' + esc(r.issue) + '</td>' +
+      '<td class="mono nowrap">' + esc(r.release || '-') + '</td>' +
+      '<td class="nowrap"><span class="status ' + (STATUS[r.status] || '') + '">' + esc(r.status) + '</span>' + queueNote(r) + '</td>' +
+      '<td class="nowrap">' + tierCell(r) + '</td>' +
+      '<td class="actions">' + (canSearch ? '<button type="button" class="btn btn-sm" data-search="' + esc(r.id) + '">Search now</button>' : '') + '</td></tr>';
+  }
+
+  function groupKey(r) { return r.watch === 'oneoff' ? 'arc:' + r.arcid : 'series:' + r.comicid; }
+
+  // Series in the order their first issue comes in the sorted list, each with its issues in that order.
+  function groups(list) {
+    var by = {}, out = [];
+    list.forEach(function (r) {
+      var k = groupKey(r);
+      if (!by[k]) { by[k] = { key: k, first: r, rows: [] }; out.push(by[k]); }
+      by[k].rows.push(r);
+    });
+    return out;
+  }
+
+  function groupHtml(g) {
+    var open = !!st.open[g.key];
+    var n = g.rows.length, on = g.rows.filter(function (r) { return st.sel[r.id]; }).length;
+    var lo = g.rows[0], hi = g.rows[0];
+    g.rows.forEach(function (r) { if (r.num < lo.num) lo = r; if (r.num > hi.num) hi = r; });
+    var span = ' · #' + lo.issue + (hi !== lo ? '–#' + hi.issue : '');
+    var canSearch = g.first.watch !== 'oneoff';
+    var head = '<tr class="w-group' + (on ? ' is-picked' : '') + '" data-group="' + esc(g.key) + '">' +
+      '<td class="check"><input type="checkbox" data-pick-group="' + esc(g.key) + '" aria-label="Select every wanted issue of ' + esc(g.first.name) + '"' +
+      (on === n ? ' checked' : '') + (on && on < n ? ' data-mixed' : '') + '></td>' +
+      '<td colspan="5"><button type="button" data-ui class="w-fold" data-fold="' + esc(g.key) + '" aria-expanded="' + open + '">' +
+      '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M9 6l6 6-6 6"/></svg>' +
+      '<b>' + esc(g.first.name) + '</b></button> ' + (g.first.watch === 'oneoff' ? '<span class="muted">' + esc(g.first.arc) + '</span> ' : '') +
+      '<span class="muted mono">' + plural(n) + esc(span) + '</span></td>' +
+      '<td class="actions">' + (canSearch ? '<button type="button" class="btn btn-sm" data-search-group="' + esc(g.key) + '">Search ' + (n === 1 ? 'it' : 'all ' + n) + '</button>' : '') + '</td></tr>';
+    return head + (open ? g.rows.map(rowHtml).join('') : '');
+  }
+
   function render() {
     var list = filtered();
-    var shown = list.slice(0, st.limit);
+    var all = st.group ? groups(list) : list;
+    var shown = all.slice(0, st.limit);
     var tb = $id('w-table').tBodies[0];
     if (!shown.length) {
       tb.innerHTML = '<tr><td colspan="7" class="empty-state">' + (!st.loaded ? 'Loading…' : st.rows.length ? 'Nothing matches.' :
         'Nothing is wanted right now. Mark issues as wanted from a series page, or let the Calendar add new releases of series you follow.') + '</td></tr>';
     } else {
-      tb.innerHTML = shown.map(function (r) {
-        var picked = !!st.sel[r.id];
-        var canSearch = r.watch !== 'oneoff';
-        return '<tr' + (picked ? ' class="is-picked"' : '') + '><td class="check"><input type="checkbox" data-pick="' + esc(r.id) + '" aria-label="Select ' +
-          esc(r.name) + ' #' + esc(r.issue) + '"' + (picked ? ' checked' : '') + '></td>' +
-          '<td>' + seriesCell(r) + '</td>' +
-          '<td class="mono nowrap">#' + esc(r.issue) + '</td>' +
-          '<td class="mono nowrap">' + esc(r.release || '-') + '</td>' +
-          '<td class="nowrap"><span class="status ' + (STATUS[r.status] || '') + '">' + esc(r.status) + '</span>' + queueNote(r) + '</td>' +
-          '<td class="nowrap">' + tierCell(r) + '</td>' +
-          '<td class="actions">' + (canSearch ? '<button type="button" class="btn btn-sm" data-search="' + esc(r.id) + '">Search now</button>' : '') + '</td></tr>';
-      }).join('');
+      tb.innerHTML = shown.map(st.group ? groupHtml : rowHtml).join('');
+      tb.querySelectorAll('[data-mixed]').forEach(function (cb) { cb.indeterminate = true; });
     }
-    $id('w-all').checked = shown.length > 0 && shown.every(function (r) { return st.sel[r.id]; });
-    $id('w-range').textContent = list.length ? 'Showing ' + fmt(shown.length) + ' of ' + plural(list.length) : '';
+    var shownRows = shownIssues(shown);
+    $id('w-all').checked = shownRows.length > 0 && shownRows.every(function (r) { return st.sel[r.id]; });
+    if (st.group) {
+      var issuesShown = shownRows.length;
+      $id('w-range').textContent = list.length ? 'Showing ' + fmt(shown.length) + ' of ' + fmt(all.length) + ' series' +
+        ' (' + (issuesShown === list.length ? plural(list.length) : fmt(issuesShown) + ' of ' + plural(list.length)) + ')' : '';
+    } else {
+      $id('w-range').textContent = list.length ? 'Showing ' + fmt(shown.length) + ' of ' + plural(list.length) : '';
+    }
     var more = $id('w-more-rows');
-    more.hidden = list.length <= st.limit;
-    more.textContent = 'Show more (' + fmt(Math.max(list.length - st.limit, 0)) + ' left)';
+    more.hidden = all.length <= st.limit;
+    more.textContent = 'Show more (' + fmt(Math.max(all.length - st.limit, 0)) + ' left)';
+    $id('w-group').setAttribute('aria-pressed', String(st.group));
     renderBulk();
+  }
+
+  function shownIssues(shown) {
+    if (!st.group) return shown;
+    return [].concat.apply([], shown.map(function (g) { return g.rows; }));
+  }
+  function groupRows(key) {
+    return filtered().filter(function (r) { return groupKey(r) === key; });
   }
 
   function renderBulk() {
@@ -262,6 +315,34 @@
     if (tab) { st.tab = tab.getAttribute('data-tab'); st.limit = CHUNK; renderTabs(); render(); return; }
     var s = t.closest('[data-search]');
     if (s) { search([s.getAttribute('data-search')]); return; }
+    var fold = t.closest('[data-fold]');
+    if (fold) {
+      var k = fold.getAttribute('data-fold');
+      if (st.open[k]) delete st.open[k]; else st.open[k] = true;
+      render();
+      var again = document.querySelector('#w-table [data-fold="' + CSS.escape(k) + '"]');
+      if (again) again.focus();
+      return;
+    }
+    var sg = t.closest('[data-search-group]');
+    if (sg) { search(groupRows(sg.getAttribute('data-search-group')).map(function (r) { return r.id; })); return; }
+    // Shift-click a checkbox: everything between it and the last one clicked follows it.
+    var pk = t.closest('#w-table [data-pick]');
+    if (pk) {
+      var id = pk.getAttribute('data-pick');
+      if (e.shiftKey && st.lastPick && st.lastPick !== id) {
+        var boxes = Array.prototype.slice.call(document.querySelectorAll('#w-table tbody [data-pick]'));
+        var ids = boxes.map(function (b) { return b.getAttribute('data-pick'); });
+        var a = ids.indexOf(st.lastPick), b = ids.indexOf(id);
+        if (a > -1 && b > -1) {
+          ids.slice(Math.min(a, b), Math.max(a, b) + 1).forEach(function (x) { if (pk.checked) st.sel[x] = true; else delete st.sel[x]; });
+          st.lastPick = id;
+          render();
+          return;
+        }
+      }
+      st.lastPick = id;
+    }
     var m = t.closest('#w-bulk [data-mark]');
     if (m) { mark(m.getAttribute('data-mark')); return; }
     if (t.closest('#w-bulk [data-bulk="search"]')) {
@@ -273,16 +354,30 @@
   });
 
   document.addEventListener('change', function (e) {
+    var pg = e.target.closest('[data-pick-group]');
+    if (pg) {
+      groupRows(pg.getAttribute('data-pick-group')).forEach(function (r) { if (pg.checked) st.sel[r.id] = true; else delete st.sel[r.id]; });
+      render();
+      return;
+    }
     var pick = e.target.closest('[data-pick]');
     if (!pick) return;
     var id = pick.getAttribute('data-pick');
     if (pick.checked) st.sel[id] = true; else delete st.sel[id];
+    if (st.group) { render(); return; }
     pick.closest('tr').classList.toggle('is-picked', pick.checked);
     renderBulk();
   });
 
   $id('w-all').addEventListener('change', function (e) {
-    filtered().slice(0, st.limit).forEach(function (r) { if (e.target.checked) st.sel[r.id] = true; else delete st.sel[r.id]; });
+    var list = filtered();
+    shownIssues((st.group ? groups(list) : list).slice(0, st.limit)).forEach(function (r) { if (e.target.checked) st.sel[r.id] = true; else delete st.sel[r.id]; });
+    render();
+  });
+  $id('w-group').addEventListener('click', function () {
+    st.group = !st.group;
+    st.limit = CHUNK;
+    try { localStorage.setItem(GROUP_KEY, st.group ? '1' : '0'); } catch (e) {}
     render();
   });
   $id('w-bulk-none').addEventListener('click', function () { st.sel = {}; render(); });
