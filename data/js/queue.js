@@ -41,15 +41,17 @@
 
   // Clears finished or failed direct downloads from the list (ddl_clear), not from the library.
   function clearStatus(status, confirmText) {
-    if (!window.confirm(confirmText)) return;
-    post('ddl_clear', { status: status })
-      .then(function (r) { I().toast(r.message || 'Done', r.status !== false); document.dispatchEvent(new CustomEvent('issuarr:flow-poke')); })
-      .catch(function () { I().toast('That didn\'t work. Check the log.', false); })
-      .then(function () { load(true); });
+    I().ask(confirmText, { ok: 'Remove' }, function () {
+      post('ddl_clear', { status: status })
+        .then(function (r) { I().toast(r.message || 'Done', r.status !== false); document.dispatchEvent(new CustomEvent('issuarr:flow-poke')); })
+        .catch(function () { I().toast('That didn\'t work. Check the log.', false); })
+        .then(function () { load(true); });
+    });
   }
 
+  var REQUEUE_OK = { remove: 'Remove', abort: 'Stop download', clear_queue: 'Clear the queue' };
   function requeue(mode, id, confirmText) {
-    if (confirmText && !window.confirm(confirmText)) return;
+    if (confirmText) { I().ask(confirmText, { ok: REQUEUE_OK[mode] || 'OK', danger: true }, function () { requeue(mode, id); }); return; }
     call('ddl_requeue?mode=' + encodeURIComponent(mode) + (id != null ? '&id=' + encodeURIComponent(id) : ''))
       .then(function (r) { I().toast(r.message || 'Done'); document.dispatchEvent(new CustomEvent('issuarr:flow-poke')); })
       .catch(function () { I().toast('That didn\'t work. Check the log.', false); })
@@ -249,9 +251,10 @@
     queueControl(this.getAttribute('data-paused') === 'true' ? 'resume' : 'pause');
   });
   $id('q-stop-all').addEventListener('click', function () {
-    if (!window.confirm('Stop all direct downloads? Running ones are stopped and marked Failed, queued ones are removed, and their issues go back to Wanted to be searched again. ' +
-      'Grabs at SABnzbd, NZBGet or your torrent client aren\'t touched.')) return;
-    queueControl('stop_all');
+    I().ask('Stop all direct downloads? Running ones are stopped and marked Failed, queued ones are removed, and their issues go back to Wanted to be searched again. ' +
+      'Grabs at SABnzbd, NZBGet or your torrent client aren\'t touched.', { ok: 'Stop all', danger: true }, function () {
+      queueControl('stop_all');
+    });
   });
   function pauseButton(d) {
     var b = $id('q-pause'), paused = !!d.download.paused;

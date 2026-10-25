@@ -239,7 +239,66 @@
     });
   }
 
-  window.Issuarr = { esc: esc, toast: toast, relTime: relTime, clock: clock, webpText: webpText, clearSort: clearSort };
+  // "Are you sure?" in the page instead of the browser's confirm(). then() runs only when the person says yes.
+  // opts.ok names the button ("Remove"); opts.danger makes it red and starts on Cancel. A message that opens with
+  // a question ("Remove 3 series? Files stay on disk.") shows the question as the title and the rest below it,
+  // unless opts.title gives the title.
+  var askBox = null, askThen = null, askLast = null;
+  function ask(message, opts, then) {
+    if (typeof opts === 'function') { then = opts; opts = {}; }
+    opts = opts || {};
+    if (!askBox) {
+      askBox = el('div', 'jump-backdrop');
+      askBox.id = 'ask';
+      askBox.hidden = true;
+      askBox.innerHTML = '<div class="jump ask" role="alertdialog" aria-modal="true" aria-labelledby="ask-title" aria-describedby="ask-text">' +
+        '<div class="add-head"><h2 id="ask-title"></h2><p id="ask-text"></p></div>' +
+        '<div class="ask-foot"><button type="button" class="btn" id="ask-no">Cancel</button><button type="button" class="btn" id="ask-yes"></button></div></div>';
+      doc.body.appendChild(askBox);
+      var done = function (yes) {
+        askBox.hidden = true;
+        var fn = askThen;
+        askThen = null;
+        if (askLast && askLast.focus) askLast.focus();
+        if (yes && fn) fn();
+      };
+      $id('ask-yes').addEventListener('click', function () { done(true); });
+      $id('ask-no').addEventListener('click', function () { done(false); });
+      askBox.addEventListener('mousedown', function (e) { if (e.target === askBox) done(false); });
+      askBox.addEventListener('keydown', function (e) {
+        if (e.key === 'Escape') { e.preventDefault(); e.stopPropagation(); done(false); }
+        else if (e.key === 'Tab') {
+          // Keep focus on the two buttons while the question is open.
+          e.preventDefault();
+          ($id(doc.activeElement && doc.activeElement.id === 'ask-yes' ? 'ask-no' : 'ask-yes')).focus();
+        }
+      });
+    }
+    var text = String(message || '');
+    var m = opts.title ? [null, opts.title, text] : /^([^?]*\?)\s+([\s\S]+)$/.exec(text);
+    $id('ask-title').textContent = m ? m[1] : text;
+    $id('ask-text').textContent = m ? m[2] : '';
+    $id('ask-text').hidden = !m;
+    var yes = $id('ask-yes');
+    yes.textContent = opts.ok || 'OK';
+    yes.className = 'btn ' + (opts.danger ? 'btn-danger' : 'btn-primary');
+    askThen = then;
+    askLast = doc.activeElement;
+    askBox.hidden = false;
+    (opts.danger ? $id('ask-no') : yes).focus();
+  }
+
+  // Links and buttons that only need a yes first: <a href="restart" data-confirm="Restart Issuarr now?" data-confirm-ok="Restart">.
+  doc.addEventListener('click', function (e) {
+    var a = e.target.closest && e.target.closest('a[data-confirm]');
+    if (!a) return;
+    e.preventDefault();
+    ask(a.getAttribute('data-confirm'), { ok: a.getAttribute('data-confirm-ok'), danger: a.hasAttribute('data-confirm-danger') }, function () {
+      location.href = a.href;
+    });
+  });
+
+  window.Issuarr = { esc: esc, toast: toast, ask: ask, relTime: relTime, clock: clock, webpText: webpText, clearSort: clearSort };
 
   /* ---------- Pages whose tab strip moved into the sidebar ---------- */
 
@@ -500,8 +559,8 @@
     { label: 'Update all series from ComicVine', job: 'updater', done: 'Series update started' },
     { label: 'Refresh this week\'s pull list', job: 'weekly', done: 'Pull list refresh started' },
     { label: 'Check for a new version', job: 'version', done: 'Version check started' },
-    { label: 'Restart Issuarr', href: 'restart', confirm: 'Restart Issuarr now?' },
-    { label: 'Shut down Issuarr', href: 'shutdown', confirm: 'Shut down Issuarr? It stays off until you start it again.' }
+    { label: 'Restart Issuarr', href: 'restart', confirm: 'Restart Issuarr now?', ok: 'Restart' },
+    { label: 'Shut down Issuarr', href: 'shutdown', confirm: 'Shut down Issuarr? It stays off until you start it again.', ok: 'Shut down' }
   ];
 
   function setupJump() {
@@ -607,8 +666,9 @@
           .catch(function () { toast('That didn\'t work. Check the log.', false); });
         return;
       }
-      if (item.confirm && !window.confirm(item.confirm)) return;
-      location.href = item.href;
+      if (!item.confirm) { location.href = item.href; return; }
+      close();
+      ask(item.confirm, { ok: item.ok, danger: true }, function () { location.href = item.href; });
     }
 
     function fetchSeries() {
@@ -790,10 +850,13 @@
     });
     var resetBtn = $id('css-reset');
     if (resetBtn) resetBtn.addEventListener('click', function () {
-      if (area.value.trim() && !window.confirm('Clear the editor? Nothing changes until you save.')) return;
-      area.value = '/* Loaded after the built-in theme, on every page. */\n:root {\n  \n}\n';
-      update();
-      area.focus();
+      var go = function () {
+        area.value = '/* Loaded after the built-in theme, on every page. */\n:root {\n  \n}\n';
+        update();
+        area.focus();
+      };
+      if (area.value.trim()) ask('Clear the editor? Nothing changes until you save.', { ok: 'Clear' }, go);
+      else go();
     });
     update();
   }

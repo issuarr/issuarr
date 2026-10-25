@@ -518,6 +518,12 @@ def start():
             SCHED.add_job(func=downloadqueue.clear_stuck_tick, id='snatched', name='Stuck Snatched', max_instances=1, coalesce=True,
                           trigger=IntervalTrigger(hours=0, minutes=downloadqueue.CLEAR_EVERY, timezone='UTC'))
 
+            # Indexers from Prowlarr, while Keep in sync is on (does nothing otherwise)
+            from mylar import prowlarr
+            SCHED.add_job(func=prowlarr.sync, id='prowlarr', name='Prowlarr Sync', max_instances=1, coalesce=True,
+                          next_run_time=datetime.datetime.utcnow() + datetime.timedelta(minutes=5),
+                          trigger=IntervalTrigger(hours=prowlarr.SYNC_HOURS, timezone='UTC'))
+
             #load up the previous runs from the job sql table so we know stuff...
             monitors = helpers.job_management(startup=True)
 
