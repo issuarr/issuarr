@@ -221,3 +221,30 @@ def test_a_scan_that_stops_says_so(lib, monkeypatch):
     st = library_check.status()
     assert st['error'] == 'RuntimeError: disk went away'
     library_check.STATE['error'] = None
+
+
+def test_files_webp_read_through_arent_opened_again(lib, monkeypatch):
+    import os
+    from mylar import webp
+    db, folder, _ = lib
+
+    def seen(name, status, reason=''):
+        st = os.stat(folder / name)
+        return {'size': st.st_size, 'mtime': st.st_mtime, 'status': status, 'reason': reason}
+    remembered = {
+        str(folder / 'Saga 001.cbz'): seen('Saga 001.cbz', 'converted'),
+        str(folder / 'Saga 003.cbz'): seen('Saga 003.cbz', 'damaged', 'not a cbz'),
+        str(folder / 'Saga 004.cbz'): seen('Saga 004.cbz', 'nothing to gain', 'no pages'),   # pages never read
+    }
+    remembered[str(folder / 'Saga 002.cbz')] = dict(seen('Saga 002.cbz', 'converted'), size=1)   # changed since
+    monkeypatch.setattr(webp, 'remembered', lambda myDB=None: remembered)
+    opened = []
+    real = library_check.check_file
+    monkeypatch.setattr(library_check, 'check_file', lambda path: opened.append(os.path.basename(path)) or real(path))
+    run_scan()
+    assert sorted(opened) == ['Saga 002.cbz', 'Saga 004.cbz']
+    st = library_check.status()
+    assert library_check.STATE['trusted'] == 2
+    found = {f['name']: (f['status'], f['detail']) for f in st['files']}
+    assert found['Saga 003.cbz'] == ('damaged', 'Found while converting to WebP: not a cbz.')
+    assert 'Saga 001.cbz' not in found

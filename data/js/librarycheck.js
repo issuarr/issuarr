@@ -46,7 +46,7 @@
     $('lc-scan').disabled = running || d.tagging.state === 'running';
     $('lc-stop').hidden = !running;
     var note;
-    if (running) note = 'Checking file ' + d.done + ' of ' + (d.total || '…') + ' (' + d.opened + ' opened, the rest unchanged since last time).';
+    if (running) note = 'Checking file ' + d.done + ' of ' + (d.total || '…') + ' (' + d.opened + ' opened, ' + d.trusted + ' already read through by WebP, the rest unchanged since last time).';
     else if (d.error) note = 'The check stopped after ' + d.done + ' of ' + d.total + ' files: ' + d.error + '. Files after that weren\'t checked; see the log.';
     else if (!d.checked) note = 'Not checked yet.';
     else note = d.files.length ? d.files.length + (d.files.length === 1 ? ' file needs' : ' files need') + ' a look.' : 'Every file checked out.';
@@ -88,6 +88,7 @@
   });
 
   $('lc-scan').addEventListener('click', function () {
+    if (!st.data.checked && !confirm('The first check reads every comic file that WebP hasn\'t already read through, from start to finish. On a large library this can take hours. Run it now?')) return;
     post('library_check_scan').then(load).catch(function () { toast('Couldn\'t start. Check the log.', false); });
   });
   $('lc-stop').addEventListener('click', function () { post('library_check_stop'); });

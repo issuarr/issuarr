@@ -9,13 +9,15 @@
         <div class="page-head">
             <div class="head-text">
                 <h1><span class="page-crumb">Tools › </span>Library check</h1>
-                <p class="page-sub">Opens every comic in your series folders and reads it through, to find files that are damaged, aren't comics at all, have no pages, or wrap another .cbz or .cbr instead of pages. It also counts issue files with no ComicInfo.xml, which readers like Kavita show as a separate series, and can tag them from the details Issuarr already has. Files are remembered, so the next run only opens ones that changed. Nothing happens to a file until you choose; files you remove go to the trash for ${trash_days} days.</p>
+                <p class="page-sub">Opens every comic in your series folders and reads it through, to find files that are damaged, aren't comics at all, have no pages, or wrap another .cbz or .cbr instead of pages. It also counts issue files with no ComicInfo.xml, which readers like Kavita show as a separate series, and can tag them from the details Issuarr already has. Files are remembered, so the next run only opens ones that changed, and files WebP conversion has already read through aren't opened again. Nothing happens to a file until you choose; files you remove go to the trash for ${trash_days} days.</p>
             </div>
             <div class="head-actions">
                 <button type="button" class="btn btn-primary" id="lc-scan">Check the library</button>
                 <button type="button" class="btn" id="lc-stop" hidden>Stop</button>
             </div>
         </div>
+
+        <p class="notice">The first check of a large library can take hours: each file WebP hasn&#39;t already read through is read from start to finish. Run it when you suspect damaged or corrupt files, not as routine upkeep.</p>
 
         <section class="section" aria-label="Untagged files" id="lc-tags" hidden>
             <div class="lc-file">
