@@ -3,6 +3,9 @@
     import re
     import mylar
     from operator import itemgetter
+
+    # Settings boxes are not a sign-in form: stop browsers and password managers offering to save or fill them.
+    NOSAVE = 'autocomplete="off" data-lpignore="true" data-1p-ignore="true" data-bwignore="true" data-form-type="other"'
 %>
 
 <%doc>
@@ -15,7 +18,7 @@
 %endif
 </%def>
 
-<%def name="field(name, label, value, help='', id=None, type='text', placeholder='', attrs='', suffix='')">
+<%def name="field(name, label, value, help='', id=None, type='text', placeholder='', attrs='', suffix='', nosave=True)">
 <%
     fid = id or ('f_' + name)
     unset = value is None or str(value) == 'None'
@@ -23,7 +26,11 @@
 <div class="set-row">
     <label class="set-label" for="${fid}"><b>${label}</b>${hint(help)}</label>
     <div class="set-ctl">
-        <input type="${type}" name="${name}" id="${fid}" value="${'' if unset else value | h}" ${'data-none="1"' if unset else ''} ${('placeholder="%s"' % placeholder.replace('"', '&quot;')) if placeholder else ''} ${attrs} />${suffix}
+        %if type == 'secret':
+        <input type="text" class="secret" spellcheck="false" name="${name}" id="${fid}" value="${'' if unset else value | h}" ${'data-none="1"' if unset else ''} ${('placeholder="%s"' % placeholder.replace('"', '&quot;')) if placeholder else ''} ${NOSAVE} ${attrs} />${suffix}
+        %else:
+        <input type="${type}" name="${name}" id="${fid}" value="${'' if unset else value | h}" ${'data-none="1"' if unset else ''} ${('placeholder="%s"' % placeholder.replace('"', '&quot;')) if placeholder else ''} ${NOSAVE if nosave else ''} ${attrs} />${suffix}
+        %endif
     </div>
 </div>
 </%def>
@@ -148,8 +155,9 @@
             </div>
             ${select('authentication', 'Sign-in', [(0, 'None'), (1, 'Browser pop-up (basic)'), (2, 'Login page (forms)')], config['authentication'], id='authentication', attrs='onchange="authoptions()"')}
             <div class="set-sub" id="auth_options">
-                ${field('http_username', 'User name', config['http_user'], attrs='autocomplete="off"')}
-                ${field('http_password', 'Password', config['http_pass'], type='password', attrs='autocomplete="new-password"')}
+                <%doc>Issuarr's own sign-in: a real user name and password pair, so the browser offers to save it.</%doc>
+                ${field('http_username', 'User name', config['http_user'], id='http_username', nosave=False, attrs='autocomplete="username"')}
+                ${field('http_password', 'Password', config['http_pass'], id='http_password', type='password', nosave=False, attrs='autocomplete="new-password"')}
             </div>
             ${field('instance_name', 'Instance name', config['instance_name'], id='instance_name', help='Shown in the browser tab. Useful when you run more than one.')}
             ${toggle('launch_browser', 'Open a browser when Issuarr starts', config['launch_browser'])}
@@ -179,7 +187,7 @@
                          help='Your Issuarr sign-in works, or set an OPDS-only user below. When off, anyone who can reach Issuarr can read the feed.')}
                 <div class="set-sub" id="opdscredentials">
                     ${field('opds_username', 'OPDS user name', config['opds_username'])}
-                    ${field('opds_password', 'OPDS password', config['opds_password'], type='password', attrs='autocomplete="new-password"')}
+                    ${field('opds_password', 'OPDS password', config['opds_password'], type='secret')}
                 </div>
                 ${toggle('opds_metainfo', 'Include writers and summaries', config['opds_metainfo'], id='opds_metainfo', help='Makes issue lists noticeably slower.')}
             </div>
@@ -230,7 +238,7 @@
             <div class="set-sub set-client" id="sabnzbd_options">
                 ${field('sab_host', 'SABnzbd address', config['sab_host'], id='sab_host', placeholder='http://localhost:8080')}
                 ${field('sab_username', 'User name', config['sab_user'], id='sab_username')}
-                ${field('sab_password', 'Password', config['sab_pass'], id='sab_password', type='password', attrs='autocomplete="new-password"')}
+                ${field('sab_password', 'Password', config['sab_pass'], id='sab_password', type='secret')}
                 <div class="set-row">
                     <label class="set-label" for="sab_apikey"><b>API key</b><span>Fill in the address, user name and password, then Get key can read it from SABnzbd.</span></label>
                     <div class="set-ctl">
@@ -261,7 +269,7 @@
                 ${field('nzbget_port', 'NZBGet port', config['nzbget_port'], id='nzbget_port', attrs='inputmode="numeric" class="set-num"')}
                 ${field('nzbget_sub', 'Sub-path', config['nzbget_sub'], id='nzbget_sub', help='Only if NZBGet is served under a path, e.g. /myname/nzbget, with no slash at the end.')}
                 ${field('nzbget_username', 'User name', config['nzbget_user'], id='nzbget_username')}
-                ${field('nzbget_password', 'Password', config['nzbget_pass'], id='nzbget_password', type='password', attrs='autocomplete="new-password"')}
+                ${field('nzbget_password', 'Password', config['nzbget_pass'], id='nzbget_password', type='secret')}
                 ${field('nzbget_directory', 'NZBGet download folder', config['nzbget_directory'], help='Where NZBGet puts finished downloads. Optional.')}
                 ${field('nzbget_category', 'Category', config['nzbget_cat'])}
                 ${select('nzbget_priority', 'Priority', [(p, p) for p in ['Default', 'Low', 'Normal', 'High', 'Force', 'Paused']], config['nzbget_priority'])}
@@ -308,7 +316,7 @@
                         ${field('seedbox_host', 'Seedbox address', config['seedbox_host'])}
                         ${field('seedbox_port', 'SFTP port', config['seedbox_port'], attrs='inputmode="numeric" class="set-num"')}
                         ${field('seedbox_user', 'User name', config['seedbox_user'])}
-                        ${field('seedbox_pass', 'Password', config['seedbox_pass'], type='password', attrs='autocomplete="new-password"')}
+                        ${field('seedbox_pass', 'Password', config['seedbox_pass'], type='secret')}
                         ${field('seedbox_watchdir', 'Watch folder', config['seedbox_watchdir'], help='The folder the seedbox client watches.')}
                     </div>
                 </div>
@@ -316,7 +324,7 @@
                 <div class="set-client" id="utorrent_options">
                     ${field('utorrent_host', 'uTorrent address', config['utorrent_host'])}
                     ${field('utorrent_username', 'User name', config['utorrent_username'])}
-                    ${field('utorrent_password', 'Password', config['utorrent_password'], type='password', attrs='autocomplete="new-password"')}
+                    ${field('utorrent_password', 'Password', config['utorrent_password'], type='secret')}
                     ${field('utorrent_label', 'Label', config['utorrent_label'], help='Given to every torrent Issuarr adds.')}
                 </div>
 
@@ -328,7 +336,7 @@
                     ${field('rtorrent_rpc_url', 'RPC path', config['rtorrent_rpc_url'], id='rtorrent_rpc_url',
                             help='httprpc plugin: rutorrent/plugins/httprpc/action.php. RPC plugin: user/RPC2.')}
                     ${field('rtorrent_username', 'User name', config['rtorrent_username'], id='rtorrent_username')}
-                    ${field('rtorrent_password', 'Password', config['rtorrent_password'], id='rtorrent_password', type='password', attrs='autocomplete="new-password"')}
+                    ${field('rtorrent_password', 'Password', config['rtorrent_password'], id='rtorrent_password', type='secret')}
                     ${field('rtorrent_directory', 'Download folder', config['rtorrent_directory'], help='Where rTorrent saves the torrents Issuarr adds.')}
                     ${field('rtorrent_label', 'Label', config['rtorrent_label'], help='Given to every torrent Issuarr adds.')}
                     ${toggle('rtorrent_startonload', 'Start torrents as soon as they are added', config['rtorrent_startonload'], id='rtorrent_startonload')}
@@ -338,7 +346,7 @@
                 <div class="set-client" id="transmission_options">
                     ${field('transmission_host', 'Transmission address', config['transmission_host'])}
                     ${field('transmission_username', 'User name', config['transmission_username'])}
-                    ${field('transmission_password', 'Password', config['transmission_password'], type='password', attrs='autocomplete="new-password"')}
+                    ${field('transmission_password', 'Password', config['transmission_password'], type='secret')}
                     ${field('transmission_directory', 'Download folder', config['transmission_directory'], help='Where Transmission saves the torrents Issuarr adds.')}
                 </div>
 
@@ -346,7 +354,7 @@
                     ${field('deluge_host', 'Deluge daemon address', config['deluge_host'], id='deluge_host', placeholder='192.168.1.2:58846',
                             help='Host and daemon port. Remote connections must be allowed in Deluge.')}
                     ${field('deluge_username', 'User name', config['deluge_username'], id='deluge_username')}
-                    ${field('deluge_password', 'Password', config['deluge_password'], id='deluge_password', type='password', attrs='autocomplete="new-password"')}
+                    ${field('deluge_password', 'Password', config['deluge_password'], id='deluge_password', type='secret')}
                     ${field('deluge_label', 'Label', config['deluge_label'], help='Given to every torrent Issuarr adds.')}
                     ${field('deluge_download_directory', 'Download folder', config['deluge_download_directory'])}
                     ${field('deluge_done_directory', 'Move finished downloads to', config['deluge_done_directory'])}
@@ -358,7 +366,7 @@
                     ${field('qbittorrent_host', 'qBittorrent address', config['qbittorrent_host'], id='qbittorrent_host', help='Host and port.')}
                     ${toggle('qbittorrent_ignore_ssl', 'Ignore SSL warnings', config['qbittorrent_ignore_ssl'], id='qbittorrent_ignore_ssl', help='Allows self-signed certificates.')}
                     ${field('qbittorrent_username', 'User name', config['qbittorrent_username'], id='qbittorrent_username')}
-                    ${field('qbittorrent_password', 'Password', config['qbittorrent_password'], id='qbittorrent_password', type='password', attrs='autocomplete="new-password"')}
+                    ${field('qbittorrent_password', 'Password', config['qbittorrent_password'], id='qbittorrent_password', type='secret')}
                     ${field('qbittorrent_label', 'Label', config['qbittorrent_label'], help='Given to every torrent Issuarr adds.')}
                     ${field('qbittorrent_folder', 'Download folder', config['qbittorrent_folder'])}
                     ${select('qbittorrent_loadaction', 'When a torrent is added', [('default', 'Use qBittorrent\'s default'), ('force_start', 'Force start'), ('pause', 'Add paused')], config['qbittorrent_loadaction'])}
@@ -483,7 +491,7 @@
         <section class="set-group" aria-labelledby="sg-torznab">
             <div class="set-group-head"><h2 id="sg-torznab">Torrent indexers (Torznab)</h2></div>
             ${toggle('enable_torznab', 'Search Torznab indexers', config['enable_torznab'], id='enable_torznab',
-                     help='Found torrents go to the torrent client set under Download clients, so Use torrents needs to be on there too.')}
+                     help='Found torrents go to the torrent client set under Download clients, so Use torrents needs to be on there too. The newest comics on each indexer are also read with the RSS check, like Newznab indexers.')}
             <div class="set-sub" id="torznab_providers">
                 %for tz in config['extra_torznabs']:
                 <%
@@ -560,9 +568,9 @@
                         <label class="set-label" for="pixeldrain_api_key"><b>Pixeldrain API key</b><span id="pixeldrain_status">Optional. Without a key Pixeldrain allows about 6 GB a day per connection.</span></label>
                         <div class="set-ctl">
                             %if config['pixeldrain_env']:
-                            <input type="password" id="pixeldrain_api_key" value="" placeholder="Set by the PIXELDRAIN_API_KEY environment variable" class="set-wide" disabled>
+                            <input type="text" id="pixeldrain_api_key" value="" placeholder="Set by the PIXELDRAIN_API_KEY environment variable" class="set-wide" disabled>
                             %else:
-                            <input type="password" autocomplete="off" name="pixeldrain_api_key" id="pixeldrain_api_key" value="${config['pixeldrain_api_key'] | h}" placeholder="None (free daily limit)" class="set-wide">
+                            <input type="text" ${NOSAVE} spellcheck="false" name="pixeldrain_api_key" id="pixeldrain_api_key" value="${config['pixeldrain_api_key'] | h}" placeholder="None (free daily limit)" class="set-wide secret">
                             %endif
                             <input type="button" class="btn" value="Test" id="test_pixeldrain">
                         </div>
@@ -585,13 +593,14 @@
             <div class="set-sub" id="airdcpp_options">
                 ${field('airdcpp_host', 'Address', config['airdcpp_host'], id='airdcpp_host', placeholder='http://localhost:5600')}
                 ${field('airdcpp_username', 'User name', config['airdcpp_username'], id='airdcpp_username')}
-                ${field('airdcpp_password', 'Password', config['airdcpp_password'], id='airdcpp_password', type='password', attrs='autocomplete="new-password"')}
+                ${field('airdcpp_password', 'Password', config['airdcpp_password'], id='airdcpp_password', type='secret')}
                 ${select('airdcpp_folder_mode', 'Where downloads go', [('issuarr', 'Issuarr sends the download folder'), ('airdcpp', 'AirDC++ uses its own download folder')], config['airdcpp_folder_mode'], id='airdcpp_folder_mode', help='Pick AirDC++\'s own folder when the two programs see folders under different paths, such as Docker or Windows.')}
                 ${field('airdcpp_download_dir', 'Download folder', config['airdcpp_download_dir'], id='airdcpp_download_dir', help='As Issuarr sees it. With AirDC++\'s own folder, this is that folder from Issuarr\'s side.')}
                 <div id="airdcpp_own_folder">
                 ${field('airdcpp_remote_dir', 'AirDC++ download folder, as AirDC++ sees it', config['airdcpp_remote_dir'], id='airdcpp_remote_dir', placeholder='/downloads', help='Optional. Lets Issuarr swap AirDC++\'s path for its own, so files in subfolders are found too.')}
                 </div>
                 ${field('airdcpp_hubs', 'Hubs to search', config['airdcpp_hubs'], id='airdcpp_hubs', help='Comma-separated. Leave empty for all hubs.')}
+                ${toggle('airdcpp_folder_packs', 'Grab other wanted issues from the same folder', config['airdcpp_folder_packs'], id='airdcpp_folder_packs', help='After an issue downloads, open the folder it came from on that user and queue the other Wanted issues of the series found there, one file each. Uses no extra hub searches.')}
                 ${field('airdcpp_announce_hub', 'Announcement hub', config['airdcpp_announce_hub'], id='airdcpp_announce_hub', help='One hub, as address:port, to watch for new releases the way an RSS feed would.')}
                 ${field('airdcpp_announce_bots', 'Announcement bots', config['airdcpp_announce_bots'], id='airdcpp_announce_bots', help='Nicknames whose announcements are read.')}
                 <%
@@ -631,7 +640,7 @@
                     <select id="ignore_words" name="ignore_search_words[]" multiple placeholder="Add a word"></select>
                 </div>
             </div>
-            ${toggle('use_minsize', 'Minimum file size', config['use_minsize'], id='use_minsize')}
+            ${toggle('use_minsize', 'Minimum file size', config['use_minsize'], id='use_minsize', help='Results under 1 MB are always skipped as fakes. Turn this on for a higher floor.')}
             <div class="set-sub">
                 ${field('minsize', 'At least', config['minsize'], attrs='inputmode="numeric" class="set-num"', suffix='<span class="set-unit">MB</span>')}
             </div>
@@ -649,7 +658,7 @@
             <div class="set-sub">
                 ${field('duplicate_dump', 'Duplicates folder', config['duplicate_dump'], help='Full path.')}
             </div>
-            ${toggle('failed_download_handling', 'Handle failed downloads', config['failed_download_handling'], id='enable_failed')}
+            ${toggle('failed_download_handling', 'Handle failed downloads', config['failed_download_handling'], id='enable_failed', help='A failed release is never grabbed again, even when it comes back under another id or from another indexer with the same name.')}
             <div class="set-sub">
                 ${toggle('failed_auto', 'Retry failed downloads automatically', config['failed_auto'])}
             </div>
@@ -812,7 +821,7 @@
                     <div class="set-ctl"><input type="number" name="email_port" id="email_port" value="${config['email_port'] | h}" class="set-num" /></div>
                 </div>
                 ${field('email_user', 'SMTP user name', config['email_user'], id='email_user')}
-                ${field('email_password', 'SMTP password', config['email_password'], id='email_password', type='password', attrs='autocomplete="new-password"')}
+                ${field('email_password', 'SMTP password', config['email_password'], id='email_password', type='secret')}
                 <div class="set-row">
                     <div class="set-label"><b>Encryption</b><span>What your SMTP server requires.</span></div>
                     <div class="seg" role="radiogroup" aria-label="Encryption">
@@ -842,7 +851,7 @@
             <%self:notifier key="ntfy" label="ntfy" logo="ntfy.png" name="ntfy_enabled" checked="${config['ntfy_enabled']}">
                 ${field('ntfy_server_url', 'Server address', config['ntfy_server_url'], id='ntfy_server_url', attrs='class="set-wide"', placeholder='https://ntfy.sh', help='https://ntfy.sh or your own ntfy server.')}
                 ${field('ntfy_topic', 'Topic', config['ntfy_topic'], id='ntfy_topic', help='On the public ntfy.sh anyone who knows the topic can read it, so pick one that is hard to guess.')}
-                ${field('ntfy_token', 'Access token', config['ntfy_token'], id='ntfy_token', type='password', attrs='autocomplete="new-password"', help='Only if your topic needs one.')}
+                ${field('ntfy_token', 'Access token', config['ntfy_token'], id='ntfy_token', type='secret', help='Only if your topic needs one.')}
                 ${toggle('ntfy_onsnatch', 'Notify when an issue is grabbed', config['ntfy_onsnatch'])}
                 ${tester('ntfy_test', 'Test ntfy', 'ntfy_statusicon', 'ntfystatus')}
             </%self:notifier>
@@ -2846,10 +2855,31 @@ $("#enable_airdcpp").click(function(){
                     savedAppearance = pick(arr);
                     render();
                     Issuarr.toast(reload ? 'Settings saved. Reloading to apply your CSS.' : 'Settings saved.');
+                    offerSignInSave();
                     if (reload) { leaving = true; setTimeout(function () { location.reload(); }, 700); }
                 })
                 .fail(function () { Issuarr.toast('Couldn\'t save the settings. Check the log.', false); })
                 .always(function () { saveBtn.disabled = false; });
+        }
+        // Browsers don't notice a sign-in change saved in the background, so hand a changed
+        // login-page user name and password to the browser's password manager where it allows it
+        // (Chrome and Edge, over HTTPS or on localhost).
+        var signIn = signInNow();
+        function signInNow() {
+            var u = document.getElementById('http_username'), p = document.getElementById('http_password');
+            var mode = document.getElementById('authentication');
+            return { user: u ? u.value : '', pass: p ? p.value : '', forms: !!mode && mode.value === '2' };
+        }
+        function offerSignInSave() {
+            var now = signInNow(), before = signIn;
+            signIn = now;
+            if (!now.forms || !now.user || !now.pass) return;
+            // Only a newly typed password: the box can hold the stored, encrypted value.
+            if (now.pass === before.pass) return;
+            if (!window.PasswordCredential || !navigator.credentials || !navigator.credentials.store) return;
+            try {
+                navigator.credentials.store(new PasswordCredential({ id: now.user, password: now.pass, name: 'Issuarr' })).catch(function () {});
+            } catch (e) {}
         }
         saveBtn.addEventListener('click', save);
         discardBtn.addEventListener('click', function () { leaving = true; location.reload(); });
