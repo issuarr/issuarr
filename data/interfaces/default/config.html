@@ -657,7 +657,7 @@
             <div class="set-sub">
                 ${field('duplicate_dump', 'Duplicates folder', config['duplicate_dump'], help='Full path.')}
             </div>
-            ${toggle('failed_download_handling', 'Handle failed downloads', config['failed_download_handling'], id='enable_failed')}
+            ${toggle('failed_download_handling', 'Handle failed downloads', config['failed_download_handling'], id='enable_failed', help='A failed release is never grabbed again, even when it comes back under another id or from another indexer with the same name.')}
             <div class="set-sub">
                 ${toggle('failed_auto', 'Retry failed downloads automatically', config['failed_auto'])}
             </div>
