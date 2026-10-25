@@ -248,6 +248,8 @@ input[type="date"], input[type="url"]:not([data-ui]), select, textarea:not([data
   border-radius: 6px; box-shadow: none !important; font-family: var(--font-body);
 }
 input[type="checkbox"], input[type="radio"] { accent-color: var(--text); }
+/* Saved passwords and tokens: plain text boxes drawn as dots, so browsers don't treat Settings as a sign-in form. */
+input.secret { -webkit-text-security: disc; }
 
 table, table.display { background: var(--surface) !important; color: var(--text) !important; border-color: var(--line) !important; font-variant-numeric: tabular-nums; }
 table th, table.display thead th {
