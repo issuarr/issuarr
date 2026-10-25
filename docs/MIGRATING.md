@@ -196,7 +196,7 @@ For comics that were never in Mylar's database, such as an old collection on ano
 
 A scan skips folders whose name starts with `_` or `.`, and the duplicates dump, review and trash folders from your settings. Keep working folders such as `_Duplicates` under one of those names and they are never read as library.
 
-Files are matched most reliably when their names follow `Series Name (Year) Issue.cbz` or similar. If a series isn't recognised (or is matched to the wrong series), click **ComicVine ID** on its row in **Import results** and paste the series' ComicVine link or the number after `4050-` in it (for `https://comicvine.gamespot.com/invincible/4050-39340/` that's `39340`). The series is added and its files imported like any other match.
+Files are matched most reliably when their names follow `Series Name (Year) Issue.cbz` or similar. If a series isn't recognised (or is matched to the wrong series), click **ComicVine ID** on its row in **Import results** and paste the series' ComicVine link or the number after `4050-` in it (for `https://comicvine.gamespot.com/invincible/4050-39340/` that's `39340`). An issue's link or ID (`4000-664333`, or just `664333`) works too and stands for its series. The series is added and its files imported like any other match.
 
 ## Going back to Mylar3
 
