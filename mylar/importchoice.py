@@ -15,12 +15,27 @@
 # Import results > Needs a choice: what the Choose match window shows for one scanned series,
 # its files and the ComicVine series the import found for it (the searchresults table).
 
+import os
 import re
 
-from mylar import db
+from mylar import db, logger
 
 # A search that found hundreds of series only shows the closest ones; the search box finds others.
 MAX_CANDIDATES = 40
+
+
+COMIC_EXTS = ('.cbz', '.cbr', '.cb7')
+
+
+def _live(path):
+    """Where a scanned file is now. A .cbr converted to .cbz since the scan (CBR to CBZ, WebP)
+    is found under its new name; None when neither is there."""
+    if not path:
+        return None
+    if os.path.isfile(path):
+        return path
+    stem = os.path.splitext(path)[0]
+    return next((stem + ext for ext in COMIC_EXTS if os.path.isfile(stem + ext)), None)
 
 
 def _number(text):
@@ -58,7 +73,25 @@ def choice(dynamicname, volume=None):
     if not rows:
         return {'ok': False, 'note': 'That series isn\'t in the import results any more.'}
     first = rows[0]
-    files = sorted(({'id': r['impID'], 'name': r['ComicFilename'], 'number': r['IssueNumber']} for r in rows),
+    files, seen, moved = [], set(), {}
+    for r in rows:
+        was = r['ComicLocation']
+        if was not in moved:
+            moved[was] = _live(was)
+            if moved[was] and moved[was] != was:
+                # renamed since the scan: point the results at the new name, so the import finds it too
+                myDB.action('UPDATE importresults SET ComicLocation=?, ComicFilename=? WHERE ComicLocation=?',
+                            [moved[was], os.path.basename(moved[was]), was])
+                logger.fdebug('[IMPORT] %s is now %s' % (was, moved[was]))
+        now = moved[was]
+        # one entry per file: earlier scans (or a .cbr and the .cbz it became) can list a file more than once
+        key = now or was or r['impID']
+        if key in seen:
+            continue
+        seen.add(key)
+        files.append({'id': r['impID'], 'name': os.path.basename(now) if now else r['ComicFilename'],
+                      'number': r['IssueNumber'], 'missing': now is None})
+    files = sorted(files,
                    key=lambda f: (_number(f['number']) is None, _number(f['number']) or 0, f['name'] or ''))
     numbers = [n for n in (_number(f['number']) for f in files) if n is not None]
     top = max(numbers) if numbers else None
@@ -93,4 +126,4 @@ def choice(dynamicname, volume=None):
 def file_path(impid):
     """The scanned file behind an import result, for its cover."""
     row = db.DBConnection().selectone('SELECT ComicLocation FROM importresults WHERE impID=?', [impid]).fetchone()
-    return row['ComicLocation'] if row else None
+    return _live(row['ComicLocation']) if row else None
