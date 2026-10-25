@@ -64,6 +64,7 @@ from mylar import (
     prowlarr,
     cbl_catalog,
     discover,
+    duplicates,
     search_rank,
     config,
     db,
@@ -5178,6 +5179,36 @@ class WebInterface(object):
         started = ledger.start_build(force=helpers.str_to_bool(force))
         return json.dumps({'started': started, 'status': ledger.status_summary()})
     ledger_build.exposed = True
+
+    def duplicates(self):
+        dest = 'the Duplicates folder (%s)' % mylar.CONFIG.DUPLICATE_DUMP if mylar.CONFIG.DDUMP and mylar.CONFIG.DUPLICATE_DUMP not in (None, '', 'None') \
+            else 'the trash, where they are deleted after %s days' % attention.trash_days()
+        return serve_template(templatename="duplicates.html", title="Duplicates", dest=dest)
+    duplicates.exposed = True
+
+    def duplicates_status(self):
+        return self._attention_json(duplicates.status())
+    duplicates_status.exposed = True
+
+    def duplicates_scan(self):
+        self._attention_post()
+        return self._attention_json({'ok': duplicates.scan()})
+    duplicates_scan.exposed = True
+
+    def duplicates_stop(self):
+        self._attention_post()
+        duplicates.stop()
+        return self._attention_json({'ok': True})
+    duplicates_stop.exposed = True
+
+    def duplicates_remove(self, paths='[]'):
+        self._attention_post()
+        try:
+            paths = [p for p in json.loads(paths) if isinstance(p, str)]
+        except ValueError:
+            paths = []
+        return self._attention_json(duplicates.remove(paths))
+    duplicates_remove.exposed = True
 
     def webpConvert(self):
         return serve_template(templatename="webp.html", title="WebP conversion",
