@@ -1157,6 +1157,8 @@ def issue_collection(issuedata, nostatus, serieslast_updated=None, suppress_adda
                             "ImageURL_ALT":       issue['ImageURL_ALT']
                             #"Status":             "Skipped"  #set this to Skipped by default to avoid NULL entries.
                             }
+            if issue.get('Description'):
+                newValueDict['Description'] = issue['Description']   # kept for tags written from stored info
 
             # check if the issue already exists
             iss_exists = myDB.selectone('SELECT * from issues WHERE IssueID=?', [issue['IssueID']]).fetchone()
@@ -1470,7 +1472,8 @@ def updateissuedata(comicid, comicname=None, issued=None, comicIssues=None, call
                               "Int_IssueNumber":    int_issnum,
                               "AltIssueNumber":     legacy_num,
                               "ImageURL":           firstval['Image'],
-                              "ImageURL_ALT":       firstval['ImageALT']})
+                              "ImageURL_ALT":       firstval['ImageALT'],
+                              "Description":        firstval.get('Description')})
 
             n+=1
 
