@@ -6,6 +6,12 @@ Releases come from the `main` branch and are the `latest` Docker image. Changes 
 
 ## Unreleased (on dev)
 
+- Marking issues Wanted from the Ledger or a series page now also searches for picked issues that were already Wanted, instead of skipping them. ([`d66cacc`](https://github.com/issuarr/issuarr/commit/d66cacc))
+- Messages now pop up as a stack in the bottom corner. Errors stay on screen longer, and hovering a message keeps it open. ([`25044d9`](https://github.com/issuarr/issuarr/commit/25044d9))
+- The Library remembers your tab, filter, publisher and sort in the page address, so Back, a refresh or a bookmark brings you to the same view, scrolled to where you were. ([`90d2858`](https://github.com/issuarr/issuarr/commit/90d2858))
+- When Issuarr stops answering (a restart, or the server going away), a bar says so, and a message tells you when it's answering again. ([`e4bfd59`](https://github.com/issuarr/issuarr/commit/e4bfd59))
+- The Ledger no longer says "Mylar" in its labels and messages. ([`8914072`](https://github.com/issuarr/issuarr/commit/8914072))
+- When the Library is sorted by title, an A–Z rail on the right jumps to a letter. On a phone you can slide along it. ([`deb9d67`](https://github.com/issuarr/issuarr/commit/deb9d67))
 - After an update, a What's new window lists what changed since you last saw it, with a link to each change on GitHub. It shows once; closing it marks those changes as seen. ([`949ab99`](https://github.com/issuarr/issuarr/commit/949ab99))
 - Settings no longer makes the browser offer to save download client, notification and other service passwords. Issuarr's own sign-in user name and password still can be saved, and the login page fills them in. ([`eb05a33`](https://github.com/issuarr/issuarr/commit/eb05a33), [`9d4e637`](https://github.com/issuarr/issuarr/commit/9d4e637))
 
