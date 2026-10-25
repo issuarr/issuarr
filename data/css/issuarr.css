@@ -499,6 +499,13 @@ input.inline-num { width: 76px; min-height: 34px; padding: 0 8px; box-sizing: bo
 .cover-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(156px, 1fr)); gap: 26px 20px; }
 .cover-grid[hidden] { display: none; }
 .cover-card { position: relative; display: flex; flex-direction: column; gap: 10px; min-width: 0; }
+.library.has-az { padding-right: 26px; }
+.az-rail { position: fixed; right: 4px; top: 50%; transform: translateY(-50%); z-index: 20; display: flex; flex-direction: column; padding: 4px 0; border-radius: 999px; background: color-mix(in srgb, var(--surface) 85%, transparent); touch-action: none; }
+.az-rail[hidden] { display: none; }
+.library .cover-card, #lib-table tbody tr { scroll-margin-top: calc(var(--carbon-head, 0px) + 16px); }
+.az-rail button { width: 22px; height: min(22px, calc((100vh - 120px) / 27)); padding: 0; border: 0; background: none; color: var(--muted); font: 600 11px/1 var(--font-mono); cursor: pointer; border-radius: 6px; }
+.az-rail button:hover:not(:disabled), .az-rail button:focus-visible { color: var(--text); background: var(--raised); }
+.az-rail button:disabled { opacity: .3; cursor: default; }
 .cover {
   position: relative; display: block; aspect-ratio: 2 / 3; overflow: hidden; border-radius: var(--radius-sm);
   background: var(--raised); border: 1px solid var(--line-soft); box-sizing: border-box;

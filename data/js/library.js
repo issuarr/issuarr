@@ -241,8 +241,58 @@
     more.textContent = 'Show more (' + fmt(Math.max(list.length - st.limit, 0)) + ' left)';
     document.querySelectorAll('.library [data-view]').forEach(function (b) { b.setAttribute('aria-pressed', String(b.getAttribute('data-view') === st.view)); });
     $id('lib-sort').value = st.sort;
+    renderRail(list);
     renderBulk();
   }
+
+  /* ---- A–Z rail: jump to a letter when the library is in title order ---- */
+  var LETTERS = '#ABCDEFGHIJKLMNOPQRSTUVWXYZ'.split('');
+  function letterOf(s) {
+    var c = String(s.sort || s.name || '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').charAt(0).toUpperCase();
+    return c >= 'A' && c <= 'Z' ? c : '#';
+  }
+  function titleOrder() { return st.col ? st.col.key === 'name' && st.col.dir === 1 : st.sort === 'title'; }
+
+  function renderRail(list) {
+    var rail = $id('lib-az');
+    var on = titleOrder() && list.length > 40;
+    rail.hidden = !on;
+    document.querySelector('.library').classList.toggle('has-az', on);
+    if (!on) return;
+    var have = {};
+    list.forEach(function (s) { have[letterOf(s)] = true; });
+    rail.innerHTML = LETTERS.map(function (l) {
+      return '<button type="button" data-ui data-az="' + l + '"' + (have[l] ? '' : ' disabled') +
+        ' aria-label="' + (l === '#' ? 'Jump to titles starting with a number or symbol' : 'Jump to ' + l) + '">' + l + '</button>';
+    }).join('');
+  }
+
+  function jumpTo(l) {
+    var list = filtered();
+    var at = -1;
+    for (var i = 0; i < list.length; i++) { if (letterOf(list[i]) === l) { at = i; break; } }
+    if (at < 0) return;
+    if (at >= st.limit) { st.limit = at + CHUNK; render(); }
+    var el = st.view === 'covers' ? $id('lib-grid').children[at] : $id('lib-table').tBodies[0].rows[at];
+    if (!el) return;
+    el.scrollIntoView({ block: 'start' });
+    var a = el.querySelector('.card-title') || el.querySelector('a');
+    if (a) a.focus({ preventScroll: true });
+  }
+
+  $id('lib-az').addEventListener('click', function (e) {
+    var b = e.target.closest('[data-az]');
+    if (b && !b.disabled) jumpTo(b.getAttribute('data-az'));
+  });
+  // Slide a finger along the rail to run through the letters.
+  var railLast = null;
+  $id('lib-az').addEventListener('touchmove', function (e) {
+    var t = e.touches[0], b = document.elementFromPoint(t.clientX, t.clientY);
+    b = b && b.closest('#lib-az [data-az]');
+    e.preventDefault();
+    if (b && !b.disabled && b.getAttribute('data-az') !== railLast) { railLast = b.getAttribute('data-az'); jumpTo(railLast); }
+  }, { passive: false });
+  $id('lib-az').addEventListener('touchend', function () { railLast = null; });
 
   function renderBulk() {
     var n = Object.keys(st.sel).length;
