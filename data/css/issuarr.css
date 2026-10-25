@@ -1502,3 +1502,6 @@ a.w-where:hover { color: var(--text); text-decoration-color: currentColor; }
 @media (max-width: 600px) {
   .dc-grid { grid-template-columns: repeat(auto-fill, minmax(130px, 1fr)); }
 }
+
+/* Settings > Prowlarr: the indexers to add */
+.prowlarr-list { list-style: none; margin: 0 0 12px; padding: 0; display: flex; flex-direction: column; gap: 6px; }
