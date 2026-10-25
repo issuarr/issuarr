@@ -5082,8 +5082,17 @@ class WebInterface(object):
     markComics.exposed = True
 
     def forceUpdate(self):
-        from mylar import updater
-        threading.Thread(target=updater.dbUpdate).start()
+        # Library > Update all: every active series, however recently it was refreshed
+        myDB = db.DBConnection()
+        ids = [r['ComicID'] for r in myDB.select("SELECT ComicID FROM comics WHERE Status='Active' OR Status='Loading' ORDER BY LastUpdated ASC")]
+
+        def run():
+            try:
+                updater.dbUpdate(ids)
+            except Exception as e:
+                logger.error('[UPDATE ALL] Stopped: %s' % e)
+                logger.error(traceback.format_exc())
+        threading.Thread(target=run, name='UPDATE-ALL', daemon=True).start()
         raise cherrypy.HTTPRedirect("home")
     forceUpdate.exposed = True
 
