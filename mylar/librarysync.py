@@ -739,6 +739,12 @@ def libraryScan(dir=None, append=False, ComicID=None, ComicName=None, cron=None,
             'utter_failure_list':  utter_failure_list}
 
 
+def forget_earlier_scans(myDB, path):
+    """Drop what earlier scans listed for this file, so scanning a folder again replaces
+    its import results instead of adding every file a second time."""
+    myDB.action('DELETE FROM importresults WHERE ComicLocation=?', [path])
+
+
 def library_files(myDB):
     """Every file the library has an issue for, by full path, with the size Issuarr
     recorded for it."""
@@ -844,6 +850,7 @@ def scanLibrary(scan=None, queue=None):
 
                     nspace_dynamicname = re.sub(r'[\|\s]', '', ghi['dynamicname'].lower()).strip()                   
                     #these all have related ComicID/IssueID's...just add them as is.
+                    forget_earlier_scans(myDB, ghi['comlocation'])
                     controlValue = {"impID":        ghi['impid']}
                     newValue = {"Status":           "Not Imported",
                                 "ComicName":        i['ComicName'], #helpers.conversion(i['ComicName']),
@@ -865,6 +872,7 @@ def scanLibrary(scan=None, queue=None):
 
                     nspace_dynamicname = re.sub(r'[\|\s]', '', ss['dynamicname'].lower()).strip()                   
 
+                    forget_earlier_scans(myDB, ss['comlocation'])
                     controlValue = {"impID":        ss['impid']}
                     newValue = {"ComicYear":        ss['comicyear'],
                                 "Status":           "Not Imported",
