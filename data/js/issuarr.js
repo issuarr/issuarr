@@ -697,6 +697,59 @@
     box.addEventListener('keydown', function (e) { if (e.key === 'Escape') { e.preventDefault(); close(); } });
   }
 
+  // Once after an update: the changelog lines this install hasn't shown yet. Closing it marks them seen.
+  function setupWhatsNew() {
+    var box = $id('whats-new');
+    if (!box || !doc.body.hasAttribute('data-whats-new')) return;
+    var body = $id('whats-new-body');
+    var last = null;
+    function close() {
+      box.hidden = true;
+      fetch('whats_new_seen', { method: 'POST', credentials: 'same-origin' }).catch(function () {});
+      doc.body.removeAttribute('data-whats-new');
+      if (last && last.focus) last.focus();
+    }
+    fetch('whats_new', { credentials: 'same-origin', cache: 'no-store' })
+      .then(function (r) { return r.ok ? r.json() : null; })
+      .then(function (d) {
+        if (!d || !d.releases || !d.releases.length) return;
+        body.textContent = '';
+        d.releases.forEach(function (rel) {
+          body.appendChild(el('h3', null, rel.name));
+          rel.groups.forEach(function (g) {
+            if (g.name) body.appendChild(el('h4', null, g.name));
+            var ul = el('ul');
+            g.items.forEach(function (it) {
+              var li = el('li');
+              // Built on the server from the changelog that ships with this install.
+              li.innerHTML = it.html + ' ';
+              var ids = el('span', 'whats-new-ids');
+              it.commits.forEach(function (c, i) {
+                var a = el('a', null, c.id);
+                a.href = c.url; a.target = '_blank'; a.rel = 'noopener';
+                a.title = 'The commit that made this change';
+                if (i) ids.appendChild(doc.createTextNode(', '));
+                ids.appendChild(a);
+              });
+              li.appendChild(doc.createTextNode('('));
+              li.appendChild(ids);
+              li.appendChild(doc.createTextNode(')'));
+              ul.appendChild(li);
+            });
+            body.appendChild(ul);
+          });
+        });
+        if (d.changelog_url) $id('whats-new-more').href = d.changelog_url;
+        last = doc.activeElement;
+        box.hidden = false;
+        $id('whats-new-close').focus();
+      })
+      .catch(function () {});
+    $id('whats-new-close').addEventListener('click', close);
+    box.addEventListener('mousedown', function (e) { if (e.target === box) close(); });
+    box.addEventListener('keydown', function (e) { if (e.key === 'Escape') { e.preventDefault(); close(); } });
+  }
+
   // "More" menus (details.menu) close on an outside click, on Escape, and after a choice.
   function setupMenus() {
     function closeAll(except) {
@@ -765,6 +818,7 @@
     setupJump();
     setupAddSeries();
     setupAppearance();
+    setupWhatsNew();
     setupSecrets();
     window.addEventListener('hashchange', mark);
   }

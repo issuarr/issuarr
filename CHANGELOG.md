@@ -6,6 +6,7 @@ Releases come from the `main` branch and are the `latest` Docker image. Changes 
 
 ## Unreleased (on dev)
 
+- After an update, a What's new window lists what changed since you last saw it, with a link to each change on GitHub. It shows once; closing it marks those changes as seen. ([`949ab99`](https://github.com/issuarr/issuarr/commit/949ab99))
 - Settings no longer makes the browser offer to save download client, notification and other service passwords. Issuarr's own sign-in user name and password still can be saved, and the login page fills them in. ([`eb05a33`](https://github.com/issuarr/issuarr/commit/eb05a33), [`9d4e637`](https://github.com/issuarr/issuarr/commit/9d4e637))
 
 ## 0.10.0 (22 October 2026)

@@ -90,6 +90,7 @@ from mylar import (
     ui,
     updater,
     weeklypull,
+    whatsnew,
 )
 from mylar.queues import queue_info
 from mylar.queues import ddl as ddl_queue
@@ -8603,6 +8604,25 @@ class WebInterface(object):
             out['webp'] = None
         return json.dumps(out)
     pp_activity.exposed = True
+
+    def whats_new(self, **kwargs):
+        # The changelog lines this install hasn't shown since its last update.
+        cherrypy.response.headers['Content-Type'] = 'application/json'
+        cherrypy.response.headers['Cache-Control'] = 'no-cache'
+        return json.dumps(whatsnew.payload())
+    whats_new.exposed = True
+
+    def whats_new_seen(self, **kwargs):
+        cherrypy.response.headers['Content-Type'] = 'application/json'
+        if cherrypy.request.method != 'POST':
+            raise cherrypy.HTTPError(405)
+        try:
+            whatsnew.mark_seen()
+        except OSError as e:
+            logger.warn('[WHATS-NEW] Could not save which changes were shown: %s' % e)
+            return json.dumps({'status': 'failure'})
+        return json.dumps({'status': 'success'})
+    whats_new_seen.exposed = True
 
     def custom_css(self, **kwargs):
         cherrypy.response.headers['Content-Type'] = 'text/css; charset=utf-8'

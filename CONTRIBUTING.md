@@ -8,6 +8,8 @@
 ## Changelog
 [CHANGELOG.md](CHANGELOG.md) lists every change in plain English, newest first, each line ending with the commit id that made it. It is also a page on the website, which is published from `main`, so it updates when a release is merged.
 
+Each pull request adds its own line under **Unreleased (on dev)**, ending with the id of the commit that made the change (commit the change first, then add the line in a second commit). Issuarr reads this file to show a "What's new" window once after an update, on `dev` as well as on releases, so a change without a line here never shows up there. Write for someone using Issuarr, not for a developer: say what they will notice, not how the code changed or what the PR was called.
+
 When preparing a release, on `dev` run `python3 .github/changelog.py` to list the commits since the last release that the changelog doesn't mention yet. Rewrite each line so a user understands it, merge related lines, and add them under **Unreleased (on dev)**. In the release PR, rename that heading to the version and date (for example `## 1.0.0 (2026-11-01)`) and start a new empty **Unreleased (on dev)** section above it.
 
 ## Pull Requests
