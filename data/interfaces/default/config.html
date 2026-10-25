@@ -2824,8 +2824,28 @@ $("#enable_airdcpp").click(function(){
         function comparable() { return $.param(fields().filter(function (f) { return f.name !== 'ignore_search_words[]'; })); }
         function pick(arr) { return $.param(arr.filter(function (f) { return APPEARANCE.test(f.name); })); }
         function dirty() { return saved !== null && comparable() !== saved; }
+        // Each section's fields on their own, so the sidebar can dot the sections with unsaved changes.
+        var savedPanels = null;
+        function panels() {
+            var out = {};
+            form.querySelectorAll('.set-panel').forEach(function (p) {
+                out[p.id] = $(p).find(':input[name]').not('[name="ignore_search_words[]"]').serialize();
+            });
+            return out;
+        }
+        function markPanels(d) {
+            var now = d && savedPanels ? panels() : null;
+            form.querySelectorAll('.set-panel').forEach(function (p) {
+                var changed = !!now && now[p.id] !== savedPanels[p.id];
+                document.querySelectorAll('#sidebar a.nav-child[href="config#' + p.id + '"]').forEach(function (a) {
+                    a.classList.toggle('has-unsaved', changed);
+                    if (changed) a.setAttribute('title', 'Unsaved changes'); else a.removeAttribute('title');
+                });
+            });
+        }
         function render() {
             var d = dirty();
+            markPanels(d);
             bar.classList.toggle('is-dirty', d);
             state.textContent = d ? 'Unsaved changes' : 'No unsaved changes';
             discardBtn.hidden = !d;
@@ -2843,6 +2863,7 @@ $("#enable_airdcpp").click(function(){
                 .done(function () {
                     var reload = savedAppearance !== null && pick(arr) !== savedAppearance;
                     saved = comparable();
+                    savedPanels = panels();
                     savedAppearance = pick(arr);
                     render();
                     Issuarr.toast(reload ? 'Settings saved. Reloading to apply your CSS.' : 'Settings saved.');
@@ -2860,7 +2881,7 @@ $("#enable_airdcpp").click(function(){
             if (!leaving && dirty()) { e.preventDefault(); e.returnValue = ''; }
         });
         // Take the starting point after the page scripts have filled in their fields.
-        $(function () { setTimeout(function () { saved = comparable(); savedAppearance = pick(fields()); render(); }, 0); });
+        $(function () { setTimeout(function () { saved = comparable(); savedPanels = panels(); savedAppearance = pick(fields()); render(); }, 0); });
 
         // The subtitle follows the section shown.
         var sub = document.getElementById('set-sub');
