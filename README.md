@@ -237,3 +237,5 @@ So, here is Issuarr: an AI-assisted rewrite, redesign, and expansion of Mylar.
 ## License
 
 GNU General Public License v3, the same as Mylar. See [LICENSE](LICENSE).
+
+<img width="360" height="253" alt="b4ai9h" src="https://github.com/user-attachments/assets/f17f462f-b0f6-4f9f-bcd2-e69996556b9c" />
