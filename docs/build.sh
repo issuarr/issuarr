@@ -35,6 +35,9 @@ page docs/JDOWNLOADER2.md JDOWNLOADER2.md \
 page docs/AIRDCPP.md AIRDCPP.md \
     "Using AirDC++ with Issuarr" \
     "Search Direct Connect hubs through AirDC++ and choose whether Issuarr or AirDC++ picks the download folder, with path mapping for Docker and Windows."
+page docs/NOTIFICATIONS.md NOTIFICATIONS.md \
+    "Issuarr notifications" \
+    "Get Issuarr alerts through ntfy, a JSON webhook, Discord, Telegram, Gotify, email and more, with the webhook fields."
 page docs/API.md API.md \
     "Issuarr web API" \
     "The Issuarr web API, compatible with Mylar3 scripts and apps: keys, commands and responses."

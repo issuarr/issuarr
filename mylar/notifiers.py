@@ -28,7 +28,7 @@ import simplejson
 import json
 import requests
 import smtplib
-from datetime import datetime
+from datetime import datetime, timezone
 from email.mime.multipart import MIMEMultipart
 from email.mime.text import MIMEText
 from email.utils import formatdate, make_msgid
@@ -806,3 +806,110 @@ class GOTIFY:
 
     def test_notify(self):
         return self.notify('Test Message', 'Release the Ninjas!')
+
+def _snatch_text(attachment_text, snatched_nzb=None, prov=None, sent_to=None):
+    # 'Issue snatched!' -> 'Issue snatched!: Name (2020) #1 from Provider and Client', as Gotify and Discord word it
+    if 'snatched' not in attachment_text.lower() or not snatched_nzb:
+        return attachment_text
+    text = '%s: %s' % (attachment_text, snatched_nzb)
+    if all([sent_to is not None, prov is not None]):
+        text += ' from %s and %s' % (prov, sent_to)
+    elif prov is not None:
+        text += ' from %s' % prov
+    return text
+
+
+def _cv_issue_url(metadata):
+    issueid = (metadata or {}).get('issueid')
+    return 'https://comicvine.gamespot.com/issue/4000-%s/' % issueid if issueid else None
+
+
+class NTFY:
+    """ntfy (https://ntfy.sh or a self-hosted server). Publishes to one topic, with the issue cover
+    attached when there is one."""
+
+    def __init__(self, test_server_url=None, test_topic=None, test_token=None):
+        if test_topic is not None:
+            self.server_url, self.topic, self.token = test_server_url, test_topic, test_token
+        else:
+            self.server_url, self.topic, self.token = mylar.CONFIG.NTFY_SERVER_URL, mylar.CONFIG.NTFY_TOPIC, mylar.CONFIG.NTFY_TOKEN
+        self.server_url = (self.server_url or 'https://ntfy.sh').strip().rstrip('/')
+        self.topic = (self.topic or '').strip().strip('/')
+        self.token = (self.token or '').strip()
+
+    def notify(self, text, attachment_text, snatched_nzb=None, prov=None, sent_to=None, module=None, imageFile=None, metadata=None):
+        module = (module or '') + '[NOTIFIER]'
+        if not self.topic:
+            logger.warn(module + ' ntfy has no topic set - not sending.')
+            return False
+        params = {'title': text, 'message': _snatch_text(attachment_text, snatched_nzb, prov, sent_to), 'tags': 'books'}
+        click = _cv_issue_url(metadata)
+        if click:
+            params['click'] = click
+        headers = {}
+        if self.token:
+            headers['Authorization'] = 'Bearer %s' % self.token
+        url = '%s/%s' % (self.server_url, urllib.parse.quote(self.topic))
+        try:
+            if imageFile:
+                # the cover goes up as the body; the text rides in the query string, which takes UTF-8
+                params['filename'] = 'cover.jpg'
+                response = requests.put(url, params=params, data=base64.b64decode(imageFile), headers=headers, timeout=30)
+            else:
+                response = requests.post(url, params=params, headers=headers, timeout=30)
+        except Exception as e:
+            logger.warn(module + ' ntfy notify failed: %s' % e)
+            return False
+        if response.status_code != 200:
+            logger.warn(module + ' Could not send notification to ntfy. Response: [%s] %s' % (response.status_code, response.text[:200]))
+            return False
+        logger.info(module + ' ntfy notification sent.')
+        return True
+
+    def test_notify(self):
+        return self.notify('Test Message', 'Release the Ninjas!')
+
+
+class WEBHOOK:
+    """POSTs a JSON body to any URL (Home Assistant, n8n, Node-RED, your own script). The fields
+    are listed in docs/NOTIFICATIONS.md; keep them stable, scripts depend on them."""
+
+    def __init__(self, test_url=None):
+        self.url = (test_url if test_url is not None else mylar.CONFIG.WEBHOOK_URL or '').strip()
+
+    def notify(self, text, attachment_text, snatched_nzb=None, prov=None, sent_to=None, module=None, imageFile=None, metadata=None, event=None):
+        module = (module or '') + '[NOTIFIER]'
+        if not self.url:
+            logger.warn(module + ' Webhook has no URL set - not sending.')
+            return False
+        metadata = metadata or {}
+        if event is None:
+            event = 'snatched' if 'snatched' in attachment_text.lower() and snatched_nzb else 'test'
+        payload = {
+            'app': 'issuarr',
+            'event': event,
+            'title': text,
+            'message': _snatch_text(attachment_text, snatched_nzb, prov, sent_to),
+            'series': metadata.get('series'),
+            'issue': metadata.get('issue'),
+            'year': metadata.get('year'),
+            'issue_id': metadata.get('issueid'),
+            'comicvine_url': _cv_issue_url(metadata),
+            'release': snatched_nzb,
+            'provider': prov,
+            'client': sent_to,
+            'time': datetime.now(timezone.utc).strftime('%Y-%m-%dT%H:%M:%SZ'),
+        }
+        try:
+            response = requests.post(self.url, json=payload, timeout=30)
+        except Exception as e:
+            logger.warn(module + ' Webhook notify failed: %s' % e)
+            return False
+        if not 200 <= response.status_code < 300:
+            logger.warn(module + ' Webhook answered [%s] %s' % (response.status_code, response.text[:200]))
+            return False
+        logger.info(module + ' Webhook notification sent.')
+        return True
+
+    def test_notify(self):
+        return self.notify('Test Message', 'Release the Ninjas!', event='test')

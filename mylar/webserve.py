@@ -8018,6 +8018,14 @@ class WebInterface(object):
                     "gotify_server_url": mylar.CONFIG.GOTIFY_SERVER_URL,
                     "gotify_token": mylar.CONFIG.GOTIFY_TOKEN,
                     "gotify_onsnatch": helpers.checked(mylar.CONFIG.GOTIFY_ONSNATCH),
+                    "ntfy_enabled": helpers.checked(mylar.CONFIG.NTFY_ENABLED),
+                    "ntfy_server_url": mylar.CONFIG.NTFY_SERVER_URL,
+                    "ntfy_topic": mylar.CONFIG.NTFY_TOPIC,
+                    "ntfy_token": mylar.CONFIG.NTFY_TOKEN,
+                    "ntfy_onsnatch": helpers.checked(mylar.CONFIG.NTFY_ONSNATCH),
+                    "webhook_enabled": helpers.checked(mylar.CONFIG.WEBHOOK_ENABLED),
+                    "webhook_url": mylar.CONFIG.WEBHOOK_URL,
+                    "webhook_onsnatch": helpers.checked(mylar.CONFIG.WEBHOOK_ONSNATCH),
                     "enable_extra_scripts": helpers.checked(mylar.CONFIG.ENABLE_EXTRA_SCRIPTS),
                     "extra_scripts": mylar.CONFIG.EXTRA_SCRIPTS,
                     "enable_snatch_script": helpers.checked(mylar.CONFIG.ENABLE_SNATCH_SCRIPT),
@@ -8397,7 +8405,7 @@ class WebInterface(object):
                            'lowercase_filenames', 'autowant_upcoming', 'autowant_all', 'comic_cover_local', 'cover_folder_local', 'series_metadata_local', 'alternate_latest_series_covers', 'cvinfo', 'snatchedtorrent_notify',
                            'prowl_enabled', 'prowl_onsnatch', 'pushover_enabled', 'pushover_onsnatch', 'pushover_image', 'mattermost_enabled', 'mattermost_onsnatch', 'boxcar_enabled',
                            'boxcar_onsnatch', 'pushbullet_enabled', 'pushbullet_onsnatch', 'telegram_enabled', 'telegram_onsnatch', 'telegram_image', 'discord_enabled', 'discord_onsnatch', 'slack_enabled', 'slack_onsnatch',
-                           'email_enabled', 'email_enc', 'email_ongrab', 'email_onpost', 'gotify_enabled', 'gotify_server_url', 'gotify_token', 'gotify_onsnatch', 'opds_enable', 'opds_authentication', 'opds_metainfo', 'opds_pagesize', 'enable_ddl',
+                           'email_enabled', 'email_enc', 'email_ongrab', 'email_onpost', 'gotify_enabled', 'gotify_server_url', 'gotify_token', 'gotify_onsnatch', 'ntfy_enabled', 'ntfy_onsnatch', 'webhook_enabled', 'webhook_onsnatch', 'opds_enable', 'opds_authentication', 'opds_metainfo', 'opds_pagesize', 'enable_ddl',
                            'enable_getcomics', 'enable_flaresolverr', 'enable_airdcpp', 'jd2_enable', 'enable_external_server', 'ddl_prefer_upscaled', 'ddl_main_large_last', 'deluge_pause',
                            'custom_css_enabled'] #enable_public
 
@@ -9574,6 +9582,22 @@ class WebInterface(object):
             logger.warn('Test variables used [WEBHOOK_URL: %s][USERNAME: %s]' % (webhook_url, username))
             return "Error sending test message to Gotify"
     testgotify.exposed = True
+
+    def testntfy(self, server_url=None, topic=None, token=None):
+        if not topic:
+            return "Error: set a topic first"
+        if notifiers.NTFY(test_server_url=server_url, test_topic=topic, test_token=token).test_notify():
+            return "Successfully sent ntfy test - check to make sure it worked"
+        return "Error sending test message to ntfy - see the log"
+    testntfy.exposed = True
+
+    def testwebhook(self, url=None):
+        if not url:
+            return "Error: set a URL first"
+        if notifiers.WEBHOOK(test_url=url).test_notify():
+            return "Successfully sent webhook test - check to make sure it worked"
+        return "Error sending test message to the webhook - see the log"
+    testwebhook.exposed = True
 
     def testrtorrent(self, host, username, password, auth, verify, rpc_url):
         if verify == 'true':

@@ -73,7 +73,7 @@ New issues of the series you follow arrive the same way, week after week.
 
 ### Integrations
 - **OPDS** catalogue for reading apps on phones and tablets.
-- **Notifications** on snatches and downloads via Discord, Slack, Mattermost, Telegram, Pushover, Pushbullet, Prowl, Boxcar, Gotify or email.
+- **Notifications** on snatches and downloads via Discord, Slack, Mattermost, Telegram, Pushover, Pushbullet, Prowl, Boxcar, Gotify, ntfy, email or a webhook ([setup](docs/NOTIFICATIONS.md)).
 - **Web API** for scripts and other apps (see [docs/API.md](docs/API.md)).
 - Login protection and HTTPS for the web interface.
 
