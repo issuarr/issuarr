@@ -32,6 +32,35 @@ import urllib.request, urllib.error, urllib.parse
 import email.utils
 import datetime
 
+# Extensions and words that differ between copies of the same release.
+_TITLE_NOISE = re.compile(r'\.(cbz|cbr|cb7|zip|rar|nzb|torrent)$', re.I)
+
+
+def normalize_title(name):
+    """A release name reduced to lowercase words, so the same release posted
+    under another id or by another indexer ("Saga.061.(2022).(digital).cbz",
+    "Saga 061 (2022) (Digital)") compares equal."""
+    name = _TITLE_NOISE.sub('', str(name or '').strip())
+    name = re.sub(r'&amp;|&', ' and ', name, flags=re.I)
+    name = re.sub(r"['\u2019]", '', name)
+    return ' '.join(re.sub(r'[^0-9a-z]+', ' ', name.lower()).split())
+
+
+def title_failed(myDB, nzbname, comicid):
+    """The failed row for this series whose release name matches nzbname
+    once normalized, or None. Catches a release that already failed coming
+    back with a new id. Very short names are skipped so they can't match
+    unrelated releases."""
+    want = normalize_title(nzbname)
+    if comicid is None or len(want) < 8:
+        return None
+    rows = myDB.select("SELECT * FROM failed WHERE ComicID=? AND Status='Failed' AND NZBName IS NOT NULL", [str(comicid)])
+    for row in rows:
+        if normalize_title(row['NZBName']) == want:
+            return row
+    return None
+
+
 class FailedProcessor(object):
     """ Handles Failed downloads that are passed from SABnzbd thus far """
 
@@ -265,6 +294,12 @@ class FailedProcessor(object):
             chk_fail = myDB.selectone('SELECT * FROM failed WHERE ID LIKE ?', [self.id]).fetchone()
         else:
             chk_fail = myDB.selectone('SELECT * FROM failed WHERE ID=?', [self.id]).fetchone()
+
+        if chk_fail is None and self.nzb_name:
+            same = title_failed(myDB, self.nzb_name, self.comicid)
+            if same is not None:
+                logger.info('%s %s failed before under another id (%s from %s). Skipping it.' % (module, self.nzb_name, same['ID'], same['Provider']))
+                return 'Failed'
 
         if chk_fail is None:
             logger.info(module + ' Successfully marked this download as Good for downloadable content')
