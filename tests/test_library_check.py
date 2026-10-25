@@ -118,3 +118,70 @@ def test_redownload_trashes_and_wants_issue(lib):
     assert db.select("SELECT Status FROM issues WHERE IssueID='i3'")[0]['Status'] == 'Wanted'
     assert not library_check.remove(str(folder / 'Saga 001.cbz'))['ok']     # not listed
     assert library_check.remove(str(folder / 'Saga 004.cbz'))['ok']
+
+
+def run_tagging():
+    assert library_check.tag_untagged()
+    for _ in range(100):
+        if library_check.TAGGING['state'] == 'done':
+            return
+        time.sleep(0.05)
+
+
+def test_scan_counts_untagged_issue_files_and_tagging_fills_them(lib, monkeypatch):
+    from mylar import comicinfo, quicktag, webp
+    db, folder, _ = lib
+    (folder / 'Saga 005.cbz').write_bytes(cbz_bytes(20, {'ComicInfo.xml': '<ComicInfo/>'}))
+    (folder / 'Saga 006.cbz').write_bytes(cbz_bytes(20))      # no issue linked: can't be tagged
+    db.c.execute("INSERT INTO issues VALUES ('i5', '1', '5', 'Saga 005.cbz', 'Downloaded')")
+    run_scan()
+    st = library_check.status()
+    assert (st['untagged'], st['untagged_series']) == (1, 1)    # Saga 001; 002-004 aren't ok
+    written = []
+
+    def fill(path, myDB=None):
+        written.append(path)
+        return comicinfo.write(path, b'<ComicInfo><Series>Saga</Series></ComicInfo>')
+    monkeypatch.setattr(quicktag, 'fill', fill)
+    monkeypatch.setattr(webp, '_update_size', lambda path, size: None)
+    run_tagging()
+    assert written == [str(folder / 'Saga 001.cbz')]
+    assert quicktag.tagged(str(folder / 'Saga 001.cbz'))
+    st = library_check.status()
+    assert st['untagged'] == 0 and st['tagging']['tagged'] == 1
+    run_scan()
+    assert library_check.STATE['opened'] == 0     # the tagged file's new size and time were kept
+
+
+def test_tagging_skips_a_file_webp_is_converting(lib, monkeypatch):
+    from mylar import quicktag, webp
+    db, folder, _ = lib
+    run_scan()
+    monkeypatch.setattr(quicktag, 'fill', lambda path, myDB=None: pytest.fail('tagged a busy file'))
+    with webp.claim(str(folder / 'Saga 001.cbz')) as mine:
+        assert mine
+        run_tagging()
+    assert library_check.status()['untagged'] == 1
+
+
+def test_older_checks_learn_which_files_are_tagged(lib):
+    db, folder, _ = lib
+    run_scan()
+    db.c.execute('UPDATE library_check SET tagged=NULL')    # rows from before tags were noted
+    run_scan()
+    assert library_check.STATE['opened'] == 0
+    assert library_check.status()['untagged'] == 1
+
+
+def test_tagging_makes_a_cbr_a_cbz_first(lib, monkeypatch):
+    from mylar import comicinfo, quicktag, webp
+    db, folder, _ = lib
+    (folder / 'Saga 007.cbr').write_bytes(cbz_bytes(20))       # a zip named .cbr
+    db.c.execute("INSERT INTO issues VALUES ('i7', '1', '7', 'Saga 007.cbr', 'Downloaded')")
+    run_scan()
+    monkeypatch.setattr(webp, '_relocate', lambda old, new: None)
+    monkeypatch.setattr(webp, '_update_size', lambda path, size: None)
+    monkeypatch.setattr(quicktag, 'fill', lambda path, myDB=None: comicinfo.write(path, b'<ComicInfo/>'))
+    run_tagging()
+    assert not (folder / 'Saga 007.cbr').exists() and quicktag.tagged(str(folder / 'Saga 007.cbz'))
+    assert db.select("SELECT tagged FROM library_check WHERE path=?", [str(folder / 'Saga 007.cbz')])[0]['tagged'] == 1

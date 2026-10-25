@@ -25,6 +25,11 @@ opens files that changed.
 From the list a wrapped file can be unwrapped in place (its own ComicInfo.xml kept), and
 a damaged one can be swapped for a new download: the file goes to the trash and the
 issue is marked Wanted. Nothing happens to a file until you choose.
+
+The check also notes which issue files have no ComicInfo.xml. Readers that group by it
+(Kavita, Komga) list those apart from the series' tagged issues. Tag untagged files writes
+one into each from the stored issue info (mylar.quicktag), without asking ComicVine. A .cbr
+is made a .cbz first, since only a zip can hold one.
 """
 
 import datetime
@@ -36,9 +41,10 @@ import zipfile
 import rarfile
 
 import mylar
-from mylar import db, logger
+from mylar import db, logger, quicktag
 
 STATE = {'state': 'idle', 'done': 0, 'total': 0, 'opened': 0, 'finished': None, 'stop': False}
+TAGGING = {'state': 'idle', 'done': 0, 'total': 0, 'tagged': 0, 'failed': 0, 'finished': None, 'stop': False}
 _LOCK = threading.Lock()
 
 IMAGE_EXT = ('.jpg', '.jpeg', '.png', '.webp', '.gif', '.bmp', '.avif', '.jxl')
@@ -53,6 +59,8 @@ def ensure(myDB=None):
     myDB = myDB or db.DBConnection()
     myDB.action('CREATE TABLE IF NOT EXISTS library_check (path TEXT PRIMARY KEY, size INTEGER, mtime REAL, status TEXT, '
                 'detail TEXT, comicid TEXT, issueid TEXT, inner TEXT, checked TEXT)')
+    if 'tagged' not in [r['name'] for r in myDB.select('PRAGMA table_info(library_check)')]:
+        myDB.action('ALTER TABLE library_check ADD COLUMN tagged INTEGER')
 
 
 def _entries(arc):
@@ -108,7 +116,7 @@ def _stat(path):
 
 def scan():
     with _LOCK:
-        if STATE['state'] == 'running':
+        if STATE['state'] == 'running' or TAGGING['state'] == 'running':
             return False
         STATE.update(state='running', done=0, total=0, opened=0, finished=None, stop=False)
     threading.Thread(target=_scan, name='LIBRARY-CHECK', daemon=True).start()
@@ -120,7 +128,7 @@ def _scan():
     try:
         myDB = db.DBConnection()
         ensure(myDB)
-        known = {r['path']: r for r in myDB.select('SELECT path, size, mtime FROM library_check')}
+        known = {r['path']: r for r in myDB.select('SELECT path, size, mtime, status, tagged FROM library_check')}
         comics = myDB.select('SELECT * FROM comics WHERE ComicLocation IS NOT NULL ORDER BY ComicSortName')
         work = []
         for c in comics:
@@ -141,12 +149,16 @@ def _scan():
                 continue
             row = known.get(path)
             if row and row['size'] == size and row['mtime'] == mtime:
-                myDB.action('UPDATE library_check SET comicid=?, issueid=? WHERE path=?', [comicid, issueid, path])
+                tagged = row['tagged']
+                if tagged is None and row['status'] == 'ok':
+                    tagged = int(quicktag.tagged(path))   # checked before tags were noted
+                myDB.action('UPDATE library_check SET comicid=?, issueid=?, tagged=? WHERE path=?', [comicid, issueid, tagged, path])
                 continue
             status, detail, inner = check_file(path)
             STATE['opened'] += 1
             myDB.upsert('library_check', {'size': size, 'mtime': mtime, 'status': status, 'detail': detail, 'inner': inner,
                                           'comicid': comicid, 'issueid': issueid,
+                                          'tagged': int(quicktag.tagged(path)) if status == 'ok' else None,
                                           'checked': datetime.datetime.now().strftime('%Y-%m-%d %H:%M')}, {'path': path})
         if not STATE['stop']:
             for path in set(known) - seen:
@@ -175,7 +187,74 @@ def status():
                      'size': r['size']} for r in rows if os.path.isfile(r['path'])]
     out['unchecked'] = myDB.select("SELECT COUNT(*) AS n FROM library_check WHERE status='unchecked'")[0]['n']
     out['checked'] = myDB.select('SELECT COUNT(*) AS n FROM library_check')[0]['n']
+    out['untagged'] = myDB.select("SELECT COUNT(*) AS n FROM library_check WHERE status='ok' AND tagged=0 AND issueid IS NOT NULL")[0]['n']
+    out['untagged_series'] = myDB.select("SELECT COUNT(DISTINCT comicid) AS n FROM library_check WHERE status='ok' AND tagged=0 AND issueid IS NOT NULL")[0]['n']
+    out['tagging'] = {k: TAGGING[k] for k in ('state', 'done', 'total', 'tagged', 'failed', 'finished')}
     return out
+
+
+def tag_untagged():
+    """Start writing a ComicInfo.xml into every checked issue file that has none."""
+    with _LOCK:
+        if TAGGING['state'] == 'running' or STATE['state'] == 'running':
+            return False
+        TAGGING.update(state='running', done=0, total=0, tagged=0, failed=0, finished=None, stop=False)
+    threading.Thread(target=_tag, name='TAG-UNTAGGED', daemon=True).start()
+    return True
+
+
+def stop_tagging():
+    TAGGING['stop'] = True
+
+
+def _to_cbz(myDB, path):
+    """Make a .cbr a .cbz so it can hold tags, as Tag issues does. Returns the .cbz, or None."""
+    from mylar import webp
+    res = webp.to_cbz(path)
+    if res['status'] != 'converted':
+        logger.warn('[LIBRARY-CHECK] %s was left as a .cbr and not tagged: %s' % (os.path.basename(path), res['reason']))
+        return None
+    myDB.action('DELETE FROM library_check WHERE path=?', [res['target']])
+    myDB.action('UPDATE library_check SET path=? WHERE path=?', [res['target'], path])
+    return res['target']
+
+
+def _tag():
+    from mylar import webp
+    try:
+        myDB = db.DBConnection()
+        ensure(myDB)
+        rows = myDB.select("SELECT path, size, mtime FROM library_check WHERE status='ok' AND tagged=0 AND issueid IS NOT NULL ORDER BY path")
+        TAGGING['total'] = len(rows)
+        for row in rows:
+            if TAGGING['stop']:
+                break
+            TAGGING['done'] += 1
+            path = row['path']
+            try:
+                if _stat(path) != (row['size'], row['mtime']):
+                    continue    # changed since the check; the next check looks again
+            except OSError:
+                continue
+            with webp.claim(path) as mine:
+                if not mine:
+                    continue    # being converted right now; WebP adds the tags itself
+                if not path.lower().endswith('.cbz'):
+                    path = _to_cbz(myDB, path)
+                ok = path is not None and quicktag.fill(path, myDB)
+            if ok:
+                size, mtime = _stat(path)
+                myDB.action('UPDATE library_check SET size=?, mtime=?, tagged=1 WHERE path=?', [size, mtime, path])
+                webp._update_size(path, size)
+                TAGGING['tagged'] += 1
+            else:
+                TAGGING['failed'] += 1
+        logger.info('[LIBRARY-CHECK] Tagged %s of %s untagged files (%s couldn\'t be tagged).' % (
+            TAGGING['tagged'], TAGGING['total'], TAGGING['failed']))
+    except Exception as e:
+        logger.warn('[LIBRARY-CHECK] Tagging stopped: %s' % e)
+    finally:
+        TAGGING.update(state='done', finished=datetime.datetime.now().strftime('%Y-%m-%d %H:%M'))
 
 
 def _row(myDB, path):

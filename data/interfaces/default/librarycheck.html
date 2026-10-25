@@ -9,13 +9,26 @@
         <div class="page-head">
             <div class="head-text">
                 <h1><span class="page-crumb">Tools › </span>Library check</h1>
-                <p class="page-sub">Opens every comic in your series folders and reads it through, to find files that are damaged, aren't comics at all, have no pages, or wrap another .cbz or .cbr instead of pages. Files are remembered, so the next run only opens ones that changed. Nothing happens to a file until you choose; files you remove go to the trash for ${trash_days} days.</p>
+                <p class="page-sub">Opens every comic in your series folders and reads it through, to find files that are damaged, aren't comics at all, have no pages, or wrap another .cbz or .cbr instead of pages. It also counts issue files with no ComicInfo.xml, which readers like Kavita show as a separate series, and can tag them from the details Issuarr already has. Files are remembered, so the next run only opens ones that changed. Nothing happens to a file until you choose; files you remove go to the trash for ${trash_days} days.</p>
             </div>
             <div class="head-actions">
                 <button type="button" class="btn btn-primary" id="lc-scan">Check the library</button>
                 <button type="button" class="btn" id="lc-stop" hidden>Stop</button>
             </div>
         </div>
+
+        <section class="section" aria-label="Untagged files" id="lc-tags" hidden>
+            <div class="lc-file">
+                <div class="lc-main">
+                    <span class="mono">Untagged files</span>
+                    <small class="muted" id="lc-tag-note" aria-live="polite"></small>
+                </div>
+                <div class="lc-acts">
+                    <button type="button" class="btn btn-sm btn-primary" id="lc-tag">Tag untagged files</button>
+                    <button type="button" class="btn btn-sm" id="lc-tag-stop" hidden>Stop</button>
+                </div>
+            </div>
+        </section>
 
         <section class="section" aria-label="Files that need a look">
             <p class="section-note" id="lc-note" aria-live="polite">Loading…</p>
