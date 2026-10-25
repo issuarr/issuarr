@@ -2174,7 +2174,7 @@ def searchforissue(issueid=None, new=False, rsschecker=None, manual=False, all_t
                         ]
                     )
                     or all([mylar.CONFIG.ENABLE_AIRDCPP is True, len(mylar.CONFIG.AIRDCPP_ANNOUNCE_HUB) > 0])
-                    or all([mylar.CONFIG.TORZNAB is True, len(ens) > 0])
+                    or all([mylar.CONFIG.ENABLE_TORZNAB is True, len(mylar.rsscheck.torznab_feed_hosts()) > 0])
                     and any(
                         [
                             mylar.CONFIG.ENABLE_TORRENTS is True,

@@ -33,7 +33,7 @@ New issues of the series you follow arrive the same way, week after week.
 
 ### Finding and downloading
 - **Usenet:** any number of Newznab indexers, sent to SABnzbd, NZBGet or a blackhole folder.
-- **Torrents:** Torznab indexers, sent to qBittorrent, Transmission, Deluge, rTorrent or uTorrent.
+- **Torrents:** Torznab indexers, searched and read with the RSS check, sent to qBittorrent, Transmission, Deluge, rTorrent or uTorrent.
 - **Direct download from GetComics.** Issuarr picks the right file even from posts with many links. You can order or switch off download hosts (GetComics' own server, Mega, Mediafire, Pixeldrain and others). Cloudflare is cleared with [FlareSolverr](https://github.com/FlareSolverr/FlareSolverr), and mirror links can be handed to [JDownloader 2](docs/JDOWNLOADER2.md).
 - **Scheduled searches and RSS.** Recent releases are searched actively; older wanted issues are caught as they appear in RSS feeds.
 - **Calendar (weekly pull list).** See every comic released this week, and look weeks ahead or months back. Weeks are numbered the way [TalkHard](https://talkhard.notaninja.party) numbers its pull lists. Upcoming issues of your series are wanted automatically.

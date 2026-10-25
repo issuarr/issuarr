@@ -491,7 +491,7 @@
         <section class="set-group" aria-labelledby="sg-torznab">
             <div class="set-group-head"><h2 id="sg-torznab">Torrent indexers (Torznab)</h2></div>
             ${toggle('enable_torznab', 'Search Torznab indexers', config['enable_torznab'], id='enable_torznab',
-                     help='Found torrents go to the torrent client set under Download clients, so Use torrents needs to be on there too.')}
+                     help='Found torrents go to the torrent client set under Download clients, so Use torrents needs to be on there too. The newest comics on each indexer are also read with the RSS check, like Newznab indexers.')}
             <div class="set-sub" id="torznab_providers">
                 %for tz in config['extra_torznabs']:
                 <%
