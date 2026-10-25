@@ -629,6 +629,61 @@ def remove_apikey(payd, key):
 
     return payd
 
+def remove_series(ComicID, delete_dir=False):
+    """Take a series off the watchlist: its issues, annuals, pull list wants and queued searches.
+    Its folder is only removed with delete_dir. True when the series was there to remove."""
+    from mylar import search
+    myDB = db.DBConnection()
+    deleted = False
+    comic = myDB.selectone('SELECT * from comics WHERE ComicID=?', [ComicID]).fetchone()
+    try:
+        if comic['ComicName'] is None:
+            ComicName = 'None'
+        else:
+            ComicName = comic['ComicName']
+    except Exception as e:
+        logger.warn('Unable to reference ID in database - was ComicID: %s already deleted? Error returned: %s' % (ComicID, e))
+    else:
+        seriesdir = comic['ComicLocation']
+        seriesyear = comic['ComicYear']
+        seriesvol = comic['ComicVersion']
+        logger.info("Deleting all traces of Comic: " + ComicName)
+        myDB.action('DELETE from comics WHERE ComicID=?', [ComicID])
+        myDB.action('DELETE from issues WHERE ComicID=?', [ComicID])
+
+        if mylar.CONFIG.ANNUALS_ON:
+            myDB.action('DELETE from annuals WHERE ComicID=?', [ComicID])
+        myDB.action('DELETE from upcoming WHERE ComicID=?', [ComicID])
+        myDB.action('DELETE from readlist WHERE ComicID=?', [ComicID])
+        myDB.action("UPDATE weekly SET Status='Skipped' WHERE ComicID=? AND Status='Wanted'", [ComicID])
+        dropped = search.drop_series(ComicID)
+        if dropped:
+            logger.info('Removed %s queued searches for %s.' % (dropped, ComicName))
+        if delete_dir: #mylar.CONFIG.DELETE_REMOVE_DIR:
+            logger.fdebug('Remove directory on series removal enabled.')
+            if seriesdir is not None:
+                if os.path.exists(seriesdir):
+                    logger.fdebug('Attempting to remove the directory and contents of : ' + seriesdir)
+                    try:
+                        shutil.rmtree(seriesdir)
+                    except:
+                        logger.warn('Unable to remove directory after removing series from Mylar.')
+                    else:
+                        logger.info('Successfully removed directory: %s' % (seriesdir))
+                else:
+                    logger.warn('Unable to remove directory as it does not exist in : ' + seriesdir)
+            else:
+                logger.warn('Unable to remove directory as it does not exist.')
+        if seriesvol is None:
+            dspline = '%s (%s)' % (ComicName, seriesyear)
+        else:
+            dspline = '%s %s (%s)' % (ComicName, seriesvol, seriesyear)
+        logger.info('Successful deletion of %s from your watchlist' % (dspline))
+        ComicSort(sequence='update')
+        deleted = True
+    return deleted
+
+
 def ComicSort(comicorder=None, sequence=None, imported=None):
     if sequence:
         # if it's on startup, load the sql into a tuple for use to avoid record-locking

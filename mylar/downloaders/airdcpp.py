@@ -295,7 +295,10 @@ class AirDCPP(object):
                 'free_slots': result.get('slots', {}).get('free', 0),
                 'total_slots': result.get('slots', {}).get('total', 0),
                 'hits': result.get('hits', 0),
-                'search_instance_id': search_instance_id
+                'search_instance_id': search_instance_id,
+                # who shares it and where, for folder packs (airdcpp_pack)
+                'peer': peer_of(result),
+                'folder': folder_of(result.get('path')),
             }
 
             logger.info(f"[AIRDCPP] Yielding result: {formatted_result['title']} "
@@ -529,6 +532,22 @@ class AirDCPP(object):
         else:
             logger.error(f"[AIRDCPP][RSS] No results returned for TTH search: {tth_hash}")
             return {"success": False, "filename": filename, "path": None}
+
+
+def peer_of(result):
+    """The user sharing a search result, as {'cid', 'hub_url', 'nicks'}, or None."""
+    user = (result.get('users') or {}).get('user') or result.get('user')
+    if not isinstance(user, dict) or not user.get('cid') or not user.get('hub_url'):
+        return None
+    return {'cid': user['cid'], 'hub_url': user['hub_url'], 'nicks': user.get('nicks') or ''}
+
+
+def folder_of(path):
+    """The folder part of a result's path in the peer's share, ending in '/', or None."""
+    if not path:
+        return None
+    folder = re.sub(r'[^/\\]+$', '', path)
+    return folder or None
 
 
 def use_own_folder():
