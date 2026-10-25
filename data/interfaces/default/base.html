@@ -99,6 +99,7 @@
 			<a href="home" class="brand"><img class="brand-mark" src="images/issuarr-mark.png" alt="" width="28" height="28" /><span class="brand-name">Issuarr</span></a>
 			<div style="display: flex; gap: 4px">
 				<button type="button" class="icon-btn" data-ui data-action="jump" aria-label="Jump to"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg></button>
+				<button type="button" class="icon-btn" data-ui data-action="help" aria-label="Help for this page"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M9.6 9.2a2.5 2.5 0 0 1 4.8 1c0 1.7-2.4 2.2-2.4 3.6"/><path d="M12 17.3h.01"/></svg></button>
 				<button type="button" class="icon-btn" data-ui id="nav-toggle" aria-label="Menu" aria-expanded="false" aria-controls="sidebar"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M4 7h16M4 12h16M4 17h16"/></svg></button>
 			</div>
 		</div>
@@ -107,7 +108,10 @@
 		<nav class="sidebar" id="sidebar" aria-label="Main">
 			<div class="sb-head">
 				<a href="home" class="brand"><img class="brand-mark" src="images/issuarr-mark.png" alt="" width="28" height="28" /><span class="brand-name">Issuarr</span></a>
-				<button type="button" class="icon-btn" data-ui id="notifs" onclick="manageNotifications()" aria-label="Notifications" title="Notifications (Alt+N)"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M6 8a6 6 0 0 1 12 0c0 7 3 9 3 9H3s3-2 3-9"/><path d="M10.3 21a1.94 1.94 0 0 0 3.4 0"/></svg></button>
+				<div style="display: flex; gap: 2px">
+					<button type="button" class="icon-btn" data-ui data-action="help" aria-label="Help for this page" title="Help for this page (?)"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M9.6 9.2a2.5 2.5 0 0 1 4.8 1c0 1.7-2.4 2.2-2.4 3.6"/><path d="M12 17.3h.01"/></svg></button>
+					<button type="button" class="icon-btn" data-ui id="notifs" onclick="manageNotifications()" aria-label="Notifications" title="Notifications (Alt+N)"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M6 8a6 6 0 0 1 12 0c0 7 3 9 3 9H3s3-2 3-9"/><path d="M10.3 21a1.94 1.94 0 0 0 3.4 0"/></svg></button>
+				</div>
 			</div>
 			<button type="button" class="jump-btn" data-ui data-action="jump" aria-haspopup="dialog">Jump to…<kbd>Ctrl K</kbd></button>
 
@@ -309,6 +313,7 @@
 	<script src="js/pixeldrain-usage.js?v=${mylar.CURRENT_VERSION}"></script>
 	<script src="js/client-status.js?v=${mylar.CURRENT_VERSION}"></script>
 	<script src="js/issuarr.js?v=${mylar.CURRENT_VERSION}"></script>
+	<script src="js/help.js?v=${mylar.CURRENT_VERSION}"></script>
         <script>
         //var reconnectFrequencySeconds = 1;
         //var evtSource;
