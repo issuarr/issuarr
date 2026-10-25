@@ -912,6 +912,8 @@ table.display_log tr.gradeZ td, table.display_log tr.gradeW td { background: var
 
 /* ---------- Ctrl K jump menu ---------- */
 
+/* Settings sections with unsaved changes. */
+.nav-child.has-unsaved::after { content: ""; flex: none; width: 7px; height: 7px; margin-left: auto; border-radius: 50%; background: var(--snatched); }
 .offline-bar {
   position: fixed; top: 12px; left: 50%; transform: translateX(-50%); z-index: 1100; display: flex; align-items: center; gap: 10px;
   max-width: calc(100vw - 32px); padding: 10px 16px; border-radius: 999px; background: var(--snatched); color: #16171B;
