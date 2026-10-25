@@ -7100,13 +7100,14 @@ class WebInterface(object):
 
     def importResults(self):
         myDB = db.DBConnection()
-        # one query for the rows and their file counts: a count per row took minutes on big scans
-        results = myDB.select("SELECT *, count(*) AS IssueCount, sum(IssueNumber LIKE 'Annual%') AS AnnualCount FROM importresults WHERE WatchMatch is Null OR WatchMatch LIKE 'C%' group by DynamicName, Volume, Status COLLATE NOCASE")
+        # one query for the rows and their file counts: a count per row took minutes on big scans.
+        # FileCount, not IssueCount: SELECT * already has an (unused, empty) IssueCount column, which would win.
+        results = myDB.select("SELECT *, count(*) AS FileCount, sum(IssueNumber LIKE 'Annual%') AS AnnualCount FROM importresults WHERE WatchMatch is Null OR WatchMatch LIKE 'C%' group by DynamicName, Volume, Status COLLATE NOCASE")
         countit = []
         for x in results:
             countit.append({"DynamicName":  x['DynamicName'],
                             "Volume":       x['Volume'],
-                            "IssueCount":   x['IssueCount'],
+                            "IssueCount":   x['FileCount'],
                             "AnnualCount":  x['AnnualCount'] or 0,
                             "ComicName":    x['ComicName'],
                             "DisplayName":  x['DisplayName'],
