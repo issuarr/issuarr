@@ -108,8 +108,8 @@
                 <div class="grid-2" id="tab_opts">
                     <label class="field"><span class="field-label">Tablet address</span><input type="text" name="tab_host" value="${mylar.CONFIG.TAB_HOST or '' | h}" placeholder="192.168.1.20:2222" /></label>
                     <label class="field"><span class="field-label">Folder on the tablet</span><input type="text" name="tab_directory" value="${mylar.CONFIG.TAB_DIRECTORY or '' | h}" placeholder="/sdcard/Comics" /></label>
-                    <label class="field"><span class="field-label">User name</span><input type="text" name="tab_user" value="${mylar.CONFIG.TAB_USER or '' | h}" /></label>
-                    <label class="field"><span class="field-label">Password</span><input type="password" name="tab_pass" value="${mylar.CONFIG.TAB_PASS or '' | h}" /></label>
+                    <label class="field"><span class="field-label">User name</span><input type="text" name="tab_user" value="${mylar.CONFIG.TAB_USER or '' | h}" autocomplete="off" data-lpignore="true" data-1p-ignore="true" data-bwignore="true" data-form-type="other" /></label>
+                    <label class="field"><span class="field-label">Password</span><input type="text" class="secret" spellcheck="false" name="tab_pass" value="${mylar.CONFIG.TAB_PASS or '' | h}" autocomplete="off" data-lpignore="true" data-1p-ignore="true" data-bwignore="true" data-form-type="other" /></label>
                     <label class="switch-row" style="grid-column: 1 / -1">
                         <input type="checkbox" name="maintainseriesfolder" value="1" ${checked(mylar.CONFIG.MAINTAINSERIESFOLDER)} />
                         <span><b>Keep the series folders on the tablet</b><small>When off, every issue goes straight into the folder above.</small></span>
