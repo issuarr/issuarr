@@ -172,15 +172,16 @@
             }
             var rm = e.target.closest('[data-remove]');
             if (rm) {
-                if (!window.confirm('Remove the arc "' + rm.getAttribute('data-name') + '"? Its reading order is removed from Issuarr. Issues and files in your library stay.')) return;
-                rm.disabled = true;
-                fetch(rm.getAttribute('data-remove'), { credentials: 'same-origin' })
-                    .then(function (r) {
-                        if (!r.ok) throw new Error(r.status);
-                        Issuarr.toast('Removed ' + rm.getAttribute('data-name') + '.');
-                        rm.closest('tr').remove();
-                    })
-                    .catch(function () { rm.disabled = false; Issuarr.toast('That didn\'t work. Check the log.', false); });
+                Issuarr.ask('Remove the arc "' + rm.getAttribute('data-name') + '"? Its reading order is removed from Issuarr. Issues and files in your library stay.', { ok: 'Remove arc', danger: true }, function () {
+                    rm.disabled = true;
+                    fetch(rm.getAttribute('data-remove'), { credentials: 'same-origin' })
+                        .then(function (r) {
+                            if (!r.ok) throw new Error(r.status);
+                            Issuarr.toast('Removed ' + rm.getAttribute('data-name') + '.');
+                            rm.closest('tr').remove();
+                        })
+                        .catch(function () { rm.disabled = false; Issuarr.toast('That didn\'t work. Check the log.', false); });
+                });
             }
         });
     })();
