@@ -231,8 +231,8 @@
 				</details>
 				<p class="network-status info-box" hidden></p>
 				<div class="sb-power">
-					<a href="restart" onclick="return confirm('Restart Issuarr now?');">Restart</a>
-					<a href="shutdown" onclick="return confirm('Shut down Issuarr? It stays off until you start it again.');">Shut down</a>
+					<a href="restart" data-confirm="Restart Issuarr now?" data-confirm-ok="Restart">Restart</a>
+					<a href="shutdown" data-confirm="Shut down Issuarr? It stays off until you start it again." data-confirm-ok="Shut down" data-confirm-danger>Shut down</a>
 					%if mylar.CONFIG.AUTHENTICATION > 0:
 					<a href="auth/logout">Log out</a>
 					%endif

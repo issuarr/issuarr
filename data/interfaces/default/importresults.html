@@ -193,27 +193,32 @@
             if (bulk) {
                 var action = bulk.getAttribute('data-bulk');
                 var sel = picked();
-                if (action === 'removeimport' && !window.confirm('Remove ' + sel.length + ' series from the results? Nothing is deleted from disk; scan again to find them again.')) return;
-                var body = new URLSearchParams({ action: action });
-                sel.forEach(function (tr) { var cb = tr.querySelector('[data-key]'); body.append(cb.getAttribute('data-key'), cb.getAttribute('data-dyn')); });
-                fetch('markImports', { method: 'POST', credentials: 'same-origin', body: body })
-                    .then(function (r) {
-                        if (!r.ok) throw new Error(r.status);
-                        Issuarr.toast(action === 'removeimport' ? 'Removed ' + sel.length + ' series from the results.' : 'Importing ' + sel.length + ' series. Follow it in Tasks › Jobs.');
-                        setTimeout(function () { location.reload(); }, 900);
-                    })
-                    .catch(failed);
+                var go = function () {
+                    var body = new URLSearchParams({ action: action });
+                    sel.forEach(function (tr) { var cb = tr.querySelector('[data-key]'); body.append(cb.getAttribute('data-key'), cb.getAttribute('data-dyn')); });
+                    fetch('markImports', { method: 'POST', credentials: 'same-origin', body: body })
+                        .then(function (r) {
+                            if (!r.ok) throw new Error(r.status);
+                            Issuarr.toast(action === 'removeimport' ? 'Removed ' + sel.length + ' series from the results.' : 'Importing ' + sel.length + ' series. Follow it in Tasks › Jobs.');
+                            setTimeout(function () { location.reload(); }, 900);
+                        })
+                        .catch(failed);
+                };
+                if (action === 'removeimport') Issuarr.ask('Remove ' + sel.length + ' series from the results? Nothing is deleted from disk; scan again to find them again.', { ok: 'Remove', danger: true }, go);
+                else go();
                 return;
             }
             if (t.closest('#imp-none')) { rows().forEach(function (tr) { tr.querySelector('[data-key]').checked = false; }); renderBulk(); return; }
             if (t.closest('#imp-all')) {
-                if (!window.confirm('Import every series that is not imported yet? Each one is looked up on ComicVine, which takes a while on a big scan.')) return;
-                get('markImports?action=massimport', 'Importing everything not imported yet. Follow it in Tasks › Jobs.').catch(failed);
+                Issuarr.ask('Import every series that is not imported yet? Each one is looked up on ComicVine, which takes a while on a big scan.', { ok: 'Import all' }, function () {
+                    get('markImports?action=massimport', 'Importing everything not imported yet. Follow it in Tasks › Jobs.').catch(failed);
+                });
                 return;
             }
             if (t.closest('#imp-flush')) {
-                if (!window.confirm('Clear every import result? Nothing is deleted from disk; scan again to find the series again.')) return;
-                get('flushImports', 'Cleared the import results.').then(function () { setTimeout(function () { location.reload(); }, 900); }).catch(failed);
+                Issuarr.ask('Clear every import result? Nothing is deleted from disk; scan again to find the series again.', { ok: 'Clear results', danger: true }, function () {
+                    get('flushImports', 'Cleared the import results.').then(function () { setTimeout(function () { location.reload(); }, 900); }).catch(failed);
+                });
             }
         });
         document.addEventListener('change', function (e) {

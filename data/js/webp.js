@@ -203,10 +203,11 @@
   $id('wp-reset').addEventListener('click', reset);
   $id('wp-recheck').addEventListener('click', function () {
     var n = (st.memory || {})['nothing to gain'] || 0;
-    if (!confirm('Look again at the ' + num(n) + ' files that had nothing to gain? Nothing is changed until you run a conversion.')) return;
-    post('webp_recheck').then(function (r) {
-      st = r.status; render();
-      window.Issuarr.toast(num(r.reopened) + ' files will be looked at again.', true);
+    window.Issuarr.ask('Look again at the ' + num(n) + ' files that had nothing to gain? Nothing is changed until you run a conversion.', { ok: 'Look again' }, function () {
+      post('webp_recheck').then(function (r) {
+        st = r.status; render();
+        window.Issuarr.toast(num(r.reopened) + ' files will be looked at again.', true);
+      });
     });
   });
   $id('wp-done').addEventListener('click', reset);

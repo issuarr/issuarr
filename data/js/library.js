@@ -19,9 +19,9 @@
     pause: { done: 'Paused', confirm: null },
     resume: { done: 'Resumed', confirm: null },
     recheck: { done: 'Rechecking files for', confirm: null },
-    metatag: { done: 'Writing metadata for', confirm: 'Write ComicInfo metadata into the files of {n}? This changes the files on disk.' },
-    rename: { done: 'Renaming files for', confirm: 'Rename the files of {n} to match your naming settings? This changes the files on disk.' },
-    delete: { done: 'Removed', confirm: 'Remove {n} from Issuarr? The series, its issue list and statuses are removed. Files on disk stay where they are.' }
+    metatag: { done: 'Writing metadata for', confirm: 'Write ComicInfo metadata into the files of {n}? This changes the files on disk.', ok: 'Write metadata' },
+    rename: { done: 'Renaming files for', confirm: 'Rename the files of {n} to match your naming settings? This changes the files on disk.', ok: 'Rename files' },
+    delete: { done: 'Removed', confirm: 'Remove {n} from Issuarr? The series, its issue list and statuses are removed. Files on disk stay where they are.', ok: 'Remove' }
   };
 
   var st = { all: [], tab: 'all', q: '', pub: '', sort: 'title', col: null, view: 'covers', limit: CHUNK, selecting: /[?&]select=1\b/.test(location.search), sel: {}, loaded: false, noArt: {} };
@@ -330,7 +330,12 @@
     if (!picked.length) return;
     var what = picked.length === 1 ? '"' + picked[0].name + '"' : picked.length + ' series';
     var cfg = BULK[action];
-    if (cfg.confirm && !window.confirm(cfg.confirm.replace('{n}', what))) return;
+    if (cfg.confirm) { I().ask(cfg.confirm.replace('{n}', what), { ok: cfg.ok, danger: action === 'delete' }, function () { send(action, picked, what); }); return; }
+    send(action, picked, what);
+  }
+
+  function send(action, picked, what) {
+    var cfg = BULK[action];
     var body = new URLSearchParams();
     body.append('action', action);
     picked.forEach(function (s) { body.append(s.name + '[' + s.year + ']', s.id); });
@@ -370,10 +375,11 @@
     }
     if (t.closest('#lib-update-all')) {
       $id('lib-more').open = false;
-      if (!window.confirm('Update every series from ComicVine? On a big library this takes a while and uses ComicVine requests.')) return;
-      fetch('forceUpdate', { credentials: 'same-origin' })
-        .then(function () { I().toast('Updating every series. Follow it in Tasks › Jobs or the log.'); })
-        .catch(function () { I().toast('That didn\'t work. Check the log.', false); });
+      I().ask('Update every series from ComicVine? On a big library this takes a while and uses ComicVine requests.', { ok: 'Update all' }, function () {
+        fetch('forceUpdate', { credentials: 'same-origin' })
+          .then(function () { I().toast('Updating every series. Follow it in Tasks › Jobs or the log.'); })
+          .catch(function () { I().toast('That didn\'t work. Check the log.', false); });
+      });
       return;
     }
   });
