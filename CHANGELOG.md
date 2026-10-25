@@ -6,6 +6,7 @@ Releases come from the `main` branch and are the `latest` Docker image. Changes 
 
 ## Unreleased (on dev)
 
+- Library check no longer stops at the first .cbr file. It stopped there while still saying every file checked out, so most of the library went unchecked. A file it can't read is now listed as unchecked instead of ending the run, and if a run does stop, the page says how far it got and why. ([`310f512d`](https://github.com/issuarr/issuarr/commit/310f512d))
 - Tags written from Issuarr's stored details (by Library check's Tag untagged files, WebP conversion and imports) now include each issue's summary. Refreshing a series already downloaded the descriptions from ComicVine and then dropped them; now they're kept, so this costs no extra ComicVine requests. Series pick up their summaries on their next refresh. ([`5054b84e`](https://github.com/issuarr/issuarr/commit/5054b84e))
 - In the Choose match window, files that were .cbr when scanned and have since become .cbz show their cover again, and the import uses the new name. A file listed more than once shows once, and one that's no longer on disk is marked missing. ([`86843b3`](https://github.com/issuarr/issuarr/commit/86843b3))
 - **Allow pack downloads** in a series' settings works now. It only showed with 32P turned on and search ignored it, so GetComics packs were used for every series. It now shows on every series and is on by default; turn it off and search won't grab GetComics packs for that series. ([`2c75bc36`](https://github.com/issuarr/issuarr/commit/2c75bc36))

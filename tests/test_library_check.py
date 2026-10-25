@@ -184,3 +184,40 @@ def test_tagging_makes_a_cbr_a_cbz_first(lib, stored):
     run_tagging()
     assert not (folder / 'Saga 007.cbr').exists() and stored.tagged(str(folder / 'Saga 007.cbz'))
     assert db.select("SELECT tagged FROM library_check WHERE path=?", [str(folder / 'Saga 007.cbz')])[0]['tagged'] == 1
+
+
+def test_uses_the_bundled_rarfile_module():
+    # Issuarr puts lib/ first on sys.path, where a bare "import rarfile" finds the empty lib/rarfile package
+    assert library_check.rarfile.__name__ == 'lib.rarfile.rarfile'
+    assert library_check.rarfile.RarCannotExec and library_check.rarfile.Error
+
+
+def test_a_rar_with_no_unrar_or_a_bad_rar_doesnt_stop_the_scan(lib):
+    db, folder, _ = lib
+    (folder / 'Saga 008.cbr').write_bytes(b'Rar!\x1a\x07\x00' + b'\x00' * 64)   # a broken RAR
+    run_scan()
+    st = library_check.status()
+    assert st['error'] is None and st['checked'] == 5
+
+
+def test_one_file_that_breaks_the_checker_doesnt_stop_the_scan(lib, monkeypatch):
+    real = library_check.check_file
+
+    def check(path):
+        if path.endswith('Saga 001.cbz'):
+            raise AttributeError('surprise')
+        return real(path)
+    monkeypatch.setattr(library_check, 'check_file', check)
+    run_scan()
+    st = library_check.status()
+    assert st['error'] is None and st['checked'] == 4 and st['unchecked'] == 1
+
+
+def test_a_scan_that_stops_says_so(lib, monkeypatch):
+    def boom(path):
+        raise RuntimeError('disk went away')
+    monkeypatch.setattr(library_check, '_stat', boom)
+    run_scan()
+    st = library_check.status()
+    assert st['error'] == 'RuntimeError: disk went away'
+    library_check.STATE['error'] = None
