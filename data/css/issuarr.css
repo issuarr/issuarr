@@ -1629,3 +1629,20 @@ a.issue-name:hover { text-decoration: underline; text-underline-offset: 3px; }
   .ip-body { flex-direction: column; }
   .ip-cover { width: 140px; }
 }
+
+/* ---- Import results > Choose match (js/importchoice.js) ---- */
+.choose-dialog { width: min(920px, calc(100vw - 32px)); }
+.choose-top { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; }
+.choose-files { display: flex; gap: 14px; align-items: flex-start; padding-bottom: 12px; }
+.choose-files .match-cover { width: 120px; }
+.choose-files .match-covers.is-large .match-cover { width: 260px; }
+.choose-name { margin: 0; font-weight: 600; }
+.choose-filelist { margin: 4px 0 0; padding: 0; list-style: none; max-height: 132px; overflow: auto; font-size: 12px; }
+.choose-filelist .link-btn { color: var(--muted); text-decoration: none; text-align: left; overflow-wrap: anywhere; }
+.choose-filelist .link-btn.is-current, .choose-filelist .link-btn:hover { color: var(--text); }
+.choose-search { margin: 0 0 4px; flex-wrap: nowrap; }
+.choose-search .match-search { margin: 0; }
+.choose-row .match-cover { width: 96px; }
+.choose-about { margin: 2px 0 0; font-size: 12.5px; color: var(--text-2); line-height: 1.45; }
+.choose-warn { color: var(--snatched); }
+.choose-actions { gap: 8px; }

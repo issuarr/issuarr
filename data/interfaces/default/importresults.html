@@ -127,8 +127,8 @@
                                         data-done="Importing ${x['name'] | h}.">Import</button>
                                 %endif
                                 %if r['SRID'] is not None and x['status'] not in ('Imported', 'No Results'):
-                                <a class="btn btn-sm btn-primary" href="importresults_popup?${urlencode({'SRID': r['SRID'], 'ComicName': r['ComicName'], 'imported': 'yes', 'ogcname': r['ComicName'], 'DynamicName': r['DynamicName'], 'Volume': r['Volume']}) | h}"
-                                   title="ComicVine has more than one possible match">Choose match</a>
+                                <button type="button" class="btn btn-sm btn-primary" data-choose="${urlencode({'DynamicName': r['DynamicName'], 'Volume': r['Volume']}) | h}"
+                                        title="ComicVine has more than one possible match: compare covers and pick one">Choose match</button>
                                 %endif
                                 %if x['status'] not in ('Imported', 'Importing'):
                                 <button type="button" class="btn btn-sm btn-ghost" data-cvid="${urlencode({'ComicName': r['ComicName'], 'DynamicName': r['DynamicName'], 'Volume': r['Volume']}) | h}"
@@ -160,9 +160,21 @@
         </form>
     </div>
     <div id="imp-files" title="Files" style="display:none"><p class="muted" id="imp-files-count"></p><ul class="imp-file-list" id="imp-file-list"></ul></div>
+    <dialog id="choose-dialog" class="match-dialog choose-dialog" aria-labelledby="choose-title">
+        <div class="choose-top">
+            <h2 id="choose-title">Choose a match</h2>
+            <span class="muted" id="choose-pos"></span>
+        </div>
+        <div id="choose-body" class="match-body"></div>
+        <div class="match-actions choose-actions">
+            <button type="button" class="btn" data-choose-skip>Skip</button>
+            <button type="button" class="btn btn-ghost" data-choose-close>Close</button>
+        </div>
+    </dialog>
 </%def>
 
 <%def name="javascriptIncludes()">
+    <script src="js/importchoice.js?v=${mylar.CURRENT_VERSION}"></script>
     <script>
     (function () {
         var table = document.getElementById('imp-table');
@@ -276,7 +288,7 @@
                     if (!d.ok) { note.textContent = d.note; note.hidden = false; return; }
                     jQuery('#imp-cvid').dialog('close');
                     cvidFor.disabled = true;
-                    Issuarr.toast('Importing ' + cvidFor.getAttribute('data-title') + ' as ComicVine ' + d.comicid + '. Follow it in Tasks › Jobs.');
+                    Issuarr.toast(d.queued ? d.note : 'Importing ' + cvidFor.getAttribute('data-title') + ' as ComicVine ' + d.comicid + '. Follow it in Tasks › Jobs.');
                 })
                 .catch(failed);
         });
