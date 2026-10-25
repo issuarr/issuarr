@@ -62,6 +62,7 @@ from mylar import (
     carepackage,
     cvlink,
     discover,
+    search_rank,
     config,
     db,
     Failed,
@@ -1188,7 +1189,32 @@ class WebInterface(object):
                 out.append(row)
         return out
 
-    def loadSearchResults(self, query=None, iDisplayStart=0, iDisplayLength=25, iSortCol_0='1', sSortDir_0="desc", sSearch="", hide_already='0', hide_tpb='0', **kwargs):
+    def _sort_search_results(self, filtered, iSortCol_0, sSortDir_0):
+        sortcolumn = 'comicname'
+        if iSortCol_0 == '1':
+            sortcolumn = 'comicname'
+        elif iSortCol_0 == '2':
+            sortcolumn = 'publisher'
+        elif iSortCol_0 == '3':
+            sortcolumn = 'comicyear'
+        elif iSortCol_0 == '4':
+            sortcolumn = 'issues'
+
+        def sortvalue(v):
+            # Issue counts and years sort as numbers (9 before 10), names ignore case.
+            if sortcolumn in ('issues', 'comicyear'):
+                try:
+                    return (0, int(v), '')
+                except (TypeError, ValueError):
+                    return (1, 0, str(v).lower())
+            return (0, 0, str(v).lower())
+        # Results with nothing in the column stay at the bottom whichever way it's sorted.
+        blank = [x for x in filtered if x.get(sortcolumn) in (None, '', 'None')]
+        filtered = sorted((x for x in filtered if x.get(sortcolumn) not in (None, '', 'None')),
+                          key=lambda x: sortvalue(x[sortcolumn]), reverse=sSortDir_0 == "desc") + blank
+        return filtered
+
+    def loadSearchResults(self, query=None, iDisplayStart=0, iDisplayLength=25, iSortCol_0='1', sSortDir_0="desc", sSearch="", hide_already='0', hide_tpb='0', name='', **kwargs):
 
         logger.fdebug('query: %s' % query)
         if query is None:
@@ -1246,28 +1272,10 @@ class WebInterface(object):
         if hide_tpb:
             filtered = [row for row in filtered if (row['type'] or '').upper() != 'TPB']
 
-        sortcolumn = 'comicname'
-        if iSortCol_0 == '1':
-            sortcolumn = 'comicname'
-        elif iSortCol_0 == '2':
-            sortcolumn = 'publisher'
-        elif iSortCol_0 == '3':
-            sortcolumn = 'comicyear'
-        elif iSortCol_0 == '4':
-            sortcolumn = 'issues'
-
-        def sortvalue(v):
-            # Issue counts and years sort as numbers (9 before 10), names ignore case.
-            if sortcolumn in ('issues', 'comicyear'):
-                try:
-                    return (0, int(v), '')
-                except (TypeError, ValueError):
-                    return (1, 0, str(v).lower())
-            return (0, 0, str(v).lower())
-        # Results with nothing in the column stay at the bottom whichever way it's sorted.
-        blank = [x for x in filtered if x.get(sortcolumn) in (None, '', 'None')]
-        filtered = sorted((x for x in filtered if x.get(sortcolumn) not in (None, '', 'None')),
-                          key=lambda x: sortvalue(x[sortcolumn]), reverse=sSortDir_0 == "desc") + blank
+        if iSortCol_0 == 'best':
+            filtered = search_rank.rank(filtered, name, search_rank.library_publishers(myDB))
+        else:
+            filtered = self._sort_search_results(filtered, iSortCol_0, sSortDir_0)
 
         logger.info('# of results: %s' % len(filtered))
         total_display_records = len(filtered)

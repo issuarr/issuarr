@@ -6,7 +6,7 @@
     <%
         is_arc = search_type == 'story_arc'
     %>
-    <div class="page search-results" data-arc="${'1' if is_arc else '0'}">
+    <div class="page search-results" data-arc="${'1' if is_arc else '0'}" data-name="${query | h}">
         <div class="page-head">
             <div class="head-text">
                 <h1><span class="page-crumb">${'Story Arcs' if is_arc else 'Add series'} › </span>Results for “${query | h}”</h1>
@@ -37,6 +37,7 @@
             %endif
             <label class="field sr-sort"><span class="sr-only">Sort</span>
                 <select id="sr-sort">
+                    <option value="best:desc" title="Closest name first, then publishers you collect and longer, newer runs">Best match</option>
                     <option value="3:desc">Newest first</option>
                     <option value="3:asc">Oldest first</option>
                     <option value="1:asc">Name A–Z</option>
@@ -69,8 +70,8 @@
     <script>
     (function () {
         var PER = 25, isArc = document.querySelector('.search-results').getAttribute('data-arc') === '1';
-        var query = document.getElementById('search_query').value;
-        var st = { start: 0, total: 0, q: '', sort: '3:desc', sel: {}, adding: {}, open: {} };
+        var query = document.getElementById('search_query').value, name = document.querySelector('.search-results').getAttribute('data-name');
+        var st = { start: 0, total: 0, q: '', sort: 'best:desc', sel: {}, adding: {}, open: {} };
         var $ = function (id) { return document.getElementById(id); };
         function esc(t) { var d = document.createElement('div'); d.textContent = t == null ? '' : String(t); return d.innerHTML; }
         function toast(m, ok) { if (window.Issuarr) Issuarr.toast(m, ok); }
@@ -78,7 +79,7 @@
 
         function load() {
             var sort = st.sort.split(':');
-            var params = new URLSearchParams({ query: query, iDisplayStart: st.start, iDisplayLength: PER, sSearch: st.q,
+            var params = new URLSearchParams({ query: query, name: name, iDisplayStart: st.start, iDisplayLength: PER, sSearch: st.q,
                 iSortCol_0: sort[0], sSortDir_0: sort[1],
                 hide_already: $('sr-hide-have') && $('sr-hide-have').checked ? '1' : '0',
                 hide_tpb: $('sr-hide-tpb') && $('sr-hide-tpb').checked ? '1' : '0' });
