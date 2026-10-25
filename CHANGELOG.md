@@ -6,6 +6,7 @@ Releases come from the `main` branch and are the `latest` Docker image. Changes 
 
 ## Unreleased (on dev)
 
+- On a series page, selecting issues or annuals shows a bar with how many are picked and a button for each status (Mark wanted, Skip, Mark archived, Ignore), Write metadata and Clear selection, instead of the old drop-down. The issue list shows 50 issues per page by default instead of 25. ([`58cb0644`](https://github.com/issuarr/issuarr/commit/58cb0644))
 - Marking issues Wanted from the Ledger or a series page now also searches for picked issues that were already Wanted, instead of skipping them. ([`d66cacc`](https://github.com/issuarr/issuarr/commit/d66cacc))
 - Messages now pop up as a stack in the bottom corner. Errors stay on screen longer, and hovering a message keeps it open. ([`25044d9`](https://github.com/issuarr/issuarr/commit/25044d9))
 - The Library remembers your tab, filter, publisher and sort in the page address, so Back, a refresh or a bookmark brings you to the same view, scrolled to where you were. ([`90d2858`](https://github.com/issuarr/issuarr/commit/90d2858))
