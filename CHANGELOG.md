@@ -7,6 +7,7 @@ Releases come from the `main` branch and are the `latest` Docker image. Changes 
 ## Unreleased (on dev)
 
 - A ? button next to the notifications bell (or the ? key) explains the page you're on, lists the keyboard shortcuts, and links to the docs and troubleshooting. ([`28d8d0a`](https://github.com/issuarr/issuarr/commit/28d8d0a))
+- In Settings, a dot next to a section in the sidebar shows which sections have changes you haven't saved yet. ([`fbfb054`](https://github.com/issuarr/issuarr/commit/fbfb054))
 - After an update, a What's new window lists what changed since you last saw it, with a link to each change on GitHub. It shows once; closing it marks those changes as seen. ([`949ab99`](https://github.com/issuarr/issuarr/commit/949ab99))
 - Settings no longer makes the browser offer to save download client, notification and other service passwords. Issuarr's own sign-in user name and password still can be saved, and the login page fills them in. ([`eb05a33`](https://github.com/issuarr/issuarr/commit/eb05a33), [`9d4e637`](https://github.com/issuarr/issuarr/commit/9d4e637))
 
