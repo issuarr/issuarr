@@ -61,6 +61,7 @@ from mylar import (
     webp,
     carepackage,
     cvlink,
+    prowlarr,
     cbl_catalog,
     discover,
     search_rank,
@@ -8050,6 +8051,9 @@ class WebInterface(object):
                     "webhook_enabled": helpers.checked(mylar.CONFIG.WEBHOOK_ENABLED),
                     "webhook_url": mylar.CONFIG.WEBHOOK_URL,
                     "webhook_onsnatch": helpers.checked(mylar.CONFIG.WEBHOOK_ONSNATCH),
+                    "prowlarr_url": mylar.CONFIG.PROWLARR_URL,
+                    "prowlarr_apikey": mylar.CONFIG.PROWLARR_APIKEY,
+                    "prowlarr_sync": helpers.checked(mylar.CONFIG.PROWLARR_SYNC),
                     "enable_extra_scripts": helpers.checked(mylar.CONFIG.ENABLE_EXTRA_SCRIPTS),
                     "extra_scripts": mylar.CONFIG.EXTRA_SCRIPTS,
                     "enable_snatch_script": helpers.checked(mylar.CONFIG.ENABLE_SNATCH_SCRIPT),
@@ -8431,7 +8435,7 @@ class WebInterface(object):
                            'boxcar_onsnatch', 'pushbullet_enabled', 'pushbullet_onsnatch', 'telegram_enabled', 'telegram_onsnatch', 'telegram_image', 'discord_enabled', 'discord_onsnatch', 'slack_enabled', 'slack_onsnatch',
                            'email_enabled', 'email_enc', 'email_ongrab', 'email_onpost', 'gotify_enabled', 'gotify_server_url', 'gotify_token', 'gotify_onsnatch', 'ntfy_enabled', 'ntfy_onsnatch', 'webhook_enabled', 'webhook_onsnatch', 'opds_enable', 'opds_authentication', 'opds_metainfo', 'opds_pagesize', 'enable_ddl',
                            'enable_getcomics', 'enable_flaresolverr', 'enable_airdcpp', 'airdcpp_folder_packs', 'jd2_enable', 'enable_external_server', 'ddl_prefer_upscaled', 'ddl_main_large_last', 'deluge_pause',
-                           'custom_css_enabled'] #enable_public
+                           'custom_css_enabled', 'prowlarr_sync'] #enable_public
 
         for checked_config in checked_configs:
             if checked_config not in kwargs:
@@ -9625,6 +9629,16 @@ class WebInterface(object):
             logger.warn('Test variables used [WEBHOOK_URL: %s][USERNAME: %s]' % (webhook_url, username))
             return "Error sending test message to Gotify"
     testgotify.exposed = True
+
+    def prowlarr_indexers(self, url=None, apikey=None):
+        self._attention_post()
+        return self._attention_json(prowlarr.listing(url, apikey))
+    prowlarr_indexers.exposed = True
+
+    def prowlarr_add(self, url=None, apikey=None, ids='', sync='0'):
+        self._attention_post()
+        return self._attention_json(prowlarr.add(url, apikey, [i for i in ids.split(',') if i], sync == '1'))
+    prowlarr_add.exposed = True
 
     def testntfy(self, server_url=None, topic=None, token=None):
         if not topic:
