@@ -346,6 +346,11 @@ _CONFIG_DEFINITIONS = OrderedDict({
     'NEWZNAB': (bool, 'Newznab', False),
     'EXTRA_NEWZNABS': (str, 'Newznab', ""),
 
+    'PROWLARR_URL': (str, 'Prowlarr', None),
+    'PROWLARR_APIKEY': (str, 'Prowlarr', None),
+    'PROWLARR_SYNC': (bool, 'Prowlarr', False),
+    'PROWLARR_KNOWN': (str, 'Prowlarr', ''),     # Prowlarr indexer ids already offered, so removed ones stay removed
+
     'ENABLE_TORZNAB': (bool, 'Torznab', False),
     'EXTRA_TORZNABS': (str, 'Torznab', ""),
     'TORZNAB_NAME': (str, 'Torznab', None),
