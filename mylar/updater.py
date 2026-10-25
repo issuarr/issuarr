@@ -114,7 +114,9 @@ def dbUpdate(ComicIDList=None, calledfrom=None, sched=False):
     if sched is True:
        logger.fdebug('Refresh sequence set to fire every %s minutes for %s day(s)' % (mylar.DBUPDATE_INTERVAL, mylar.CONFIG.REFRESH_CACHE))
 
+    cached = 0
     for comic in sorted(comiclist, key=lambda x: x if isinstance(operator.itemgetter('LastUpdated'), str) else "", reverse=True):
+        comic = dict(comic)   # a database row can't take the corrected year below
         dspyear = comic['ComicYear']
         csyear = None
         fixed_type = None
@@ -143,6 +145,7 @@ def dbUpdate(ComicIDList=None, calledfrom=None, sched=False):
                 if hours < cache_hours:
                     #logger.fdebug('%s [%s] Was refreshed less than %s hours ago. Skipping Refresh at this time.' % (ComicName, ComicID, cache_hours))
                     cnt +=1
+                    cached += 1
                     continue
             logger.info('[%s/%s] Refreshing :%s (%s) [%s]' % (cnt, len(comiclist), ComicName, dspyear, ComicID))
         else:
@@ -169,7 +172,7 @@ def dbUpdate(ComicIDList=None, calledfrom=None, sched=False):
             if ComicID[:1] == "G":
                 mylar.importer.GCDimport(ComicID)
             else:
-                cchk = importer.addComictoDB(ComicID, mismatch)
+                cchk = mylar.importer.addComictoDB(ComicID, mismatch)
         else:
             if mylar.CONFIG.CV_ONETIMER == 1:
                 #if sched is True:
@@ -487,6 +490,8 @@ def dbUpdate(ComicIDList=None, calledfrom=None, sched=False):
 
     #helpers.job_management(write=True, job='DB Updater', last_run_completed=helpers.utctimestamp(), status='Waiting')
     #mylar.UPDATER_STATUS = 'Waiting'
+    if cached:
+        logger.info('Left %s series alone that were refreshed in the last %s day(s).' % (cached, mylar.CONFIG.REFRESH_CACHE))
     logger.fdebug('Update complete')
 
 def latest_update(ComicID, LatestIssue, LatestDate, ReleaseComicID=None):
