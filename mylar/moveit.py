@@ -1,7 +1,10 @@
 import mylar
-from mylar import db, logger, helpers, updater, filechecker, webp
+from mylar import db, logger, helpers, updater, filechecker, webp, comicinfo
 import os
+import queue
 import shutil
+import threading
+import zipfile
 import ast
 
 def movefiles(comicid, comlocation, imported):
@@ -90,6 +93,77 @@ def convert(path):
             logger.warn('[IMPORT] Left %s as a .cbr: %s' % (os.path.basename(path), res['reason']))
     webp.after_import(path)
     return path
+
+def _tagged(path):
+    """True when the file is a zip holding a ComicInfo.xml. A real RAR counts as untagged."""
+    try:
+        with zipfile.ZipFile(path) as z:
+            return any(comicinfo._is_comicinfo(n) for n in z.namelist())
+    except (zipfile.BadZipFile, OSError):
+        return False
+
+
+def untagged(comicid):
+    """IssueIDs of the series whose files are there but have no ComicInfo.xml."""
+    myDB = db.DBConnection()
+    comic = myDB.selectone('SELECT ComicLocation FROM comics WHERE ComicID=?', [comicid]).fetchone()
+    if not comic or not comic['ComicLocation']:
+        return []
+    rows = list(myDB.select('SELECT IssueID, Location FROM issues WHERE ComicID=? AND Location IS NOT NULL', [comicid]))
+    if mylar.CONFIG.ANNUALS_ON:
+        rows += list(myDB.select('SELECT IssueID, Location FROM annuals WHERE ComicID=? AND Location IS NOT NULL AND NOT Deleted', [comicid]))
+    out = []
+    for row in rows:
+        path = os.path.join(comic['ComicLocation'], row['Location'])
+        if os.path.isfile(path) and not _tagged(path):
+            out.append(row['IssueID'])
+    return out
+
+
+_tag_queue = queue.Queue()
+_tag_worker = None
+_tag_lock = threading.Lock()
+
+
+def tag_imported(comicid):
+    """Tag an imported series' untagged files when tagging is on, as filing a download does.
+    Imported files are never post-processed, so without this only a series' downloads carry
+    tags and readers that group by ComicInfo.xml (Kavita, Komga) split the series in two.
+    One worker tags series in turn, so a big import isn't held up waiting on ComicVine."""
+    global _tag_worker
+    if not mylar.CONFIG.ENABLE_META:
+        return
+    _tag_queue.put(comicid)
+    with _tag_lock:
+        if _tag_worker is None or not _tag_worker.is_alive():
+            _tag_worker = threading.Thread(target=_tag_loop, name='IMPORT-TAGGER', daemon=True)
+            _tag_worker.start()
+
+
+def _tag_loop():
+    while True:
+        try:
+            comicid = _tag_queue.get(timeout=5)
+        except queue.Empty:
+            return
+        try:
+            _tag_series(comicid)
+        except Exception as e:
+            logger.warn('[IMPORT] Unable to tag the imported files of series %s: %s' % (comicid, e))
+
+
+def _tag_series(comicid):
+    issueids = untagged(comicid)
+    if not issueids:
+        return
+    from mylar.webserve import WebInterface
+    logger.info('[IMPORT] Tagging %s imported file%s of series %s that had no ComicInfo.xml.' % (
+        len(issueids), '' if len(issueids) == 1 else 's', comicid))
+    web = WebInterface()
+    for issueid in issueids:
+        web.manual_metatag(issueid, group=True)
+    updater.forceRescan(comicid)
+
 
 def archivefiles(comicid, comlocation, imported):
     myDB = db.DBConnection()
