@@ -1,0 +1,29 @@
+<%inherit file="base.html" />
+<%!
+    import mylar
+%>
+
+<%def name="body()">
+    <input type="hidden" id="page_name" value="librarycheck" />
+    <div class="page">
+        <div class="page-head">
+            <div class="head-text">
+                <h1><span class="page-crumb">Tools › </span>Library check</h1>
+                <p class="page-sub">Opens every comic in your series folders and reads it through, to find files that are damaged, aren't comics at all, have no pages, or wrap another .cbz or .cbr instead of pages. Files are remembered, so the next run only opens ones that changed. Nothing happens to a file until you choose; files you remove go to the trash for ${trash_days} days.</p>
+            </div>
+            <div class="head-actions">
+                <button type="button" class="btn btn-primary" id="lc-scan">Check the library</button>
+                <button type="button" class="btn" id="lc-stop" hidden>Stop</button>
+            </div>
+        </div>
+
+        <section class="section" aria-label="Files that need a look">
+            <p class="section-note" id="lc-note" aria-live="polite">Loading…</p>
+            <ul id="lc-list" class="lc-list"></ul>
+        </section>
+    </div>
+</%def>
+
+<%def name="javascriptIncludes()">
+    <script src="js/librarycheck.js?v=${mylar.CURRENT_VERSION}"></script>
+</%def>
