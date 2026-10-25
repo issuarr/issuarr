@@ -2577,7 +2577,9 @@ class WebInterface(object):
                     issuestoArchive.append(IssueID)
                 elif action == 'Wanted' or action == 'Retry':
                     if mi['Status'] == 'Wanted':
-                        logger.fdebug('Issue already set to Wanted status - no need to change it again.')
+                        # Picking an issue that is already Wanted still means "look for it now".
+                        logger.fdebug('Issue already set to Wanted status - searching for it again.')
+                        issuesToAdd.append(IssueID)
                         continue
                     if action == 'Retry': newaction = 'Wanted'
                     logger.fdebug("Marking %s %s as %s" % (comicname, issuenumber, newaction))
