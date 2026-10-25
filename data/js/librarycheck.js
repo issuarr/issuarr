@@ -47,10 +47,11 @@
     $('lc-stop').hidden = !running;
     var note;
     if (running) note = 'Checking file ' + d.done + ' of ' + (d.total || '…') + ' (' + d.opened + ' opened, the rest unchanged since last time).';
+    else if (d.error) note = 'The check stopped after ' + d.done + ' of ' + d.total + ' files: ' + d.error + '. Files after that weren\'t checked; see the log.';
     else if (!d.checked) note = 'Not checked yet.';
     else note = d.files.length ? d.files.length + (d.files.length === 1 ? ' file needs' : ' files need') + ' a look.' : 'Every file checked out.';
     if (!running && d.finished) note += ' Last run ' + d.finished + '.';
-    if (d.unchecked) note += ' ' + d.unchecked + ' .cbr ' + (d.unchecked === 1 ? 'file' : 'files') + ' couldn\'t be checked because unrar isn\'t installed.';
+    if (d.unchecked) note += ' ' + d.unchecked + ' ' + (d.unchecked === 1 ? 'file' : 'files') + ' couldn\'t be checked (a .cbr needs unrar installed; the log names any others).';
     $('lc-note').textContent = note;
     $('lc-list').innerHTML = d.files.map(row).join('');
     renderTags(d, running);

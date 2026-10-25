@@ -38,12 +38,13 @@ import shutil
 import threading
 import zipfile
 
-import rarfile
+# Issuarr puts lib/ ahead of site-packages, so a bare "import rarfile" finds the empty lib/rarfile package
+from lib.rarfile import rarfile
 
 import mylar
 from mylar import db, logger, quicktag
 
-STATE = {'state': 'idle', 'done': 0, 'total': 0, 'opened': 0, 'finished': None, 'stop': False}
+STATE = {'state': 'idle', 'done': 0, 'total': 0, 'opened': 0, 'finished': None, 'stop': False, 'error': None}
 TAGGING = {'state': 'idle', 'done': 0, 'total': 0, 'tagged': 0, 'failed': 0, 'finished': None, 'stop': False}
 _LOCK = threading.Lock()
 
@@ -118,7 +119,7 @@ def scan():
     with _LOCK:
         if STATE['state'] == 'running' or TAGGING['state'] == 'running':
             return False
-        STATE.update(state='running', done=0, total=0, opened=0, finished=None, stop=False)
+        STATE.update(state='running', done=0, total=0, opened=0, finished=None, stop=False, error=None)
     threading.Thread(target=_scan, name='LIBRARY-CHECK', daemon=True).start()
     return True
 
@@ -154,7 +155,11 @@ def _scan():
                     tagged = int(quicktag.tagged(path))   # checked before tags were noted
                 myDB.action('UPDATE library_check SET comicid=?, issueid=?, tagged=? WHERE path=?', [comicid, issueid, tagged, path])
                 continue
-            status, detail, inner = check_file(path)
+            try:
+                status, detail, inner = check_file(path)
+            except Exception as e:
+                logger.warn('[LIBRARY-CHECK] Unable to check %s: %s' % (path, e))
+                status, detail, inner = 'unchecked', 'Couldn\'t be checked: %s' % e, None
             STATE['opened'] += 1
             myDB.upsert('library_check', {'size': size, 'mtime': mtime, 'status': status, 'detail': detail, 'inner': inner,
                                           'comicid': comicid, 'issueid': issueid,
@@ -166,6 +171,7 @@ def _scan():
         logger.info('[LIBRARY-CHECK] Checked %s files (%s opened).' % (STATE['done'], STATE['opened']))
     except Exception as e:
         logger.warn('[LIBRARY-CHECK] Stopped: %s' % e)
+        STATE['error'] = '%s: %s' % (type(e).__name__, e)
     finally:
         STATE.update(state='done', finished=datetime.datetime.now().strftime('%Y-%m-%d %H:%M'))
 
@@ -175,7 +181,7 @@ def stop():
 
 
 def status():
-    out = {k: STATE[k] for k in ('state', 'done', 'total', 'opened', 'finished')}
+    out = {k: STATE[k] for k in ('state', 'done', 'total', 'opened', 'finished', 'error')}
     myDB = db.DBConnection()
     ensure(myDB)
     rows = myDB.select("SELECT l.*, c.ComicName, c.ComicYear, i.Issue_Number FROM library_check l "
