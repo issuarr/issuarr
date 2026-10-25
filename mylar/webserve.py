@@ -74,6 +74,8 @@ from mylar import (
     filechecker,
     helpers,
     importer,
+    importchoice,
+    navcounts,
     importstatus,
     ddlsources,
     downloadqueue,
@@ -7207,9 +7209,28 @@ class WebInterface(object):
         logger.info('[IMPORT] %s set to ComicVine series %s by hand.' % (ComicName, comicid))
         comiclist = [{'ComicName': ComicName, 'DynamicName': DynamicName, 'Volume': Volume, 'ComicID': comicid}]
         if not self._start_import(comiclist, None):
-            return json.dumps({'ok': False, 'note': 'Another import or scan is running. Try again when it finishes.'})
+            # busy: keep the choice. "Import everything not imported" imports it with this ComicID.
+            if Volume is None:
+                myDB.action("UPDATE importresults SET Status='Not Imported' WHERE DynamicName=? AND Volume IS NULL AND Status != 'Imported'", [DynamicName])
+            else:
+                myDB.action("UPDATE importresults SET Status='Not Imported' WHERE DynamicName=? AND Volume=? AND Status != 'Imported'", [DynamicName, Volume])
+            navcounts.clear()
+            return json.dumps({'ok': True, 'comicid': comicid, 'queued': True,
+                               'note': 'Another import or scan is running, so this one waits under Not imported with your choice. Import everything not imported once it finishes.'})
+        navcounts.clear()
         return json.dumps({'ok': True, 'comicid': comicid})
     importByCvid.exposed = True
+
+    def import_choice(self, DynamicName, Volume=None):
+        # Import results > Needs a choice: the scanned series' files and its possible ComicVine series
+        cherrypy.response.headers['Content-Type'] = 'application/json'
+        return json.dumps(importchoice.choice(DynamicName, Volume))
+    import_choice.exposed = True
+
+    def import_cover(self, impid, r=None):   # r: a retry after the server was busy
+        path = importchoice.file_path(impid)
+        return self._attention_image(attention.cover_of(path) if path else None)
+    import_cover.exposed = True
 
     def _claim_import(self, comiclist, action=None):
         with importstatus.START_LOCK:
