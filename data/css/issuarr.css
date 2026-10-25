@@ -1550,3 +1550,37 @@ a.w-where:hover { color: var(--text); text-decoration-color: currentColor; }
 .cbl-catalog-list li.muted { padding: 8px 12px; }
 .cbl-catalog-pick { display: flex; flex-direction: column; align-items: flex-start; gap: 2px; width: 100%; padding: 8px 12px; background: none; border: 0; color: inherit; font: inherit; text-align: left; cursor: pointer; }
 .cbl-catalog-pick:hover, .cbl-catalog-pick:focus-visible { background: var(--raised); }
+
+/* ---------- Issue details panel (series page) ---------- */
+.ip { width: min(760px, 100%); display: flex; flex-direction: column; max-height: calc(88vh - 24px); }
+.ip-head { display: flex; align-items: flex-start; gap: 12px; padding: 16px 16px 12px 18px; border-bottom: 1px solid var(--line); }
+.ip-heading { flex: 1; min-width: 0; }
+.ip-heading h2 { margin: 0 0 4px; font-size: 20px; overflow-wrap: anywhere; }
+.ip-heading p { margin: 0; display: flex; flex-wrap: wrap; align-items: center; gap: 4px 12px; font-size: 13.5px; }
+.ip-date { color: var(--muted); font-family: var(--font-mono); font-size: 12.5px; }
+.ip-nav { display: flex; align-items: center; gap: 6px; flex: none; }
+.ip-nav .btn { min-width: 36px; justify-content: center; }
+.ip-pos { color: var(--muted); font-size: 13px; margin-right: 4px; white-space: nowrap; }
+.ip-body { display: flex; gap: 18px; padding: 16px 18px 18px; overflow-y: auto; }
+.ip-cover { flex: none; width: 200px; }
+.ip-cover img, .ip-noimg { display: block; width: 100%; border-radius: var(--radius-sm); }
+.ip-noimg { aspect-ratio: 2 / 3; background: var(--raised); border: 1px solid var(--line); }
+.ip-info { flex: 1; min-width: 0; font-size: 14px; line-height: 1.5; }
+.ip-info p { margin: 0 0 12px; }
+.ip-title2 { font-weight: 600; font-size: 15px; }
+.ip-muted, .ip-foot { color: var(--muted); }
+.ip-foot { font-size: 13px; }
+.ip-file { font-family: var(--font-mono); font-size: 12.5px; overflow-wrap: anywhere; }
+.ip-credits { display: grid; grid-template-columns: max-content 1fr; gap: 4px 14px; margin: 0 0 12px; }
+.ip-credits dt { color: var(--muted); }
+.ip-credits dd { margin: 0; }
+.ip-summary { white-space: pre-line; }
+a.issue-name { color: inherit; text-decoration: none; }
+a.issue-name:hover { text-decoration: underline; text-underline-offset: 3px; }
+@media (max-width: 600px) {
+  .ip-head { flex-wrap: wrap; }
+  .ip-nav { width: 100%; }
+  .ip-nav .ip-pos { margin-right: auto; }
+  .ip-body { flex-direction: column; }
+  .ip-cover { width: 140px; }
+}
