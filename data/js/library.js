@@ -31,6 +31,36 @@
   } catch (e) {}
 
   function save() { try { localStorage.setItem(STORE, JSON.stringify({ view: st.view, sort: st.sort })); } catch (e) {} }
+
+  // The filter tab, search, publisher and sort live in the address (?show=gaps&q=batman&pub=DC+Comics&sort=missing),
+  // so Back from a series returns to the same view and a filtered view can be bookmarked. How far down the page
+  // you were rides in the history entry, so Back lands there too.
+  (function readUrl() {
+    var p = new URLSearchParams(location.search);
+    var show = p.get('show');
+    if (show && TABS.some(function (t) { return t[0] === show; })) st.tab = show;
+    st.q = (p.get('q') || '').trim();
+    st.pub = p.get('pub') || '';
+    var sort = p.get('sort');
+    if (sort && /^(title|updated|year|missing|publisher)$/.test(sort)) st.sort = sort;
+    var h = history.state;
+    if (h && h.libLimit) st.limit = Math.max(CHUNK, h.libLimit);
+  })();
+  function writeUrl() {
+    var p = new URLSearchParams(location.search);
+    [['show', st.tab === 'all' ? '' : st.tab], ['q', st.q], ['pub', st.pub], ['sort', st.sort === 'title' ? '' : st.sort]].forEach(function (kv) {
+      if (kv[1]) p.set(kv[0], kv[1]); else p.delete(kv[0]);
+    });
+    var qs = p.toString();
+    history.replaceState(history.state, '', location.pathname + (qs ? '?' + qs : '') + location.hash);
+  }
+  var scrollTimer = null;
+  window.addEventListener('scroll', function () {
+    clearTimeout(scrollTimer);
+    scrollTimer = setTimeout(function () {
+      history.replaceState({ libScroll: window.scrollY, libLimit: st.limit }, '', location.href);
+    }, 150);
+  }, { passive: true });
   function $id(id) { return document.getElementById(id); }
   function I() { return window.Issuarr; }
   function esc(t) { return I().esc(t); }
@@ -234,6 +264,9 @@
         st.all.forEach(function (s) { ids[s.id] = true; });
         Object.keys(st.sel).forEach(function (k) { if (!ids[k]) delete st.sel[k]; });
         renderStats(); renderTabs(); renderPublishers(); render();
+        var h = history.state;
+        if (h && h.libScroll && !st.restored) window.scrollTo(0, h.libScroll);
+        st.restored = true;
       })
       .catch(function () {
         st.loaded = true;
@@ -266,14 +299,14 @@
   document.addEventListener('click', function (e) {
     var t = e.target;
     var tab = t.closest('#lib-tabs [data-tab]');
-    if (tab) { st.tab = tab.getAttribute('data-tab'); st.limit = CHUNK; renderTabs(); render(); return; }
+    if (tab) { st.tab = tab.getAttribute('data-tab'); st.limit = CHUNK; writeUrl(); renderTabs(); render(); return; }
     var view = t.closest('.library [data-view]');
     if (view) { st.view = view.getAttribute('data-view'); save(); render(); return; }
     var b = t.closest('#lib-bulk [data-bulk]');
     if (b) { bulk(b.getAttribute('data-bulk')); return; }
     if (t.closest('#lib-clear-filters')) {
       st.tab = 'all'; st.q = ''; st.pub = ''; $id('lib-q').value = ''; $id('lib-pub').value = '';
-      renderTabs(); render(); return;
+      writeUrl(); renderTabs(); render(); return;
     }
     if (t.closest('[data-action-add]')) { var add = document.querySelector('[data-action="add"]'); if (add) add.click(); return; }
     var exp = t.closest('[data-export]');
@@ -328,10 +361,10 @@
   var qTimer = null;
   $id('lib-q').addEventListener('input', function (e) {
     clearTimeout(qTimer);
-    qTimer = setTimeout(function () { st.q = e.target.value.trim(); st.limit = CHUNK; render(); }, 120);
+    qTimer = setTimeout(function () { st.q = e.target.value.trim(); st.limit = CHUNK; writeUrl(); render(); }, 120);
   });
-  $id('lib-pub').addEventListener('change', function (e) { st.pub = e.target.value; st.limit = CHUNK; render(); });
-  $id('lib-sort').addEventListener('change', function (e) { st.sort = e.target.value; st.col = null; I().clearSort($id('lib-table')); save(); render(); });
+  $id('lib-pub').addEventListener('change', function (e) { st.pub = e.target.value; st.limit = CHUNK; writeUrl(); render(); });
+  $id('lib-sort').addEventListener('change', function (e) { st.sort = e.target.value; st.col = null; I().clearSort($id('lib-table')); save(); writeUrl(); render(); });
   $id('lib-table').addEventListener('issuarr:sort', function (e) { st.col = e.detail; render(); });
   $id('lib-more-rows').addEventListener('click', function () { st.limit += CHUNK; render(); });
   if (window.IntersectionObserver) {
@@ -342,6 +375,7 @@
   var refreshTimer = null;
   document.addEventListener('issuarr:refresh', function () { clearTimeout(refreshTimer); refreshTimer = setTimeout(load, 800); });
 
+  $id('lib-q').value = st.q;
   render();
   if (window.jQuery) window.jQuery(load); else document.addEventListener('DOMContentLoaded', load);
 })();
