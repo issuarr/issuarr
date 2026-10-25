@@ -6,7 +6,7 @@ Releases come from the `main` branch and are the `latest` Docker image. Changes 
 
 ## Unreleased (on dev)
 
-Nothing yet.
+- After an update, a What's new window lists what changed since you last saw it, with a link to each change on GitHub. It shows once; closing it marks those changes as seen. ([`949ab99`](https://github.com/issuarr/issuarr/commit/949ab99))
 
 ## 0.10.0 (22 October 2026)
 
