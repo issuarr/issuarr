@@ -1,4 +1,5 @@
-/* Series page: Match files (every file in the series folder) and Match a file (one issue).
+/* Series page: Match files (every file in the series folder) and Match a file (one issue), and
+   a notice when files in the folder look like they belong to another series.
    Each file shows its own cover next to the ComicVine cover of the issue it would be, so the two
    can be compared. A match made here holds through rechecks until it is undone or the file goes.
    Files waiting in Needs attention that look like this series are listed too; matching one files it. */
@@ -410,6 +411,65 @@
   document.addEventListener('load', function (e) {
     if (e.target.matches && e.target.matches('#match-dialog [data-cover-img]')) e.target.style.visibility = '';
   }, true);
+
+  /* Files that may belong to another series: past the series' last issue (another volume), or a
+     collected edition in a series of single issues (by name, or far bigger than its other files). */
+  function suspectsCheck() {
+    var box = document.getElementById('series_suspects');
+    if (!box) return;
+    var id = box.getAttribute('data-comicid');
+    fetch('match_suspects?' + q({ comicid: id }), { credentials: 'same-origin', cache: 'no-store' })
+      .then(function (r) { if (!r.ok) throw new Error(r.status); return r.json(); })
+      .then(function (d) {
+        var n = d.ok ? d.files.length : 0;
+        box.hidden = !n;
+        if (!n) return;
+        box.innerHTML = '<span>' + (d.whole
+          ? 'Most files here are numbered past the end of this series. It may have been added as the wrong ComicVine volume.'
+          : n + (n === 1 ? ' file here looks like it belongs' : ' files here look like they belong') + ' to another series.') + '</span>' +
+          '<button type="button" class="btn btn-sm" data-suspects>Review</button>' +
+          (d.whole ? '<button type="button" class="btn btn-sm btn-primary" data-suspects-wrong>Wrong series…</button>' : '');
+        box.querySelector('[data-suspects]').addEventListener('click', function () { suspectsOpen(id, d); });
+        var w = box.querySelector('[data-suspects-wrong]');
+        if (w) w.addEventListener('click', function () { wrongOpen(id, box.getAttribute('data-name'), box.getAttribute('data-year')); });
+      })
+      .catch(function () { box.hidden = true; });
+  }
+
+  function suspectsOpen(comicid, d) {
+    dlg = document.getElementById('match-dialog');
+    title = document.getElementById('match-title');
+    intro = document.getElementById('match-intro');
+    body = document.getElementById('match-body');
+    if (!dlg) return;
+    state = { comicid: comicid, suspects: true };
+    title.textContent = 'Files that may belong elsewhere';
+    intro.textContent = 'Move a file to Needs attention, then use File as there to put it in the series it belongs to. ' +
+      'If a file is right where it is, leave it.';
+    body.innerHTML = '<ul class="match-list">' + d.files.map(function (f, n) {
+      return '<li class="match-row" data-n="' + n + '"><div class="match-covers">' + fileCover(f) + '</div>' +
+        '<div class="match-file"><span class="match-name">' + fileName(f) + '</span>' +
+        '<span class="match-meta">' + (f.number ? 'Now #' + esc(f.number) + ' · ' : '') + esc(f.note) + ' · ' + mb(f.size) + '</span>' +
+        '<div class="match-do"><button type="button" class="btn btn-sm btn-primary" data-away>Move to Needs attention</button></div></div></li>';
+    }).join('') + '</ul>';
+    body.querySelectorAll('[data-away]').forEach(function (b) {
+      b.addEventListener('click', function () {
+        var f = d.files[+b.closest('[data-n]').getAttribute('data-n')];
+        b.disabled = true;
+        post('match_send_away', { comicid: comicid, name: f.name }).then(function (r) {
+          window.Issuarr.toast(r.note || (r.ok ? 'Done.' : 'That didn\'t work.'), !!r.ok);
+          if (!r.ok) { b.disabled = false; return; }
+          b.closest('.match-row').remove();
+          reloadTable();
+          suspectsCheck();
+        }).catch(function () { window.Issuarr.toast('That didn\'t work. Check the log.', false); b.disabled = false; });
+      });
+    });
+    if (!dlg.open) dlg.showModal();
+  }
+
+  if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', suspectsCheck);
+  else suspectsCheck();
 
   window.IssuarrMatch = { open: open, wrongSeries: wrongOpen };
 })();

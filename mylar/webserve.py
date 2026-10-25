@@ -76,6 +76,7 @@ from mylar import (
     librarysync,
     logger,
     matching,
+    volume_check,
     mb,
     moveit,
     notifiers,
@@ -4927,6 +4928,15 @@ class WebInterface(object):
         self._attention_post()
         return self._attention_json(matching.move_to(comicid, newid))
     match_move.exposed = True
+
+    def match_suspects(self, comicid):
+        return self._attention_json(volume_check.check(comicid))
+    match_suspects.exposed = True
+
+    def match_send_away(self, comicid, name):
+        self._attention_post()
+        return self._attention_json(volume_check.send_away(comicid, name))
+    match_send_away.exposed = True
 
     def cblimport(self):
         return serve_template(templatename="cblimport.html", title="CBL Import")
