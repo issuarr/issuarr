@@ -243,7 +243,10 @@
   }
 
   function bulk(action) {
-    var picked = st.all.filter(function (s) { return st.sel[s.id]; });
+    act(action, st.all.filter(function (s) { return st.sel[s.id]; }));
+  }
+
+  function act(action, picked) {
     if (!picked.length) return;
     var what = picked.length === 1 ? '"' + picked[0].name + '"' : picked.length + ' series';
     var cfg = BULK[action];
@@ -261,11 +264,137 @@
         if (!r.ok) throw new Error(r.status);
         var bg = ['refresh', 'recheck', 'metatag', 'rename'].indexOf(action) > -1;
         I().toast(cfg.done + ' ' + what + (bg ? '. Follow it in Tasks › Jobs or the log.' : '.'));
-        if (action === 'delete') st.sel = {};
+        if (action === 'delete') picked.forEach(function (s) { delete st.sel[s.id]; });
         return load();
       })
       .catch(function () { I().toast('That didn\'t work. Check the log.', false); });
   }
+
+  /* ---- right-click / long-press menu on a series ---- */
+  var ctx = null, ctxFor = null, ctxAt = 0, pressTimer = null, pressAt = null, pressed = false;
+
+  function ctxItems(s) {
+    var paused = s.status === 'Paused';
+    return [
+      ['open', 'Open series'],
+      ['missing', 'Search for missing issues'],
+      ['refresh', 'Refresh from ComicVine'],
+      ['recheck', 'Recheck files'],
+      [paused ? 'resume' : 'pause', paused ? 'Resume series' : 'Pause series'],
+      ['select', st.sel[s.id] ? 'Unselect' : 'Select'],
+      null,
+      ['delete', 'Remove series…']
+    ];
+  }
+
+  function closeCtx(refocus) {
+    if (!ctx || ctx.hidden) return;
+    ctx.hidden = true;
+    var back = ctxFor && document.querySelector('#lib-grid [data-id="' + CSS.escape(ctxFor.id) + '"] .card-title, #lib-table tr[data-id="' + CSS.escape(ctxFor.id) + '"] a');
+    ctxFor = null;
+    if (refocus && back) back.focus();
+  }
+
+  function openCtx(s, x, y) {
+    if (!ctx) {
+      ctx = document.createElement('div');
+      ctx.className = 'menu-list ctx-menu';
+      ctx.id = 'lib-ctx';
+      ctx.setAttribute('role', 'menu');
+      ctx.hidden = true;
+      document.body.appendChild(ctx);
+      ctx.addEventListener('click', function (e) {
+        var b = e.target.closest('[data-ctx]');
+        if (!b || !ctxFor) return;
+        var s = ctxFor, what = b.getAttribute('data-ctx');
+        closeCtx(what !== 'open');
+        ctxRun(what, s);
+      });
+      ctx.addEventListener('keydown', function (e) {
+        var items = Array.prototype.slice.call(ctx.querySelectorAll('[data-ctx]'));
+        var i = items.indexOf(document.activeElement);
+        if (e.key === 'ArrowDown') { e.preventDefault(); items[(i + 1) % items.length].focus(); }
+        else if (e.key === 'ArrowUp') { e.preventDefault(); items[(i - 1 + items.length) % items.length].focus(); }
+        else if (e.key === 'Home') { e.preventDefault(); items[0].focus(); }
+        else if (e.key === 'End') { e.preventDefault(); items[items.length - 1].focus(); }
+        else if (e.key === 'Escape' || e.key === 'Tab') { e.preventDefault(); closeCtx(true); }
+      });
+    }
+    ctxFor = s;
+    ctx.innerHTML = '<p class="ctx-title">' + esc(s.name) + (s.year ? ' <span class="muted">' + esc(s.year) + '</span>' : '') + '</p>' +
+      ctxItems(s).map(function (it) {
+        if (!it) return '<hr />';
+        return '<button type="button" role="menuitem" class="btn btn-ghost' + (it[0] === 'delete' ? ' series-remove-btn' : '') + '" data-ctx="' + it[0] + '">' + esc(it[1]) + '</button>';
+      }).join('');
+    ctx.hidden = false;
+    var w = ctx.offsetWidth, h = ctx.offsetHeight;
+    ctx.style.left = Math.max(6, Math.min(x, window.innerWidth - w - 6)) + 'px';
+    ctx.style.top = Math.max(6, Math.min(y, window.innerHeight - h - 6)) + 'px';
+    ctx.querySelector('[data-ctx]').focus({ preventScroll: true });
+    ctxAt = Date.now();
+  }
+
+  function ctxRun(what, s) {
+    if (what === 'open') { location.href = link(s); return; }
+    if (what === 'missing') {
+      fetch('searchformissing?ComicID=' + encodeURIComponent(s.id), { credentials: 'same-origin' })
+        .then(function (r) { if (!r.ok) throw new Error(r.status); I().toast('Searching for the missing issues of "' + s.name + '".'); })
+        .catch(function () { I().toast('That didn\'t work. Check the log.', false); });
+      return;
+    }
+    if (what === 'select') {
+      if (st.sel[s.id]) delete st.sel[s.id]; else { st.sel[s.id] = true; st.selecting = true; }
+      render();
+      return;
+    }
+    act(what, [s]);
+  }
+
+  function seriesAt(el) {
+    var holder = el.closest('#lib-grid .cover-card, #lib-table tbody tr[data-id]');
+    if (!holder) return null;
+    var id = holder.getAttribute('data-id');
+    return st.all.filter(function (s) { return s.id === id; })[0] || null;
+  }
+
+  document.addEventListener('contextmenu', function (e) {
+    var s = seriesAt(e.target);
+    if (!s) { closeCtx(); return; }
+    e.preventDefault();
+    if (pressed) return;  // the long-press already opened it
+    var x = e.clientX, y = e.clientY;
+    if (!x && !y) {  // opened from the keyboard (menu key or Shift+F10)
+      var r = e.target.getBoundingClientRect();
+      x = r.left + 8; y = r.bottom + 4;
+    }
+    openCtx(s, x, y);
+  });
+
+  // Phones that don't fire contextmenu on a long press (iOS Safari) get it from a touch timer.
+  document.addEventListener('touchstart', function (e) {
+    pressed = false;
+    clearTimeout(pressTimer);
+    var s = e.touches.length === 1 && seriesAt(e.target);
+    if (!s) return;
+    pressAt = { x: e.touches[0].clientX, y: e.touches[0].clientY };
+    pressTimer = setTimeout(function () { pressed = true; openCtx(s, pressAt.x, pressAt.y); }, 550);
+  }, { passive: true });
+  document.addEventListener('touchmove', function (e) {
+    if (pressAt && Math.abs(e.touches[0].clientX - pressAt.x) + Math.abs(e.touches[0].clientY - pressAt.y) > 12) clearTimeout(pressTimer);
+  }, { passive: true });
+  document.addEventListener('touchend', function () { clearTimeout(pressTimer); });
+  document.addEventListener('touchcancel', function () { clearTimeout(pressTimer); });
+  // The tap that ends a long press must not also open the series or pick the menu item under the finger.
+  document.addEventListener('click', function (e) {
+    if (pressed) { e.preventDefault(); e.stopPropagation(); }
+    pressed = false;
+  }, true);
+
+  document.addEventListener('mousedown', function (e) { if (!pressed && ctx && !ctx.hidden && !ctx.contains(e.target)) closeCtx(); });
+  document.addEventListener('touchstart', function (e) { if (ctx && !ctx.hidden && !ctx.contains(e.target)) closeCtx(); }, { passive: true });
+  window.addEventListener('resize', function () { closeCtx(); });
+  // A long press can nudge the page; only a real scroll after that closes the menu.
+  window.addEventListener('scroll', function (e) { if (ctx && !ctx.contains(e.target) && Date.now() - ctxAt > 500) closeCtx(); }, true);
 
   /* ---- events ---- */
   document.addEventListener('click', function (e) {
