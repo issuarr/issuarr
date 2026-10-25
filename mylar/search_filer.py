@@ -111,6 +111,21 @@ def pack_already_downloaded(post_id):
     return 'that pack was already %s (%s)' % ('downloaded' if row['status'] == 'Completed' else 'queued', row['updated_date'])
 
 
+def packs_turned_off(comic_id):
+    """Why not to grab a pack, or None: the series' "Allow pack downloads" switch is off.
+    Series that never set it allow packs."""
+    if not comic_id:
+        return None
+    try:
+        from mylar import db
+        row = db.DBConnection().selectone("SELECT UsePacks FROM comics WHERE ComicID=?", [str(comic_id)]).fetchone()
+    except Exception:
+        return None
+    if row is None or row['UsePacks'] is None or str(row['UsePacks']) != '0':
+        return None
+    return 'packs are turned off for this series'
+
+
 def with_extra_words(parsed, watchcomic, year):
     # GetComics sometimes adds words inside a series name: "Star Wars - Jedi of the Republic - Mace Windu"
     # for Star Wars: Mace Windu. Accept the post when it starts and ends like the series, has all its
@@ -997,7 +1012,8 @@ class search_check(object):
             # a pack of another volume of the series, or one already downloaded, isn't this issue
             issue_year = next((d[:4] for d in (StoreDate, IssueDate) if d and str(d)[:4].isdigit() and not str(d).startswith('0000')), None)
             problem = pack_misfit(entry.get('title') or entry.get('filename') or '', entry.get('year'),
-                                  SeriesYear or ComicYear, issue_year, ComicVersion) or pack_already_downloaded(entry.get('id'))
+                                  SeriesYear or ComicYear, issue_year, ComicVersion) or pack_already_downloaded(entry.get('id')) \
+                or packs_turned_off(ComicID)
             if problem:
                 logger.info('[PACK] Not using %s for %s (%s) #%s: %s' % (entry.get('title'), ComicName, SeriesYear or ComicYear, IssueNumber, problem))
                 return None

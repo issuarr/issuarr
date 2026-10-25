@@ -548,7 +548,7 @@ class WebInterface(object):
             ignore_type = None
             force_type = None
             age_rating = None
-            allowpacks = "0"
+            allowpacks = "1"
             corrected_seriesyear = None
             torrentid_32p = None
             totalissues = '?'
@@ -670,7 +670,7 @@ class WebInterface(object):
                 totalissues = '?'
 
             usethefuzzy = comic['UseFuzzy']
-            allowpacks = comic['AllowPacks']
+            allowpacks = comic['UsePacks']
             skipped2wanted = "0"
             if usethefuzzy is None:
                 usethefuzzy = "0"
@@ -680,7 +680,7 @@ class WebInterface(object):
             if mylar.CONFIG.DELETE_REMOVE_DIR is None:
                 mylar.CONFIG.DELETE_REMOVE_DIR = 0
             if allowpacks is None:
-                allowpacks = "0"
+                allowpacks = "1"
             if all([comic['Corrected_SeriesYear'] is not None, comic['Corrected_SeriesYear'] != '', comic['Corrected_SeriesYear'] != 'None']):
                 if comic['Corrected_SeriesYear'] != comic['ComicYear']:
                     comic['ComicYear'] = comic['Corrected_SeriesYear']
@@ -8423,10 +8423,7 @@ class WebInterface(object):
             else:
                 logger.fdebug('Not renaming as Comic Location path has not changed...')
 
-        if allow_packs is None:
-            newValues['AllowPacks'] = 0
-        else:
-            newValues['AllowPacks'] = 1
+        newValues['UsePacks'] = newValues['AllowPacks'] = 0 if allow_packs is None else 1
 
         newValues['TorrentID_32P'] = torrentid_32p
 

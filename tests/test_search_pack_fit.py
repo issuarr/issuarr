@@ -38,3 +38,17 @@ def test_a_pack_already_downloaded_is_not_grabbed_again(monkeypatch, tmp_path):
     assert pack_already_downloaded('555') is None                     # failed: may try again
     assert pack_already_downloaded('9999') is None
     assert pack_already_downloaded(None) is None
+
+
+@pytest.mark.unit
+def test_a_series_with_packs_turned_off_skips_them(monkeypatch, tmp_path):
+    from mylar.search_filer import packs_turned_off
+    monkeypatch.setattr(mylar, 'DATA_DIR', str(tmp_path), raising=False)
+    d = db.DBConnection()
+    d.action('CREATE TABLE comics (ComicID TEXT, UsePacks INTEGER)')
+    d.action("INSERT INTO comics VALUES ('1', 0), ('2', 1), ('3', NULL)")
+    assert 'turned off' in packs_turned_off('1')
+    assert packs_turned_off('2') is None
+    assert packs_turned_off('3') is None      # never set: packs allowed
+    assert packs_turned_off('4') is None      # not on the watchlist (one-off)
+    assert packs_turned_off(None) is None
