@@ -105,6 +105,7 @@ def findComic(name, mode, issue, limityear=None, search_type=None, annual_check=
     comicLibrary = listLibrary()
     comiclist = []
     arcinfolist = []
+    searchedfor = name   # what was typed, for the log
     if volumeid is not None:
         name = ''
 
@@ -154,7 +155,10 @@ def findComic(name, mode, issue, limityear=None, search_type=None, annual_check=
     if searched is None:
         return False
     totalResults = searched.getElementsByTagName('number_of_total_results')[0].firstChild.wholeText
-    logger.fdebug("there are " + str(totalResults) + " search results...")
+    if volumeid is not None:
+        logger.info('[COMICVINE] Looked up series 4050-%s: %s result(s)' % (volumeid, totalResults))
+    else:
+        logger.info('[COMICVINE] %s search for "%s" (words sent: %s): %s result(s)' % ('Story arc' if search_type == 'story_arc' else 'Series', searchedfor, ', '.join(comicquery), totalResults))
     if not totalResults:
         return False
     if int(totalResults) > 1000 and page is None:
