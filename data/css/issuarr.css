@@ -1527,3 +1527,11 @@ a.w-where:hover { color: var(--text); text-decoration-color: currentColor; }
 @media (max-width: 600px) {
   .dc-grid { grid-template-columns: repeat(auto-fill, minmax(130px, 1fr)); }
 }
+
+/* CBL import: pick a list from CBL-ReadingLists */
+.cbl-catalog-list { list-style: none; margin: 8px 0 0; padding: 0; max-height: 360px; overflow-y: auto; border: 1px solid var(--line); border-radius: var(--radius); }
+.cbl-catalog-list li { border-bottom: 1px solid var(--line); }
+.cbl-catalog-list li:last-child { border-bottom: 0; }
+.cbl-catalog-list li.muted { padding: 8px 12px; }
+.cbl-catalog-pick { display: flex; flex-direction: column; align-items: flex-start; gap: 2px; width: 100%; padding: 8px 12px; background: none; border: 0; color: inherit; font: inherit; text-align: left; cursor: pointer; }
+.cbl-catalog-pick:hover, .cbl-catalog-pick:focus-visible { background: var(--raised); }
