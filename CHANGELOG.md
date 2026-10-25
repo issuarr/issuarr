@@ -8,6 +8,7 @@ Releases come from the `main` branch and are the `latest` Docker image. Changes 
 
 - Wanted can be grouped by series: one line per series with how many issues it's missing, a checkbox for all of them and a button to search them. Shift-click a checkbox to pick every row between it and the last one you clicked. ([`2d7bcf6`](https://github.com/issuarr/issuarr/commit/2d7bcf6))
 - "Are you sure?" questions now open in Issuarr's own window instead of the browser's pop-up, with a button that says what will happen (Remove, Restart, Clear log…). For risky actions, Cancel is selected first. ([`da4d4ad`](https://github.com/issuarr/issuarr/commit/da4d4ad))
+- In Settings, a dot next to a section in the sidebar shows which sections have changes you haven't saved yet. ([`fbfb054`](https://github.com/issuarr/issuarr/commit/fbfb054))
 - After an update, a What's new window lists what changed since you last saw it, with a link to each change on GitHub. It shows once; closing it marks those changes as seen. ([`949ab99`](https://github.com/issuarr/issuarr/commit/949ab99))
 - Settings no longer makes the browser offer to save download client, notification and other service passwords. Issuarr's own sign-in user name and password still can be saved, and the login page fills them in. ([`eb05a33`](https://github.com/issuarr/issuarr/commit/eb05a33), [`9d4e637`](https://github.com/issuarr/issuarr/commit/9d4e637))
 
