@@ -6,6 +6,8 @@ Releases come from the `main` branch and are the `latest` Docker image. Changes 
 
 ## Unreleased (on dev)
 
+- [feat] Library check now lists solid RARs, which read fine but which some readers, Kavita among them, can't open. Repack to .cbz makes each one a .cbz with the same pages and keeps the original in the trash. ([`e2caf676`](https://github.com/issuarr/issuarr/commit/e2caf676))
+- [fix] Old .cbr files that unrar complains about as a whole, even though every page reads, are no longer called damaged. WebP conversion and tagging now repack them to .cbz, checking each page against its own checksum, so a file that's really broken is still left alone. ([`235cda61`](https://github.com/issuarr/issuarr/commit/235cda61))
 - [feat] The Choose match window on Import results shows the folder a series' files are in, since folder names often carry the year or publisher. Hover a file name to see its full path. ([`4f7a75ae`](https://github.com/issuarr/issuarr/commit/4f7a75ae))
 - [feat] Choosing a series' match while another import is running no longer leaves it waiting under Not imported. The running import imports it next, before the rest of its list. ([`4f7a75ae`](https://github.com/issuarr/issuarr/commit/4f7a75ae))
 - [feat] A series whose files sit under a publisher folder (DC, Marvel, Image, or an imprint like Vertigo) is matched with that publisher in mind. An import no longer picks another publisher's series by itself (for example Panini for a series in a DC folder), so it waits under Needs a choice instead, and the Choose match window lists that publisher's series first, marked "Matches the folder". ([`4f7a75ae`](https://github.com/issuarr/issuarr/commit/4f7a75ae))

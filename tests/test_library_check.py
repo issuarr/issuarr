@@ -1,4 +1,6 @@
 import io
+import os
+import shutil
 import sqlite3
 import time
 import zipfile
@@ -198,3 +200,38 @@ def test_a_series_check_reads_its_files_again_and_leaves_the_rest(lib, tmp_path)
     assert sorted(f['name'] for f in st['files']) == ['Saga 002.cbz', 'Saga 003.cbz', 'Saga 004.cbz']
     assert [f['name'] for f in library_check.status('2')['files']] == ['Other 001.cbz']   # kept, not dropped
     assert len(library_check.status()['files']) == 4
+
+
+SOLID = os.path.join(os.path.dirname(__file__), 'data', 'rar', 'comic-solid.rar')
+
+
+def test_a_solid_rar_is_listed_and_repacked_with_the_original_in_the_trash(lib):
+    db, folder, rescans = lib
+    shutil.copy(SOLID, folder / 'Saga 005.cbr')
+    db.c.execute("INSERT INTO issues VALUES ('i5', '1', '5', 'Saga 005.cbr', 'Downloaded')")
+    assert library_check.check_file(str(folder / 'Saga 005.cbr'))[0] == 'repack'
+    run_scan()
+    [f] = [f for f in library_check.status()['files'] if f['name'] == 'Saga 005.cbr']
+    assert f['status'] == 'repack' and f['repack'] and not f['unwrap']
+    out = library_check.repack(str(folder / 'Saga 005.cbr'))
+    assert out['ok'], out
+    assert not (folder / 'Saga 005.cbr').exists()
+    with zipfile.ZipFile(folder / 'Saga 005.cbz') as z:
+        assert z.namelist() == ['001.jpg', '002.jpg', '003.jpg'] and z.testzip() is None
+    assert [p.name for p in (folder.parent / 'trash').rglob('*.cbr')] == ['Saga 005.cbr']
+    assert db.select("SELECT Location FROM issues WHERE IssueID='i5'")[0]['Location'] == 'Saga 005.cbz'
+    assert rescans == ['1']
+    assert 'Saga 005.cbr' not in [f['name'] for f in library_check.status()['files']]
+    assert not library_check.repack(str(folder / 'Saga 003.cbz'))['ok']     # damaged, not one to repack
+
+
+def test_a_rar_webp_called_damaged_is_opened_again(lib, monkeypatch):
+    from mylar import webp
+    db, folder, _ = lib
+    shutil.copy(SOLID, folder / 'Saga 005.cbr')
+    st = os.stat(folder / 'Saga 005.cbr')
+    monkeypatch.setattr(webp, 'remembered', lambda myDB=None: {str(folder / 'Saga 005.cbr'): {
+        'size': st.st_size, 'mtime': st.st_mtime, 'status': 'damaged', 'reason': 'RarCRCError: unrar stopped with code 3'}})
+    run_scan()
+    found = {f['name']: f['status'] for f in library_check.status()['files']}
+    assert found['Saga 005.cbr'] == 'repack'
