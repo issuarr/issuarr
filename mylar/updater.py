@@ -1333,6 +1333,8 @@ def forceRescan(ComicID, archive=None, module=None, recheck=False):
     leftovers = []
 
     reissues = myDB.select('SELECT * FROM issues WHERE ComicID=?', [ComicID])
+    # another series keeping its files in this folder: a file can then belong to either, and its year says which
+    shared_folder = myDB.selectone('SELECT ComicID FROM comics WHERE ComicLocation=? AND ComicID!=?', [rescan['ComicLocation'], ComicID]).fetchone() is not None
 
     a_start = datetime.datetime.now()
     while (fn < fccnt):
@@ -1436,6 +1438,11 @@ def forceRescan(ComicID, archive=None, module=None, recheck=False):
                         n+=1
                         continue
 
+                    if shared_folder and matching.year_off(tmpfc['ComicFilename'], issyear):
+                        logger.fdebug('%s %s is from a different year than issue #%s (%s) and the folder is shared with another series - not matching it.' % (module, tmpfc['ComicFilename'], reiss['Issue_Number'], issyear))
+                        n+=1
+                        continue
+
                     #this will detect duplicate filenames within the same directory.
                     for di in issuedupechk:
                         if di['fcdigit'] == fcdigit and di['issueid'] == reiss['IssueID']:
@@ -1444,7 +1451,16 @@ def forceRescan(ComicID, archive=None, module=None, recheck=False):
                             # mylar.CONFIG.DUPECONSTRAINT = 'filesize' / 'filetype-cbr' / 'filetype-cbz'
                             logger.fdebug('[DUPECHECK] Based on duplication preferences I will retain based on : ' + mylar.CONFIG.DUPECONSTRAINT)
                             removedupe = False
-                            if 'cbr' in mylar.CONFIG.DUPECONSTRAINT or 'cbz' in mylar.CONFIG.DUPECONSTRAINT:
+                            # a file from the issue's own year beats one from a far-off year (another volume's)
+                            year_pref = matching.year_preference(tmpfc['ComicFilename'], di['filename'], issyear)
+                            if year_pref == 'existing':
+                                logger.fdebug('[DUPECHECK-YEAR] [#' + reiss['Issue_Number'] + '] Retaining ' + di['filename'] + ': its year fits the issue, ' + tmpfc['ComicFilename'] + ' does not.')
+                                issuedupe = "yes"
+                                break
+                            elif year_pref == 'new':
+                                logger.fdebug('[DUPECHECK-YEAR] [#' + reiss['Issue_Number'] + '] Retaining ' + tmpfc['ComicFilename'] + ': its year fits the issue, ' + di['filename'] + ' does not.')
+                                removedupe = True
+                            if year_pref is None and ('cbr' in mylar.CONFIG.DUPECONSTRAINT or 'cbz' in mylar.CONFIG.DUPECONSTRAINT):
                                 if 'cbr' in mylar.CONFIG.DUPECONSTRAINT:
                                     #this has to be configured in config - either retain cbr or cbz.
                                     if tmpfc['ComicFilename'].endswith('.cbz'):
@@ -1467,7 +1483,7 @@ def forceRescan(ComicID, archive=None, module=None, recheck=False):
                                         logger.fdebug('[DUPECHECK-CBZ PRIORITY] [#' + reiss['Issue_Number'] + '] Retaining newly scanned in filename : ' + tmpfc['ComicFilename'])
                                         removedupe = True
 
-                            if mylar.CONFIG.DUPECONSTRAINT == 'filesize':
+                            if year_pref is None and mylar.CONFIG.DUPECONSTRAINT == 'filesize':
                                 if tmpfc['ComicSize'] <= di['filesize']:
                                     logger.fdebug('[DUPECHECK-FILESIZE PRIORITY] [#' + reiss['Issue_Number'] + '] Retaining currently scanned in filename : ' + di['filename'])
                                     issuedupe = "yes"

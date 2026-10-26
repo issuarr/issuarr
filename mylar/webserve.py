@@ -7208,18 +7208,28 @@ class WebInterface(object):
             myDB.action("UPDATE importresults SET ComicID=? WHERE DynamicName=? AND Volume=? AND Status != 'Imported'", [comicid, DynamicName, Volume])
         logger.info('[IMPORT] %s set to ComicVine series %s by hand.' % (ComicName, comicid))
         comiclist = [{'ComicName': ComicName, 'DynamicName': DynamicName, 'Volume': Volume, 'ComicID': comicid}]
+        with importstatus.START_LOCK:
+            joined = importstatus.add_picked(comiclist[0])
+        if joined:
+            # an import is running: it does this one next. Not Imported until then, so a stop leaves it for later.
+            self._set_import_status(myDB, DynamicName, Volume, 'Not Imported')
+            navcounts.clear()
+            return json.dumps({'ok': True, 'comicid': comicid, 'joined': True})
         if not self._start_import(comiclist, None):
             # busy: keep the choice. "Import everything not imported" imports it with this ComicID.
-            if Volume is None:
-                myDB.action("UPDATE importresults SET Status='Not Imported' WHERE DynamicName=? AND Volume IS NULL AND Status != 'Imported'", [DynamicName])
-            else:
-                myDB.action("UPDATE importresults SET Status='Not Imported' WHERE DynamicName=? AND Volume=? AND Status != 'Imported'", [DynamicName, Volume])
+            self._set_import_status(myDB, DynamicName, Volume, 'Not Imported')
             navcounts.clear()
             return json.dumps({'ok': True, 'comicid': comicid, 'queued': True,
                                'note': 'Another import or scan is running, so this one waits under Not imported with your choice. Import everything not imported once it finishes.'})
         navcounts.clear()
         return json.dumps({'ok': True, 'comicid': comicid})
     importByCvid.exposed = True
+
+    def _set_import_status(self, myDB, DynamicName, Volume, status):
+        if Volume is None:
+            myDB.action("UPDATE importresults SET Status=? WHERE DynamicName=? AND Volume IS NULL AND Status != 'Imported'", [status, DynamicName])
+        else:
+            myDB.action("UPDATE importresults SET Status=? WHERE DynamicName=? AND Volume=? AND Status != 'Imported'", [status, DynamicName, Volume])
 
     def import_choice(self, DynamicName, Volume=None):
         # Import results > Needs a choice: the scanned series' files and its possible ComicVine series
@@ -7284,6 +7294,62 @@ class WebInterface(object):
         elif status in ('error', 'abort'):
             importstatus.inc('series_failed')
 
+    def _import_by_comicid(self, comicinfo, myDB):
+        # a series whose ComicVine series is known (from its files' tags, or picked on Import results)
+        results = myDB.select("SELECT * FROM importresults WHERE (WatchMatch is Null OR WatchMatch LIKE 'C%') AND ComicID=?", [comicinfo['ComicID']])
+        files = []
+        for result in results:
+            files.append({'comicfilename': result['ComicFilename'],
+                          'comiclocation': result['ComicLocation'],
+                          'issuenumber':   result['IssueNumber'],
+                          'import_id':     result['impID']})
+
+        SRID = str(random.randint(100000, 999999))
+
+        logger.info('[IMPORT] Issues found with valid ComicID information for : %s [%s]' % (comicinfo['ComicName'], comicinfo['ComicID']))
+        imported = {'ComicName':     comicinfo['ComicName'],
+                    'DynamicName':   comicinfo['DynamicName'],
+                    'Volume':        comicinfo['Volume'],
+                    'filelisting':   files,
+                    'srid':          SRID}
+        importstatus.current_series(comicinfo['ComicName'])
+        try:
+            status = self._import_result(self.addbyid(comicinfo['ComicID'], calledby=True, imported=imported, ogcname=comicinfo['ComicName'], nothread=True))
+        except Exception as e:
+            logger.error('[IMPORT] Error importing %s [%s]: %s' % (comicinfo['ComicName'], comicinfo['ComicID'], e))
+            logger.error(traceback.format_exc())
+            status = 'error'
+
+        #if move files wasn't used - we need to update status at this point.
+        #if mylar.CONFIG.IMP_MOVE is False:
+        #    #status update.
+        #    for f in files:
+        #        ctrlVal = {"ComicID":     comicinfo['ComicID'],
+        #                   "impID":       f['import_id']}
+        #        newVal = {"Status":            'Imported',
+        #                  "SRID":              SRID,
+        #                  "ComicFilename":     f['comicfilename'],
+        #                  "ComicLocation":     f['comiclocation'],
+        #                  "Volume":            comicinfo['Volume'],
+        #                  "IssueNumber":       comicinfo['IssueNumber'],
+        #                  "ComicName":         comicinfo['ComicName'],
+        #                  "DynamicName":       comicinfo['DynamicName']}
+        #        myDB.upsert("importresults", newVal, ctrlVal)
+        logger.info('[IMPORT] Successfully verified import sequence data for : %s. Currently adding to your watchlist.' % comicinfo['ComicName'])
+        return status
+
+    def _run_picked(self, myDB):
+        # series picked on Import results while this import runs go first, so a pick doesn't wait
+        while True:
+            outcome = self._import_interrupted()
+            if outcome:
+                return outcome
+            picked = importstatus.next_picked()
+            if picked is None:
+                return None
+            logger.info('[IMPORT] %s was picked on Import results: importing it next.' % picked['ComicName'])
+            self._import_tally(self._import_by_comicid(picked, myDB))
+
     def _run_import(self, comiclist):
         myDB = db.DBConnection()
         outcome = None
@@ -7293,7 +7359,7 @@ class WebInterface(object):
             #otherwise, comicID present by itself indicates a watch match that already exists and is done below this sequence.
             RemoveIDS = []
             for comicinfo in comiclist:
-                outcome = self._import_interrupted()
+                outcome = self._import_interrupted() or self._run_picked(myDB)
                 if outcome:
                     break
                 logger.fdebug('[IMPORT] Checking for any valid ComicID\'s already present within filenames.')
@@ -7301,47 +7367,8 @@ class WebInterface(object):
                 if comicinfo['ComicID'] is None or comicinfo['ComicID'] == 'None':
                     continue
                 else:
-                    results = myDB.select("SELECT * FROM importresults WHERE (WatchMatch is Null OR WatchMatch LIKE 'C%') AND ComicID=?", [comicinfo['ComicID']])
-                    files = []
-                    for result in results:
-                        files.append({'comicfilename': result['ComicFilename'],
-                                      'comiclocation': result['ComicLocation'],
-                                      'issuenumber':   result['IssueNumber'],
-                                      'import_id':     result['impID']})
-
-                    SRID = str(random.randint(100000, 999999))
-
-                    logger.info('[IMPORT] Issues found with valid ComicID information for : %s [%s]' % (comicinfo['ComicName'], comicinfo['ComicID']))
-                    imported = {'ComicName':     comicinfo['ComicName'],
-                                'DynamicName':   comicinfo['DynamicName'],
-                                'Volume':        comicinfo['Volume'],
-                                'filelisting':   files,
-                                'srid':          SRID}
-                    importstatus.current_series(comicinfo['ComicName'])
-                    try:
-                        status = self._import_result(self.addbyid(comicinfo['ComicID'], calledby=True, imported=imported, ogcname=comicinfo['ComicName'], nothread=True))
-                    except Exception as e:
-                        logger.error('[IMPORT] Error importing %s [%s]: %s' % (comicinfo['ComicName'], comicinfo['ComicID'], e))
-                        logger.error(traceback.format_exc())
-                        status = 'error'
+                    status = self._import_by_comicid(comicinfo, myDB)
                     self._import_tally(status)
-
-                    #if move files wasn't used - we need to update status at this point.
-                    #if mylar.CONFIG.IMP_MOVE is False:
-                    #    #status update.
-                    #    for f in files:
-                    #        ctrlVal = {"ComicID":     comicinfo['ComicID'],
-                    #                   "impID":       f['import_id']}
-                    #        newVal = {"Status":            'Imported',
-                    #                  "SRID":              SRID,
-                    #                  "ComicFilename":     f['comicfilename'],
-                    #                  "ComicLocation":     f['comiclocation'],
-                    #                  "Volume":            comicinfo['Volume'],
-                    #                  "IssueNumber":       comicinfo['IssueNumber'],
-                    #                  "ComicName":         comicinfo['ComicName'],
-                    #                  "DynamicName":       comicinfo['DynamicName']}
-                    #        myDB.upsert("importresults", newVal, ctrlVal)
-                    logger.info('[IMPORT] Successfully verified import sequence data for : %s. Currently adding to your watchlist.' % comicinfo['ComicName'])
                     RemoveIDS.append(comicinfo['ComicID'])
 
             #we need to remove these items from the comiclist now, so they don't get processed again
@@ -7353,7 +7380,7 @@ class WebInterface(object):
             for cl in comiclist:
                 if outcome:
                     break
-                outcome = self._import_interrupted()
+                outcome = self._import_interrupted() or self._run_picked(myDB)
                 if outcome:
                     break
                 if cl['Volume'] is None or cl['Volume'] == 'None':
@@ -7379,6 +7406,11 @@ class WebInterface(object):
                     logger.warn('[IMPORT] %s: %s file(s) weren\'t imported and are back under Not imported. The log above says why.' % (cl['ComicName'], left.rowcount))
                 if status == 'abort':
                     outcome = 'error'
+                    break
+            # series picked on Import results while this ran, then done
+            while not outcome:
+                outcome = self._run_picked(myDB)
+                if not outcome and importstatus.close_if_no_picks():
                     break
         except Exception as e:
             logger.error('[IMPORT] Import failed: %s' % e)
@@ -7589,7 +7621,7 @@ class WebInterface(object):
 
         # Collected editions (TPB, HC, Omnibus) are only picked automatically for a TPB, HC or GN series.
         files_collected = sum(editions.collected(p, ComicName) for p in comicstoIMP) * 2 > len(comicstoIMP)
-        sr = editions.auto_pick(search_matches, files_collected)
+        sr = editions.auto_pick(importchoice.by_folder(search_matches, comicstoIMP, ComicName), files_collected)
         if sr is not None:
             logger.info('[IMPORT] There is only one result...automagik-mode enabled for %s :: %s' % (sr['series'], sr['comicid']))
             resultset = 1
@@ -7630,7 +7662,7 @@ class WebInterface(object):
                                                    'ogcname':       ogcname,
                                                    'comicyear':     results['comicyear']})
 
-                sr = editions.auto_pick(search_matches, files_collected)
+                sr = editions.auto_pick(importchoice.by_folder(search_matches, comicstoIMP, ComicName), files_collected)
                 if sr is not None:
                     logger.info('[IMPORT] There is only one result...automagik-mode enabled for %s :: %s' % (sr['series'], sr['comicid']))
                     resultset = 1
@@ -7663,7 +7695,8 @@ class WebInterface(object):
         myDB.upsert("importresults", newVal, ctrlVal)
 
         if resultset == 0:
-            if len(search_matches) > 1:
+            # one match that wasn't picked (another publisher's than the folder's) still waits for a choice
+            if len(search_matches) > 1 or (search_matches and len(sresults) <= 1):
                # if we matched on more than one series above, just save those results instead of the entire search result set.
                 for sres in search_matches:
                     try:

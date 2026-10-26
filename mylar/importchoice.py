@@ -18,6 +18,7 @@
 import os
 import re
 
+import mylar
 from mylar import db, logger
 
 # A search that found hundreds of series only shows the closest ones; the search box finds others.
@@ -66,6 +67,81 @@ def _text(desc, limit=320):
     return desc if len(desc) <= limit else desc[:limit].rsplit(' ', 1)[0] + '…'
 
 
+# Words a publisher's name may or may not carry: "DC" and "DC Comics" are one publisher.
+_PUB_WORDS = {'the', 'comics', 'comic', 'publishing', 'publications', 'entertainment', 'press', 'books',
+              'studios', 'group', 'inc', 'llc', 'ltd', 'co'}
+# how many folders above a file can name its publisher
+_PUB_DEPTH = 3
+
+
+def _pub(name):
+    words = re.findall(r'[a-z0-9]+', str(name or '').lower().replace('&', ' and '))
+    return ''.join(w for w in words if w not in _PUB_WORDS) or None
+
+
+def _publisher_groups(extra=()):
+    """Each known publisher with its imprints (Vertigo is DC), keyed by every name in the group."""
+    groups = {}
+    listing = mylar.PUBLISHER_IMPRINTS
+    if listing is None:
+        try:
+            from mylar import imprints
+            listing = imprints.load(None, mylar.PROG_DIR, download=False)
+        except Exception:
+            listing = None
+    for entry in (listing or {}).get('publishers', []):
+        for parent, imps in entry.items():
+            group = {_pub(parent)} | {_pub(i.get('name')) for i in imps if isinstance(i, dict)}
+            group.discard(None)
+            for key in group:
+                groups.setdefault(key, set()).update(group)
+    try:
+        known = [r['ComicPublisher'] for r in db.DBConnection().select('SELECT DISTINCT ComicPublisher FROM comics')]
+    except Exception:
+        known = []
+    for name in list(known) + list(extra):
+        key = _pub(name)
+        if key:
+            groups.setdefault(key, {key})
+    return groups
+
+
+def folder_publisher(paths, extra=(), series=None):
+    """The publisher a folder above the files names (DC, Marvel, Image, or one of their imprints), as
+    {'folder': its name, 'names': the publisher's names}, or None. extra: more publisher names to know.
+    A folder named like the series itself ("Impact", also a DC imprint) isn't a publisher folder."""
+    groups = _publisher_groups(extra)
+    own = _pub(series)
+    for path in paths:
+        folder = os.path.dirname(path or '')
+        for _ in range(_PUB_DEPTH):
+            name = os.path.basename(folder)
+            if not name:
+                break
+            key = _pub(name)
+            if key in groups and key != own:
+                return {'folder': name, 'names': groups[key]}
+            folder = os.path.dirname(folder)
+    return None
+
+
+def publisher_fits(hint, publisher):
+    return bool(hint) and _pub(publisher) in hint['names']
+
+
+def by_folder(matches, paths, series=None):
+    """The search matches an import may pick from: only the folder's publisher's, when the files sit
+    under a publisher folder, so a series in a DC folder isn't matched to Panini."""
+    hint = folder_publisher(paths, [m.get('publisher') for m in matches], series)
+    if not hint:
+        return matches
+    same = [m for m in matches if publisher_fits(hint, m.get('publisher'))]
+    if len(same) != len(matches):
+        logger.fdebug('[IMPORT] The files are in a %s folder: %s of %s matches are from that publisher.'
+                      % (hint['folder'], len(same), len(matches)))
+    return same
+
+
 def choice(dynamicname, volume=None):
     """The scanned series (name, year, files) and its possible ComicVine series, closest first."""
     myDB = db.DBConnection()
@@ -90,7 +166,7 @@ def choice(dynamicname, volume=None):
             continue
         seen.add(key)
         files.append({'id': r['impID'], 'name': os.path.basename(now) if now else r['ComicFilename'],
-                      'number': r['IssueNumber'], 'missing': now is None})
+                      'path': now or was, 'number': r['IssueNumber'], 'missing': now is None})
     files = sorted(files,
                    key=lambda f: (_number(f['number']) is None, _number(f['number']) or 0, f['name'] or ''))
     numbers = [n for n in (_number(f['number']) for f in files) if n is not None]
@@ -111,15 +187,21 @@ def choice(dynamicname, volume=None):
                            'url': s['url'], 'about': _text(s['deck']) or _text(s['description']),
                            'watched': cid in watched or str(s['haveit'] or 'No') not in ('No', 'None', ''),
                            'fits': issues is None or top is None or top <= issues})
+    paths = [f['path'] for f in files if f['path']]
+    folders = sorted({os.path.dirname(p) for p in paths})
+    hint = folder_publisher(paths, [c['publisher'] for c in candidates], first['ComicName'])
+    for c in candidates:
+        c['samepub'] = publisher_fits(hint, c['publisher']) if hint else None
     cyear = lambda c: _year(c['year'])
     want = _norm(first['ComicName'])
-    candidates.sort(key=lambda c: (not c['fits'], _norm(c['name']) != want,
+    candidates.sort(key=lambda c: (not c['fits'], c['samepub'] is False, _norm(c['name']) != want,
                                    abs(cyear(c) - year) if year and cyear(c) else 999,
                                    not c['watched'], c['name'] or ''))
     return {'ok': True,
             'series': {'name': first['DisplayName'] or first['ComicName'], 'comicname': first['ComicName'],
                        'dynamicname': first['DynamicName'], 'volume': first['Volume'], 'year': first['ComicYear'],
-                       'status': first['Status'], 'files': files, 'top': top},
+                       'status': first['Status'], 'files': files, 'top': top, 'folders': folders,
+                       'publisher_folder': hint['folder'] if hint else None},
             'candidates': candidates[:MAX_CANDIDATES], 'total': len(candidates)}
 
 
