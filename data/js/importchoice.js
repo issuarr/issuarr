@@ -105,11 +105,24 @@
       .then(json)
       .then(function (d) {
         if (cur !== btn) return;
+        if (d.gone) { gone(btn, d.note); return; }
         if (!d.ok) { body.innerHTML = '<p class="match-meta">' + esc(d.note) + '</p>'; return; }
         cur.data = d;
         draw(d);
       })
       .catch(function () { body.innerHTML = '<p class="match-meta">Couldn\'t load this series. Check the log.</p>'; });
+  }
+
+  // its files were deleted or moved since the scan: the server forgot it, so move on
+  function gone(btn, note) {
+    var at = waiting().indexOf(btn);
+    btn.disabled = true;
+    var tr = btn.closest('tr');
+    var label = tr && tr.querySelector('.status');
+    if (label) { label.className = 'status is-ignored'; label.textContent = 'Files gone (removed)'; }
+    window.Issuarr.toast(note);
+    var rows = waiting();
+    if (rows[at]) open(rows[at]); else { dlg.close(); window.Issuarr.toast('No more series need a choice.'); }
   }
 
   function next() {

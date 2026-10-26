@@ -17,9 +17,10 @@
 
 import os
 import re
+import time
 
 import mylar
-from mylar import db, logger
+from mylar import db, logger, navcounts
 
 # A search that found hundreds of series only shows the closest ones; the search box finds others.
 MAX_CANDIDATES = 40
@@ -37,6 +38,38 @@ def _live(path):
         return path
     stem = os.path.splitext(path)[0]
     return next((stem + ext for ext in COMIC_EXTS if os.path.isfile(stem + ext)), None)
+
+
+def _gone(path):
+    """The file is gone for good: not there under any comic extension, while the folder two levels up is
+    (a library share that isn't mounted right now leaves its import results alone)."""
+    return _live(path) is None and bool(path) and os.path.isdir(os.path.dirname(os.path.dirname(path)))
+
+
+def _forget(myDB, paths):
+    for path in paths:
+        myDB.action("DELETE FROM importresults WHERE ComicLocation=? AND Status NOT IN ('Imported', 'Importing')", [path])
+
+
+# how often the Import results page looks for files that are gone
+DROP_EVERY = 60
+_dropped_at = [0]
+
+
+def drop_gone(force=False):
+    """Forget import results whose file is gone (moved, deleted or imported elsewhere since the scan):
+    there's nothing left to match or import. Returns how many files were forgotten."""
+    if not force and time.time() - _dropped_at[0] < DROP_EVERY:
+        return 0
+    _dropped_at[0] = time.time()
+    myDB = db.DBConnection()
+    rows = myDB.select("SELECT DISTINCT ComicLocation FROM importresults WHERE Status NOT IN ('Imported', 'Importing') AND ComicLocation IS NOT NULL")
+    gone = [r['ComicLocation'] for r in rows if _gone(r['ComicLocation'])]
+    if gone:
+        _forget(myDB, gone)
+        logger.info('[IMPORT] Removed %s file(s) from Import results that are no longer on disk.' % len(gone))
+        navcounts.clear()
+    return len(gone)
 
 
 def _number(text):
@@ -167,6 +200,11 @@ def choice(dynamicname, volume=None):
         seen.add(key)
         files.append({'id': r['impID'], 'name': os.path.basename(now) if now else r['ComicFilename'],
                       'path': now or was, 'number': r['IssueNumber'], 'missing': now is None})
+    if files and all(f['missing'] for f in files) and all(_gone(f['path']) for f in files):
+        _forget(myDB, [f['path'] for f in files])
+        navcounts.clear()
+        logger.info('[IMPORT] %s: its files are no longer on disk, so it was removed from Import results.' % (first['DisplayName'] or first['ComicName']))
+        return {'ok': False, 'gone': True, 'note': 'This series\' files are no longer on disk, so it was removed from Import results.'}
     files = sorted(files,
                    key=lambda f: (_number(f['number']) is None, _number(f['number']) or 0, f['name'] or ''))
     numbers = [n for n in (_number(f['number']) for f in files) if n is not None]
