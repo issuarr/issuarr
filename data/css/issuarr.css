@@ -1133,6 +1133,8 @@ body.set-searching .set-cols { display: block; }
 }
 .set-ctl > input.set-num, .set-ctl > select.set-num { flex: 0 0 120px; font-family: var(--font-mono); }
 .set-ctl > input.mono { font-family: var(--font-mono); font-size: 13px; }
+.set-checks { gap: 6px 16px; }
+.set-checks > label { display: inline-flex; align-items: center; gap: 6px; font-weight: normal; }
 .set-ctl-wide { flex: 0 1 440px; }
 .set-ctl-wide .selectize-control { width: 100%; }
 .set-unit { color: var(--muted); font-size: 13.5px; }

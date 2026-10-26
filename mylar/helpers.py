@@ -3141,6 +3141,12 @@ def job_stopping(key):
 
 def job_management(write=False, job=None, last_run_completed=None, current_run=None, status=None, failure=False, startup=False):
     jobresults = []
+    if write and job is not None:
+        from mylar import alerts
+        if current_run is not None and status == 'Running':
+            alerts.task(job, True)
+        elif last_run_completed is not None:
+            alerts.task(job, False)
 
     myDB = db.DBConnection()
     if startup is True:
