@@ -46,13 +46,23 @@ def at_jd2():
     return ids
 
 
+def has_url():
+    """Whether a JD2 URL is set. JD2 turned on without one can't be reached, so it counts as off."""
+    return bool((getattr(mylar.CONFIG, 'JD2_URL', None) or '').rstrip('/'))
+
+
 def loaded():
     """Whether at_jd2() lists every row JD2 has: the monitor has reloaded its saved rows, or JD2 is off."""
-    return LOADED.is_set() or not getattr(mylar.CONFIG, 'JD2_ENABLE', False)
+    return LOADED.is_set() or not getattr(mylar.CONFIG, 'JD2_ENABLE', False) or not has_url()
 
 
 def jd2_queue_monitor(queue):
-    jd2_client = JDownloader2()
+    try:
+        jd2_client = JDownloader2()
+    except ValueError as err:
+        logger.warn('[JD2-QUEUE] JDownloader 2 is turned on but can\'t be used (%s), so the JD2 queue is not running. '
+                    'Set the JDownloader 2 address in Settings, or turn JD2 off.' % err)
+        return
     myDB = db.DBConnection()
     while True:
         if time.monotonic() - LAST_PICKUP[0] >= PICKUP_EVERY:
