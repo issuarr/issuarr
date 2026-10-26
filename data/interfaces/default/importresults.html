@@ -7,8 +7,8 @@
 <%def name="body()">
     <input type="hidden" id="page_name" value="import_results" />
     <%
-        STATUS = {'Imported': 'is-have', 'Not Imported': 'is-wanted', 'Manual Intervention': 'is-snatched', 'No Results': 'is-ignored', 'Failure': 'is-failed'}
-        LABEL = {'Manual Intervention': 'Needs a choice', 'Not Imported': 'Not imported', 'No Results': 'No results'}
+        STATUS = {'Imported': 'is-have', 'Not Imported': 'is-wanted', 'Manual Intervention': 'is-snatched', 'No Results': 'is-ignored', 'No Issue': 'is-snatched', 'Failure': 'is-failed'}
+        LABEL = {'Manual Intervention': 'Needs a choice', 'Not Imported': 'Not imported', 'No Results': 'No results', 'No Issue': 'Imported, no issue'}
         rows = []
         counts = {}
         for r in (results or []):
@@ -19,7 +19,7 @@
             counts[status] = counts.get(status, 0) + 1
             rows.append(dict(r=r, name=name, vol=vol, status=status, label=LABEL.get(status, status), cls=STATUS.get(status, 'is-idle'),
                              key='%s[%s]|%s' % (r['ComicName'], r['Volume'], r['ComicID'])))
-        order = ['Not Imported', 'Manual Intervention', 'No Results', 'Imported']
+        order = ['Not Imported', 'Manual Intervention', 'No Results', 'No Issue', 'Imported']
         tabs = [s for s in order if s in counts] + sorted([s for s in counts if s not in order])
     %>
     <div class="page imports">
@@ -111,11 +111,11 @@
                                 %endif
                             </td>
                             <td class="mono">${r['ComicYear'] or '-' | h}</td>
-                            <td class="num"><button type="button" class="btn btn-ghost btn-sm mono" data-files="${urlencode({'comicname': r['ComicName'], 'dynamicname': r['DynamicName'], 'volume': r['Volume'], 'fmt': 'json'}) | h}"
+                            <td class="num"><button type="button" class="btn btn-ghost btn-sm mono" data-files="${urlencode({'comicname': r['ComicName'], 'dynamicname': r['DynamicName'], 'volume': r['Volume'], 'status': r['Status'], 'fmt': 'json'}) | h}"
                                 data-title="${x['name'] | h}" title="Show the files">${r['IssueCount']}</button></td>
                             <td><span class="status ${x['cls']}">
-                                %if r['ComicID'] and x['status'] == 'Imported':
-                                <a href="comicDetails?ComicID=${r['ComicID'] | u}">${x['label'] | h}</a>
+                                %if r['ComicID'] and x['status'] in ('Imported', 'No Issue'):
+                                <a href="comicDetails?ComicID=${r['ComicID'] | u}"${' title="The import tied these files to no issue of this series, so they don\'t count as owned."' if x['status'] == 'No Issue' else '' | n}>${x['label'] | h}</a>
                                 %else:
                                 ${x['label'] | h}
                                 %endif
@@ -126,11 +126,11 @@
                                 <button type="button" class="btn btn-sm" data-act="preSearchit?${urlencode({'ComicName': r['ComicName'], 'displaycomic': x['name'], 'comicid': r['ComicID'], 'volume': r['Volume'], 'dynamicname': r['DynamicName'], 'displayline': x['name']}) | h}"
                                         data-done="Importing ${x['name'] | h}.">Import</button>
                                 %endif
-                                %if r['SRID'] is not None and x['status'] not in ('Imported', 'No Results'):
+                                %if r['SRID'] is not None and x['status'] not in ('Imported', 'No Results', 'No Issue'):
                                 <button type="button" class="btn btn-sm btn-primary" data-choose="${urlencode({'DynamicName': r['DynamicName'], 'Volume': r['Volume']}) | h}"
                                         title="ComicVine has more than one possible match: compare covers and pick one">Choose match</button>
                                 %endif
-                                %if x['status'] not in ('Imported', 'Importing'):
+                                %if x['status'] not in ('Imported', 'Importing', 'No Issue'):
                                 <button type="button" class="btn btn-sm btn-ghost" data-cvid="${urlencode({'ComicName': r['ComicName'], 'DynamicName': r['DynamicName'], 'Volume': r['Volume']}) | h}"
                                         data-title="${x['name'] | h}" title="Import with a ComicVine series you pick">ComicVine ID</button>
                                 %endif
@@ -184,13 +184,13 @@
         function renderBulk() {
             var n = picked().length;
             document.getElementById('imp-bulk').hidden = !n;
-            document.querySelector('#imp-bulk [data-bulk="importselected"]').hidden = !picked().some(function (tr) { return tr.getAttribute('data-status') !== 'Imported'; });
+            document.querySelector('#imp-bulk [data-bulk="importselected"]').hidden = !picked().some(function (tr) { return ['Imported', 'No Issue'].indexOf(tr.getAttribute('data-status')) < 0; });
             document.getElementById('imp-bulk-count').textContent = n + (n === 1 ? ' series selected' : ' series selected');
         }
         function applyTab() {
             rows().forEach(function (tr) { tr.hidden = !!status && tr.getAttribute('data-status') !== status; });
-            // the Imported tab has nothing left to import
-            document.getElementById('imp-all').hidden = status === 'Imported';
+            // the Imported tabs have nothing left to import
+            document.getElementById('imp-all').hidden = status === 'Imported' || status === 'No Issue';
             document.querySelectorAll('#imp-tabs [data-status]').forEach(function (b) { b.setAttribute('aria-pressed', String(b.getAttribute('data-status') === status)); });
             document.getElementById('imp-check-all').checked = false;
             renderBulk();
@@ -203,7 +203,7 @@
         }
         function failed() { Issuarr.toast('That didn\'t work. Check the log.', false); }
         // Links can open a tab: importResults#needs-a-choice (from the sidebar count and Tasks > Jobs)
-        var HASH = {'#not-imported': 'Not Imported', '#needs-a-choice': 'Manual Intervention', '#no-results': 'No Results', '#imported': 'Imported'};
+        var HASH = {'#not-imported': 'Not Imported', '#needs-a-choice': 'Manual Intervention', '#no-results': 'No Results', '#imported-no-issue': 'No Issue', '#imported': 'Imported'};
         function fromHash() {
             if (HASH[location.hash] && document.querySelector('#imp-tabs [data-status="' + HASH[location.hash] + '"]')) { status = HASH[location.hash]; applyTab(); }
         }

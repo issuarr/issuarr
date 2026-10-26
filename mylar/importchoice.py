@@ -72,6 +72,51 @@ def drop_gone(force=False):
     return len(gone)
 
 
+# Imported files the recheck tied to no issue (a TPB, a number the series lacks, a folder no series owns)
+NO_ISSUE = 'No Issue'
+_untied_at = [0]
+
+
+def _tied_paths(myDB):
+    tied = set()
+    for table in ('issues', 'annuals'):
+        for r in myDB.select("SELECT c.ComicLocation, i.Location FROM %s i JOIN comics c ON c.ComicID = i.ComicID "
+                             "WHERE i.Location IS NOT NULL AND i.Location != ''" % table):
+            if r['ComicLocation']:
+                tied.add(os.path.normpath(os.path.join(r['ComicLocation'], r['Location'])))
+    return tied
+
+
+def mark_untied(comicid=None, force=True):
+    """Imported files no issue points to say No Issue, and say Imported again once one does.
+    Returns how many rows changed."""
+    if not force and time.time() - _untied_at[0] < DROP_EVERY:
+        return 0
+    _untied_at[0] = time.time()
+    myDB = db.DBConnection()
+    query = "SELECT impID, ComicLocation, Status FROM importresults WHERE Status IN ('Imported', ?) AND ComicLocation IS NOT NULL"
+    args = [NO_ISSUE]
+    if comicid is not None:
+        query += ' AND ComicID=?'
+        args.append(str(comicid))
+    rows = myDB.select(query, args)
+    if not rows:
+        return 0
+    tied = _tied_paths(myDB)
+    changed = 0
+    for r in rows:
+        live = _live(r['ComicLocation'])
+        if live is None:
+            continue
+        status = 'Imported' if os.path.normpath(live) in tied else NO_ISSUE
+        if status != r['Status']:
+            myDB.action('UPDATE importresults SET Status=? WHERE impID=? AND ComicLocation=?', [status, r['impID'], r['ComicLocation']])
+            changed += 1
+    if changed:
+        navcounts.clear()
+    return changed
+
+
 def _number(text):
     m = re.search(r'\d+(?:\.\d+)?', str(text or ''))
     return float(m.group(0)) if m else None
