@@ -7099,6 +7099,10 @@ class WebInterface(object):
         return result
 
     def importResults(self):
+        try:
+            importchoice.drop_gone()
+        except Exception as e:
+            logger.warn('[IMPORT] Could not check Import results for files that are gone: %s' % e)
         myDB = db.DBConnection()
         # one query for the rows and their file counts: a count per row took minutes on big scans.
         # FileCount, not IssueCount: SELECT * already has an (unused, empty) IssueCount column, which would win.
