@@ -31,6 +31,16 @@
     return cover(f ? 'import_cover?' + q({ impid: f.id }) : null, f ? 'Front cover of ' + f.name : '', f ? 'This file' + (f.number ? ', #' + esc(num(f.number)) : '') : '');
   }
 
+  // the folder names can hold a year or the publisher
+  function folders(s) {
+    var dirs = s.folders || [];
+    if (!dirs.length) return '';
+    var shown = dirs.slice(0, 3).map(function (d) { return '<span class="mono">' + esc(d) + '</span>'; }).join('<br>');
+    return '<p class="match-meta choose-folder">' + (dirs.length === 1 ? 'Folder: ' : 'Folders:<br>') + shown +
+      (dirs.length > 3 ? '<br>and ' + (dirs.length - 3) + ' more' : '') + '</p>' +
+      (s.publisher_folder ? '<p class="match-meta">In a ' + esc(s.publisher_folder) + ' folder, so that publisher\'s series are listed first.</p>' : '');
+  }
+
   function files(s) {
     var n = s.files.length;
     var nums = s.files.map(function (f) { return f.number; }).filter(function (x) { return x != null && x !== ''; });
@@ -40,10 +50,11 @@
       '<div class="match-file">' +
         '<p class="choose-name">' + esc(s.name) + (s.year ? ' <span class="muted">(' + esc(s.year) + ')</span>' : '') +
           (s.volume ? ' <span class="muted mono">' + esc(s.volume) + '</span>' : '') + '</p>' +
+        folders(s) +
         '<p class="match-meta">' + n + (n === 1 ? ' file' : ' files') + range + '. Click a file to see its cover.</p>' +
         '<ul class="choose-filelist">' + s.files.map(function (f, i) {
           if (f.missing) return '<li class="mono faint" title="Not on disk any more">' + esc(f.name) + ' (missing)</li>';
-          return '<li><button type="button" class="link-btn mono" data-file="' + i + '">' + esc(f.name) + '</button></li>';
+          return '<li><button type="button" class="link-btn mono" data-file="' + i + '" title="' + esc(f.path) + '">' + esc(f.name) + '</button></li>';
         }).join('') + '</ul>' +
       '</div></div>';
   }
@@ -58,6 +69,7 @@
         '<p class="choose-name">' + (c.url ? '<a href="' + esc(c.url) + '" target="_blank" rel="noopener" title="Open on ComicVine">' + esc(c.name) + '</a>' : esc(c.name)) +
           ' <span class="muted mono">4050-' + esc(c.comicid) + '</span>' +
           (c.watched ? ' <span class="match-hand">On your watchlist</span>' : '') +
+          (c.samepub ? ' <span class="match-hand">Matches the folder</span>' : '') +
           (c.type && c.type !== 'Print' ? ' <span class="match-hand">' + esc(c.type) + '</span>' : '') + '</p>' +
         '<p class="match-meta">' + meta.join(' · ') + '</p>' + warn +
         (c.about ? '<p class="choose-about">' + esc(c.about) + '</p>' : '') +
@@ -139,7 +151,9 @@
       .then(function (d) {
         busy = false;
         if (!d.ok) { btn.disabled = false; window.Issuarr.toast(d.note, false); return; }
-        window.Issuarr.toast(d.queued ? s.name + ': ' + d.note : 'Importing ' + s.name + ' as ' + btn.getAttribute('data-name') + '. Follow it in Tasks › Jobs.');
+        window.Issuarr.toast(d.queued ? s.name + ': ' + d.note
+          : d.joined ? 'Importing ' + s.name + ' as ' + btn.getAttribute('data-name') + ' next. The import that\'s running picks it up.'
+          : 'Importing ' + s.name + ' as ' + btn.getAttribute('data-name') + '. Follow it in Tasks › Jobs.');
         // it's no longer waiting for a choice
         var at = waiting().indexOf(row);
         row.disabled = true;
@@ -147,7 +161,7 @@
         if (rows[at]) open(rows[at]); else { dlg.close(); window.Issuarr.toast('No more series need a choice.'); }
         var tr = row.closest('tr');
         var label = tr.querySelector('.status');
-        if (label) { label.className = 'status is-idle'; label.textContent = d.queued ? 'Not imported (chosen)' : 'Importing'; }
+        if (label) { label.className = 'status is-idle'; label.textContent = d.queued ? 'Not imported (chosen)' : d.joined ? 'Importing next' : 'Importing'; }
       })
       .catch(function () { busy = false; btn.disabled = false; failed(); });
   }
