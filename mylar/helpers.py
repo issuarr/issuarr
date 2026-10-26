@@ -629,6 +629,30 @@ def remove_apikey(payd, key):
 
     return payd
 
+def folder_in_use(folder, comicid):
+    """Why a series' folder must stay when the series is removed with its files: another series
+    uses it or a folder inside it, or it holds comic files that aren't this series' own. None
+    when deleting it only deletes this series' files. Call it before the series' rows go."""
+    if not folder or not os.path.isdir(folder):
+        return None
+    folder = os.path.normpath(folder)
+    myDB = db.DBConnection()
+    for r in myDB.select('SELECT ComicName, ComicYear, ComicLocation FROM comics WHERE ComicID!=? AND ComicLocation IS NOT NULL', [comicid]):
+        loc = os.path.normpath(r['ComicLocation'])
+        if loc == folder or loc.startswith(folder.rstrip(os.sep) + os.sep):
+            return '%s (%s) uses it too' % (r['ComicName'], r['ComicYear'])
+    own = set()
+    for table in ('issues', 'annuals'):
+        own.update(r['Location'] for r in myDB.select("SELECT Location FROM %s WHERE ComicID=? AND Location IS NOT NULL AND Location != ''" % table, [comicid]))
+    ext = ('.cbz', '.cbr', '.cb7', '.cbt', '.pdf')
+    other = 0
+    for here, dirs, names in os.walk(folder):
+        other += sum(1 for n in names if n.lower().endswith(ext) and n not in own)
+    if other:
+        return '%s comic file%s in it %s no issue of this series' % (other, '' if other == 1 else 's', 'is' if other == 1 else 'are')
+    return None
+
+
 def remove_series(ComicID, delete_dir=False):
     """Take a series off the watchlist: its issues, annuals, pull list wants and queued searches.
     Its folder is only removed with delete_dir. True when the series was there to remove."""
@@ -647,6 +671,7 @@ def remove_series(ComicID, delete_dir=False):
         seriesdir = comic['ComicLocation']
         seriesyear = comic['ComicYear']
         seriesvol = comic['ComicVersion']
+        keep = folder_in_use(seriesdir, ComicID) if delete_dir else None
         logger.info("Deleting all traces of Comic: " + ComicName)
         myDB.action('DELETE from comics WHERE ComicID=?', [ComicID])
         myDB.action('DELETE from issues WHERE ComicID=?', [ComicID])
@@ -661,7 +686,9 @@ def remove_series(ComicID, delete_dir=False):
             logger.info('Removed %s queued searches for %s.' % (dropped, ComicName))
         if delete_dir: #mylar.CONFIG.DELETE_REMOVE_DIR:
             logger.fdebug('Remove directory on series removal enabled.')
-            if seriesdir is not None:
+            if keep:
+                logger.warn('Kept the folder %s: %s.' % (seriesdir, keep))
+            elif seriesdir is not None:
                 if os.path.exists(seriesdir):
                     logger.fdebug('Attempting to remove the directory and contents of : ' + seriesdir)
                     try:

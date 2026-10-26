@@ -10938,6 +10938,7 @@ class WebInterface(object):
                 logger.warn('[CV-REMOVAL-DETECTION] Unable to locate comicid in db - this series does not exist currently..')
                 return json.dumps({'status': 'failure', 'message': 'Series has already been removed from the watchlist'})
 
+            keep = helpers.folder_in_use(seriesdir, comicid) if delete_dir else None
             myDB.action("DELETE FROM comics WHERE ComicID=?", [comicid])
             myDB.action("DELETE FROM issues WHERE ComicID=?", [comicid])
             if mylar.CONFIG.ANNUALS_ON:
@@ -10949,7 +10950,10 @@ class WebInterface(object):
             warnings = 0
             if delete_dir:
                 logger.fdebug('Remove directory on series removal enabled.')
-                if seriesdir is not None:
+                if keep:
+                    logger.warn('[CV-REMOVAL-DETECTION] Kept the folder %s: %s.' % (seriesdir, keep))
+                    warnings += 1
+                elif seriesdir is not None:
                     if os.path.exists(seriesdir):
                         logger.fdebug('Attempting to remove the directory and contents of : %s' % seriesdir)
                         try:
