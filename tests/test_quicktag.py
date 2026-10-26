@@ -135,3 +135,10 @@ def test_append_puts_the_file_back_when_it_fails(monkeypatch, tmp_path):
     assert not quicktag.append(path, b'<ComicInfo/>')
     monkeypatch.setattr(zipfile.ZipFile, 'writestr', real)
     assert open(path, 'rb').read() == original
+
+
+def test_append_never_adds_a_second_comicinfo(tmp_path):
+    path = cbz(tmp_path / 'tagged.cbz', tagged=True)
+    original = open(path, 'rb').read()
+    assert not quicktag.append(path, b'<ComicInfo/>')
+    assert open(path, 'rb').read() == original

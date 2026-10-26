@@ -99,6 +99,8 @@ def append(path, data):
         logger.warn('[TAGS] Unable to add ComicInfo to %s: %s' % (os.path.basename(path), e))
         return False
     with z:
+        if any(comicinfo._is_comicinfo(n) for n in z.namelist()):
+            return False    # only for files with none: replacing one is comicinfo.write's job
         start = z.start_dir
         names = len(z.namelist())
         entries = {i.filename: (i.header_offset, i.CRC, i.compress_size) for i in z.infolist()}
