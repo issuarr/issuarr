@@ -1665,3 +1665,6 @@ a.issue-name:hover { text-decoration: underline; text-underline-offset: 3px; }
 .sr-error { color: var(--failed-text); }
 @keyframes search-wait-spin { to { transform: rotate(360deg); } }
 @media (prefers-reduced-motion: reduce) { .search-wait-spin, .sr-wait-spin { animation-duration: 2.4s; } }
+
+/* Library > Unmatched folder page */
+.unmatched .um-file { overflow-wrap: anywhere; }
