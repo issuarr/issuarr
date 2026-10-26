@@ -32,11 +32,13 @@
 
   function row(f, n) {
     var where = f.series ? '<a href="comicDetails?ComicID=' + encodeURIComponent(f.comicid) + '">' + esc(f.series) + (f.year ? ' (' + esc(f.year) + ')' : '') + '</a>' + (f.number ? ' #' + esc(f.number) : '') : '';
+    var fix = f.unwrap || f.repack;
     var acts = (f.unwrap ? '<button type="button" class="btn btn-sm btn-primary" data-act="unwrap" data-n="' + n + '">Unwrap</button>' : '') +
-      (f.issueid ? '<button type="button" class="btn btn-sm' + (f.unwrap ? '' : ' btn-primary') + '" data-act="redownload" data-n="' + n + '" title="Move it to the trash and mark the issue Wanted">Download again</button>' : '') +
+      (f.repack ? '<button type="button" class="btn btn-sm btn-primary" data-act="repack" data-n="' + n + '" title="Make it a .cbz with the same pages; the original goes to the trash">Repack to .cbz</button>' : '') +
+      (f.issueid && !f.repack ? '<button type="button" class="btn btn-sm' + (fix ? '' : ' btn-primary') + '" data-act="redownload" data-n="' + n + '" title="Move it to the trash and mark the issue Wanted">Download again</button>' : '') +
       '<button type="button" class="btn btn-sm btn-ghost" data-act="remove" data-n="' + n + '" title="Move it to the trash">Remove</button>';
-    return '<li class="lc-file"><div class="lc-main"><span class="status ' + (f.status === 'nested' ? 'is-snatched' : 'is-failed') + '">' +
-      (f.status === 'nested' ? 'Wrapped' : 'Damaged') + '</span> <span class="mono">' + esc(f.name) + '</span>' +
+    var label = { nested: ['is-snatched', 'Wrapped'], repack: ['is-snatched', 'Solid RAR'] }[f.status] || ['is-failed', 'Damaged'];
+    return '<li class="lc-file"><div class="lc-main"><span class="status ' + label[0] + '">' + label[1] + '</span> <span class="mono">' + esc(f.name) + '</span>' +
       '<small class="muted">' + (where ? where + ' · ' : '') + esc(f.detail) + '</small></div>' +
       '<div class="lc-acts">' + acts + '</div></li>';
   }

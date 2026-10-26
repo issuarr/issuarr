@@ -5219,7 +5219,8 @@ class WebInterface(object):
 
     def library_check_act(self, path, action):
         self._attention_post()
-        acts = {'unwrap': library_check.unwrap, 'redownload': library_check.redownload, 'remove': library_check.remove}
+        acts = {'unwrap': library_check.unwrap, 'repack': library_check.repack, 'redownload': library_check.redownload,
+                'remove': library_check.remove}
         if action not in acts:
             raise cherrypy.HTTPError(400)
         return self._attention_json(acts[action](path))
