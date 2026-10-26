@@ -7242,6 +7242,10 @@ class WebInterface(object):
                 return False
             #set the global importlock here so that nothing runs and tries to refresh things simultaneously...
             mylar.IMPORTLOCK = True
+            # nothing was running, so anything still 'Importing' was cut off (a restart or a crash mid-series)
+            stale = db.DBConnection().action("UPDATE importresults SET Status='Not Imported' WHERE Status='Importing'")
+            if stale is not None and stale.rowcount:
+                logger.info('[IMPORT] Reset %s file(s) left mid-import back to Not Imported.' % stale.rowcount)
             importstatus.start('import', 'Importing %s series' % len(comiclist))
             importstatus.update(series_total=len(comiclist))
         if action is not None:
@@ -7365,13 +7369,15 @@ class WebInterface(object):
                     logger.error(traceback.format_exc())
                     status = 'error'
                 self._import_tally(status)
-                if status == 'error':
-                    #put it back so it can be retried on the next (resumed) import rather than sitting in 'Importing'
-                    if cl['Volume'] is None or cl['Volume'] == 'None':
-                        myDB.action("UPDATE importresults SET Status='Not Imported' WHERE DynamicName=? AND Volume IS NULL AND Status='Importing'", [cl['DynamicName']])
-                    else:
-                        myDB.action("UPDATE importresults SET Status='Not Imported' WHERE DynamicName=? AND Volume=? AND Status='Importing'", [cl['DynamicName'], cl['Volume']])
-                elif status == 'abort':
+                # Files still 'Importing' now weren't imported (the add failed, or a file couldn't be moved):
+                # put them back so they can be retried rather than sitting in 'Importing'
+                if cl['Volume'] is None or cl['Volume'] == 'None':
+                    left = myDB.action("UPDATE importresults SET Status='Not Imported' WHERE DynamicName=? AND Volume IS NULL AND Status='Importing'", [cl['DynamicName']])
+                else:
+                    left = myDB.action("UPDATE importresults SET Status='Not Imported' WHERE DynamicName=? AND Volume=? AND Status='Importing'", [cl['DynamicName'], cl['Volume']])
+                if left is not None and left.rowcount and status != 'error':
+                    logger.warn('[IMPORT] %s: %s file(s) weren\'t imported and are back under Not imported. The log above says why.' % (cl['ComicName'], left.rowcount))
+                if status == 'abort':
                     outcome = 'error'
                     break
         except Exception as e:
