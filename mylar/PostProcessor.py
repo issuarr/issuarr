@@ -3734,63 +3734,11 @@ class PostProcessor(object):
                 prline = '%s %s' % (series, issuenumOG)
             else:
                 prline = '%s' % (series)
-        prline2 = 'Issuarr has downloaded and post-processed: ' + prline
-
-        try:
-            if mylar.CONFIG.PROWL_ENABLED:
-                pushmessage = prline
-                prowl = notifiers.PROWL()
-                prowl.notify(pushmessage, "Download and Postprocessing completed", module=module)
-
-            if mylar.CONFIG.PUSHOVER_ENABLED:
-                pushover = notifiers.PUSHOVER()
-                pushover.notify(prline, prline2, module=module, imageFile=imageFile)
-
-            if mylar.CONFIG.BOXCAR_ENABLED:
-                boxcar = notifiers.BOXCAR()
-                boxcar.notify(prline=prline, prline2=prline2, module=module)
-
-            if mylar.CONFIG.PUSHBULLET_ENABLED:
-                pushbullet = notifiers.PUSHBULLET()
-                pushbullet.notify(prline=prline, prline2=prline2, module=module)
-
-            if mylar.CONFIG.TELEGRAM_ENABLED:
-                telegram = notifiers.TELEGRAM()
-                telegram.notify(prline2, imageFile)
-
-            if mylar.CONFIG.SLACK_ENABLED:
-                slack = notifiers.SLACK()
-                slack.notify("Download and Postprocessing completed", prline2, module=module)
-
-            if mylar.CONFIG.MATTERMOST_ENABLED:
-                mattermost = notifiers.MATTERMOST()
-                metadata = { 'series':series, 'issue': issuenumOG, 'year': issueyear }
-                mattermost.notify("Downloading and Postprocessing completed", prline2, metadata=metadata, imageFile=imageFile, module=module)
-
-            if mylar.CONFIG.DISCORD_ENABLED:
-                discord = notifiers.DISCORD()
-                discord.notify("Download and Postprocessing completed", prline2, module=module, imageFile=imageFile)
-
-            if mylar.CONFIG.EMAIL_ENABLED and mylar.CONFIG.EMAIL_ONPOST:
-                logger.info("Sending email notification")
-                email = notifiers.EMAIL()
-                email.notify(prline2, "Issuarr notification - Processed", module=module)
-
-            if mylar.CONFIG.GOTIFY_ENABLED:
-                gotify = notifiers.GOTIFY()
-                metadata = { 'series':series, 'issue': issuenumOG, 'year': issueyear, 'issueid': issueid }
-                gotify.notify("Download and Postprocessing completed", prline2, module=module, imageFile=imageFile, metadata=metadata)
-
-            if mylar.CONFIG.NTFY_ENABLED:
-                metadata = { 'series':series, 'issue': issuenumOG, 'year': issueyear, 'issueid': issueid }
-                notifiers.NTFY().notify("Download and Postprocessing completed", prline2, module=module, imageFile=imageFile, metadata=metadata)
-
-            if mylar.CONFIG.WEBHOOK_ENABLED:
-                metadata = { 'series':series, 'issue': issuenumOG, 'year': issueyear, 'issueid': issueid }
-                notifiers.WEBHOOK().notify("Download and Postprocessing completed", prline2, module=module, metadata=metadata, event='downloaded')
-        except Exception as e:
-            logger.warn('[NOTIFICATION] Unable to send notification: %s' % e)
-
+        if not mylar.CONFIG.NOTIFY_ON_DOWNLOAD:
+            return
+        metadata = {'series': series, 'issue': issuenumOG, 'year': issueyear, 'issueid': issueid}
+        notifiers.send_all("Download and Postprocessing completed", prline, 'Issuarr has downloaded and post-processed: ' + prline,
+                           event='downloaded', metadata=metadata, imageFile=imageFile, module=module)
         return
 
 class FolderCheck():

@@ -818,6 +818,8 @@
 
         <section class="set-group" aria-labelledby="sg-notify">
             <div class="set-group-head"><h2 id="sg-notify">Notifications</h2><p>Turn on a service to set it up.</p></div>
+            ${toggle('notify_on_download', 'Notify when an issue is downloaded and filed', config['notify_on_download'])}
+            ${toggle('notify_on_added', 'Notify when files are added by hand', config['notify_on_added'], help='Files matched by hand on Needs attention, imported, or found in a series folder by a recheck. A recheck sends one message per series.')}
 
             <%self:notifier key="discord" label="Discord" logo="discord.png" name="discord_enabled" checked="${config['discord_enabled']}">
                 ${field('discord_webhook_url', 'Webhook URL', config['discord_webhook_url'], id='discord_webhook_url', attrs='class="set-wide"')}

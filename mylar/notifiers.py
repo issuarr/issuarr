@@ -566,7 +566,7 @@ class DISCORD:
             self.webhook_url = test_webhook_url
             self.test = True
 
-    def notify(self, text, attachment_text, snatched_nzb=None, prov=None, sent_to=None, module=None, imageFile=None):
+    def notify(self, text, attachment_text, snatched_nzb=None, prov=None, sent_to=None, module=None, imageFile=None, metadata=None, event=None):
         if module is None:
             module = ''
         module += '[NOTIFIER]'
@@ -660,68 +660,40 @@ class DISCORD:
                             "timestamp": timestamp
                         }
                     ]
-            # If snatched or error is not in the message, it's a download and post-process
+            # If snatched or error is not in the message, it's a filed issue or files added by hand
             else:
-                logger.info('attachment_text:%s' % (attachment_text,))
-                # extract series and issue number
-                series_num = attachment_text[41:]
-                series_num_split = series_num.split()
-                issue = series_num_split[len(series_num_split) - 1]
-                series_num_split.pop()
-                series = ' '.join(map(str, series_num_split))
-
-                # If there's an image file, put it in
-                if imageFile is not None:
-                    payload["content"] = attachment_text
-                    payload["embeds"] = [
-                            {
-                                "author": {
-                                    "name": "Downloaded by Issuarr"
-                                },
-                                "description": "Issue downloaded!",
-                                "color": 32768,
-                                "fields": [
-                                    {
-                                        "name": "Series",
-                                        "value": series,
-                                        "inline": "true"
-                                    },
-                                    {
-                                        "name": "Issue",
-                                        "value": issue,
-                                        "inline": "true"
-                                    },
-                                ],
-                                "image": {
-                                    "url": "attachment://image.jpg",
-                                },
-                                "timestamp": timestamp
-                            }
-                        ]
+                if metadata and metadata.get('series'):
+                    series = metadata['series'] if not metadata.get('year') else '%s (%s)' % (metadata['series'], metadata['year'])
+                    issue = metadata.get('issue') or chr(173)
                 else:
-                    payload["content"] = attachment_text
-                    payload["embeds"] = [
+                    series_num_split = attachment_text.split(': ', 1)[-1].split()
+                    issue = series_num_split.pop() if series_num_split else chr(173)
+                    series = ' '.join(series_num_split) or chr(173)
+                added = event == 'added'
+                embed = {
+                        "author": {
+                            "name": "Added to Issuarr" if added else "Downloaded by Issuarr"
+                        },
+                        "description": "Files added!" if added else "Issue downloaded!",
+                        "color": 10181046 if added else 32768,
+                        "fields": [
                             {
-                                "author": {
-                                    "name": "Downloaded by Issuarr"
-                                },
-                                "description": "Issue downloaded!",
-                                "color": 32768,
-                                "fields": [
-                                    {
-                                        "name": "Series",
-                                        "value": series,
-                                        "inline": "true"
-                                    },
-                                    {
-                                        "name": "Issue",
-                                        "value": issue,
-                                        "inline": "true"
-                                    },
-                                ],
-                                "timestamp": timestamp
-                            }
-                        ]
+                                "name": "Series",
+                                "value": series,
+                                "inline": "true"
+                            },
+                            {
+                                "name": "Issues" if added else "Issue",
+                                "value": issue,
+                                "inline": "true"
+                            },
+                        ],
+                        "timestamp": timestamp
+                    }
+                if imageFile is not None:
+                    embed["image"] = {"url": "attachment://image.jpg"}
+                payload["content"] = attachment_text
+                payload["embeds"] = [embed]
 
         if imageFile is not None:
             files = {
@@ -913,3 +885,66 @@ class WEBHOOK:
 
     def test_notify(self):
         return self.notify('Test Message', 'Release the Ninjas!', event='test')
+
+
+def send_all(headline, prline, message, event='downloaded', metadata=None, imageFile=None, module=None):
+    """Send one message to every service that is on. event is 'downloaded' (an issue was filed)
+    or 'added' (files turned up outside a download: matched by hand, imported or found by a recheck)."""
+    metadata = metadata or {}
+    try:
+        if mylar.CONFIG.PROWL_ENABLED:
+            PROWL().notify(prline, headline, module=module)
+
+        if mylar.CONFIG.PUSHOVER_ENABLED:
+            PUSHOVER().notify(prline, message, module=module, imageFile=imageFile)
+
+        if mylar.CONFIG.BOXCAR_ENABLED:
+            BOXCAR().notify(prline=prline, prline2=message, module=module)
+
+        if mylar.CONFIG.PUSHBULLET_ENABLED:
+            PUSHBULLET().notify(prline=prline, prline2=message, module=module)
+
+        if mylar.CONFIG.TELEGRAM_ENABLED:
+            TELEGRAM().notify(message, imageFile)
+
+        if mylar.CONFIG.SLACK_ENABLED:
+            SLACK().notify(headline, message, module=module)
+
+        if mylar.CONFIG.MATTERMOST_ENABLED:
+            MATTERMOST().notify(headline, message, metadata=metadata, imageFile=imageFile, module=module)
+
+        if mylar.CONFIG.DISCORD_ENABLED:
+            DISCORD().notify(headline, message, module=module, imageFile=imageFile, metadata=metadata, event=event)
+
+        if mylar.CONFIG.EMAIL_ENABLED and mylar.CONFIG.EMAIL_ONPOST:
+            logger.info("Sending email notification")
+            EMAIL().notify(message, "Issuarr notification - %s" % ('Added' if event == 'added' else 'Processed'), module=module)
+
+        if mylar.CONFIG.GOTIFY_ENABLED:
+            GOTIFY().notify(headline, message, module=module, imageFile=imageFile, metadata=metadata)
+
+        if mylar.CONFIG.NTFY_ENABLED:
+            NTFY().notify(headline, message, module=module, imageFile=imageFile, metadata=metadata)
+
+        if mylar.CONFIG.WEBHOOK_ENABLED:
+            WEBHOOK().notify(headline, message, module=module, metadata=metadata, event=event)
+    except Exception as e:
+        logger.warn('[NOTIFICATION] Unable to send notification: %s' % e)
+
+
+def added_line(series, year, numbers, most=10):
+    """'Saga (2018) #54, #55 and 3 more': the series and the issue numbers that were added."""
+    issues = ', '.join('#%s' % n for n in numbers[:most])
+    if len(numbers) > most:
+        issues += ' and %s more' % (len(numbers) - most)
+    return ('%s (%s) %s' % (series, year, issues) if year else '%s %s' % (series, issues)), issues
+
+
+def files_added(series, year, numbers, issueid=None, module=None):
+    """Files turned up for issues of a series outside a download. Sent only when the
+    'Files added by hand' notification is on."""
+    if not mylar.CONFIG.NOTIFY_ON_ADDED or not numbers:
+        return
+    prline, issues = added_line(series, year, numbers)
+    send_all('Files added', prline, 'Added to Issuarr: ' + prline, event='added',
+             metadata={'series': series, 'issue': issues, 'year': year, 'issueid': issueid}, module=module)

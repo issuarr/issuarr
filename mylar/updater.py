@@ -24,7 +24,7 @@ import sys
 import calendar
 
 import mylar
-from mylar import db, logger, helpers, filechecker, matching, editions, want_from
+from mylar import db, logger, helpers, filechecker, matching, editions, want_from, notifiers
 
 def addvialist(queue):
     while True:
@@ -1137,6 +1137,19 @@ NOTHAVE_SQL = ("UPDATE %s SET Location=CASE WHEN ?1='Skipped' THEN NULL ELSE Loc
                "ComicSize=CASE WHEN ?1='Skipped' THEN NULL ELSE ComicSize END, Status=?1 WHERE IssueID=?2")
 
 
+def newly_owned(myDB, d_issues, d_annuals):
+    """Issue numbers a recheck is about to mark Downloaded that weren't owned or on their way before:
+    files added to the series folder outside a download."""
+    numbers = []
+    for table, rows in (('issues', d_issues), ('annuals', d_annuals)):
+        ids = [str(r[3]) for r in rows]
+        for chunk in helpers.chunker(ids, 200):
+            found = myDB.select('SELECT Issue_Number, Status, Int_IssueNumber FROM %s WHERE IssueID IN (%s)' % (table, ','.join('?' * len(chunk))), chunk)
+            numbers += [(r['Int_IssueNumber'] or 0, r['Issue_Number']) for r in found or []
+                        if r['Status'] not in ('Downloaded', 'Archived', 'Snatched')]
+    return [n for _, n in sorted(numbers, key=lambda x: x[0])]
+
+
 def forceRescan(ComicID, archive=None, module=None, recheck=False):
     if module is None:
         module = ''
@@ -1760,6 +1773,7 @@ def forceRescan(ComicID, archive=None, module=None, recheck=False):
             d_issues.append((issStatus, tagged['size'], tagged['name'], tagged['issueid']))
             issID_to_ignore.append(tagged['issueid'])
 
+    added = [] if archive or recheck else newly_owned(myDB, d_issues, d_annuals)   # recheck: post-processing already says so
     b_start = datetime.datetime.now()
     try:
         myDB.action("UPDATE issues SET Status=?, ComicSize=?, Location=? WHERE IssueID=?", d_issues, executemany=True)
@@ -1768,6 +1782,8 @@ def forceRescan(ComicID, archive=None, module=None, recheck=False):
     except Exception as e:
         logger.warn('Error updating: %s' % e)
     logger.fdebug('[haves] issue_status_writing took %s' % (datetime.datetime.now() - b_start))
+    if added:
+        notifiers.files_added(rescan['ComicName'], rescan['ComicYear'], added, issueid=None, module=module)
 
     #if this far, forced_file is true and the file didn't parse properly due to w/e reason, we need to force the filename to link to the given issueid.
     reforce = myDB.select('SELECT * FROM issues WHERE ComicID=? AND forced_file = 1', [ComicID])

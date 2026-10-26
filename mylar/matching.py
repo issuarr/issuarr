@@ -231,7 +231,7 @@ def match(comicid, issueid, name):
     if comic is None:
         return {'ok': False, 'note': 'That series isn\'t on your watchlist.'}
     myDB = db.DBConnection()
-    issue = myDB.selectone('SELECT IssueID, Issue_Number FROM issues WHERE IssueID=? AND ComicID=?', [issueid, comicid]).fetchone()
+    issue = myDB.selectone('SELECT IssueID, Issue_Number, Status FROM issues WHERE IssueID=? AND ComicID=?', [issueid, comicid]).fetchone()
     if issue is None:
         return {'ok': False, 'note': 'That issue isn\'t part of this series.'}
     f = next((f for f in walk(series_dirs(comic)) if f['name'] == name), None)
@@ -242,6 +242,9 @@ def match(comicid, issueid, name):
                 [name, str(f['size']), issueid])
     logger.info('[MATCHING] %s is now #%s of %s, matched by hand.' % (name, issue['Issue_Number'], comic['ComicName']))
     _rescan(comicid)
+    if issue['Status'] not in ('Downloaded', 'Archived'):
+        from mylar import notifiers
+        notifiers.files_added(comic['ComicName'], comic['ComicYear'], [issue['Issue_Number']], issueid=issueid, module='[MATCHING]')
     return {'ok': True, 'note': '%s is now #%s.' % (name, issue['Issue_Number'])}
 
 
