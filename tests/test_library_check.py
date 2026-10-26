@@ -66,8 +66,8 @@ def lib(tmp_path, monkeypatch):
     return db, folder, rescans
 
 
-def run_scan():
-    assert library_check.scan()
+def run_scan(comicid=None):
+    assert library_check.scan(comicid)
     for _ in range(100):
         if library_check.STATE['state'] == 'done':
             return
@@ -182,3 +182,19 @@ def test_files_webp_read_through_arent_opened_again(lib, monkeypatch):
     found = {f['name']: (f['status'], f['detail']) for f in st['files']}
     assert found['Saga 003.cbz'] == ('damaged', 'Found while converting to WebP: not a cbz.')
     assert 'Saga 001.cbz' not in found
+
+
+def test_a_series_check_reads_its_files_again_and_leaves_the_rest(lib, tmp_path):
+    db, folder, _ = lib
+    other = tmp_path / 'Other (2020)'
+    other.mkdir()
+    (other / 'Other 001.cbz').write_bytes(cbz_bytes(1))
+    db.c.execute("INSERT INTO comics VALUES ('2', 'Other', '2020', ?, 'other')", [str(other)])
+    run_scan()
+    assert library_check.STATE['opened'] == 5
+    run_scan('1')
+    assert library_check.STATE['done'] == 4 and library_check.STATE['opened'] == 4   # remembered, but read again
+    st = library_check.status('1')
+    assert sorted(f['name'] for f in st['files']) == ['Saga 002.cbz', 'Saga 003.cbz', 'Saga 004.cbz']
+    assert [f['name'] for f in library_check.status('2')['files']] == ['Other 001.cbz']   # kept, not dropped
+    assert len(library_check.status()['files']) == 4
