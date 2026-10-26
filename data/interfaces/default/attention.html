@@ -156,7 +156,7 @@
         function picker(i) {
             return '<div class="att-picker" data-picker>' +
                 '<label class="field"><span>Series on your watchlist, or a ComicVine link</span>' +
-                '<input type="search" data-q value="' + esc(i.parsed.series || '') + '" autocomplete="off" /></label>' +
+                '<input type="search" data-q value="' + esc(i.parsed.search || i.parsed.series || '') + '" autocomplete="off" /></label>' +
                 '<ul class="att-series" data-series></ul>' +
                 '<p class="att-cv-ask muted">Not on your watchlist? <button type="button" class="link-btn" data-cv>Search ComicVine</button></p>' +
                 '<p class="att-cv-note muted" data-cv-note aria-live="polite" hidden></p>' +
@@ -170,14 +170,14 @@
            here. Adding runs in the background, so it's tracked by file and outlives redraws. */
         var adding = {};   // file path -> {comicid, name, timer, tries}
 
-        function cvSearch(pk, text) {
+        function cvSearch(pk, text, year) {
             var note = pk.querySelector('[data-cv-note]'), ul = pk.querySelector('[data-cv-list]');
             text = (text || '').trim();
             if (!text) { note.hidden = false; note.textContent = 'Type a series name above first.'; return; }
             note.hidden = false;
             note.textContent = 'Searching ComicVine for ' + text + '…';
             ul.hidden = true;
-            fetch('attention_find?' + q({ q: text }), { credentials: 'same-origin' })
+            fetch('attention_find?' + q({ q: text, year: year || '' }), { credentials: 'same-origin' })
                 .then(function (r) { if (!r.ok) throw new Error(r.status); return r.json(); })
                 .then(function (d) {
                     if (d.link) wantIssue(pk, d.link);
@@ -187,7 +187,7 @@
                     ul.hidden = !d.series.length;
                     ul.innerHTML = d.series.map(function (s) {
                         var label = esc(s.name) + ' (' + esc(s.year) + ')' + (s.volume ? ' ' + esc(s.volume) : '');
-                        var meta = [s.publisher, s.issues != null ? s.issues + ' issues' : ''].filter(Boolean).map(esc).join(' · ');
+                        var meta = [s.alias ? 'also called ' + s.alias : '', s.publisher, s.issues != null ? s.issues + ' issues' : ''].filter(Boolean).map(esc).join(' · ');
                         return '<li class="att-cv-row"><span>' + label + (meta ? ' <span class="faint">' + meta + '</span>' : '') + '</span>' +
                                '<button type="button" class="btn btn-sm" data-cv-add="' + esc(s.comicid) + '" data-name="' + esc(s.name) + '" data-year="' + esc(s.year) + '">' +
                                (s.watched ? 'Use it' : 'Add and pick an issue') + '</button></li>';
@@ -650,7 +650,7 @@
             if (e.target.closest('[data-trash]')) return act('attention_trash', i, null, 'Moving it to the trash');
             if (e.target.closest('[data-ignore]')) return act('attention_ignore', i, null, 'Hiding it');
             if ((b = e.target.closest('[data-series-id]'))) return chooseSeries(b.closest('[data-picker]'), b.getAttribute('data-series-id'), b);
-            if (e.target.closest('[data-cv]')) { var cp = e.target.closest('[data-picker]'); return cvSearch(cp, cp.querySelector('[data-q]').value); }
+            if (e.target.closest('[data-cv]')) { var cp = e.target.closest('[data-picker]'); return cvSearch(cp, cp.querySelector('[data-q]').value, i.parsed && i.parsed.year); }
             if ((b = e.target.closest('[data-cv-add]'))) return cvAdd(i, b);
             if ((b = e.target.closest('[data-file-picked]'))) return fileAs(i, b.closest('[data-picker]').querySelector('[data-issue]').value);
         });

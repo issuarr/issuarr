@@ -4806,8 +4806,8 @@ class WebInterface(object):
         return self._attention_json(cvlink.resolve(q) or {'kind': None})
     cv_link.exposed = True
 
-    def attention_find(self, q=''):
-        return self._attention_json(attention.find_series(q))
+    def attention_find(self, q='', year=''):
+        return self._attention_json(attention.find_series(q, year=year or None))
     attention_find.exposed = True
 
     def attention_add_series(self, comicid, name=None, year=None):
