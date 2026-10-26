@@ -646,7 +646,14 @@ def _repack_rar_into(path, tmp, out):
             if i.is_symlink() or not _safe_name(i.filename):
                 return 'unsafe entry %s' % i.filename
         # unrar checks every entry's checksum as it extracts; allow it a minute per 50 MB
-        whole = _unrar_all(path, out, 600 + os.path.getsize(path) // 870000)
+        try:
+            whole = _unrar_all(path, out, 600 + os.path.getsize(path) // 870000)
+        except rarfile.RarCRCError as e:
+            # Old RARs can carry a block unrar faults on while every page is fine, so read
+            # the entries one by one, each checked against its own checksum.
+            logger.fdebug('[WEBP] %s: %s - reading its entries one at a time.' % (os.path.basename(path), e))
+            shutil.rmtree(out, ignore_errors=True)
+            whole = False
         sums = {}
         with zipfile.ZipFile(tmp, 'w', allowZip64=True) as zo:
             if rf.comment:
