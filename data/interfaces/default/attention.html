@@ -310,7 +310,7 @@
                 if (kept.focus && kept.focus.isConnected) kept.focus.focus({ preventScroll: true });
                 return;
             }
-            search(pk, pk.querySelector('[data-q]').value);
+            search(pk, pk.querySelector('[data-q]').value, true);
             showAdding(open);
         }
 
@@ -405,7 +405,13 @@
             pk.setAttribute('data-want-number', link && link.number || '');
         }
 
-        function search(pk, text) {
+        /* A file no watchlist series' name agrees with: its series likely isn't on the watchlist
+           yet, so the picker asks ComicVine straight away (once, when it opens). */
+        function noCloseMatch(i) {
+            return !(i.matches || []).some(function (m) { return m.agree && m.agree.series; });
+        }
+
+        function search(pk, text, opening) {
             fetch('attention_search?' + q({ q: text }), { credentials: 'same-origin' }).then(function (r) { return r.json(); }).then(function (d) {
                 var ul = pk.querySelector('[data-series]');
                 wantIssue(pk, d.link);
@@ -413,6 +419,8 @@
                     return '<li><button type="button" class="link-btn" data-series-id="' + esc(s.comicid) + '">' + esc(s.name) + ' (' + esc(s.year) + ')' +
                            (s.volume ? ' ' + esc(s.volume) : '') + '</button></li>';
                 }).join('') : d.link ? '<li class="muted">That series isn\'t on your watchlist yet.</li>' : '<li class="muted">No series on your watchlist by that name.</li>';
+                var i = itemOf(pk);
+                if (opening && !d.link && text.trim() && i && noCloseMatch(i) && !adding[i.path]) cvSearch(pk, text, i.parsed && i.parsed.year);
                 if (!d.link) return;
                 // a ComicVine link: go straight to its series, or look it up on ComicVine when it isn't on the watchlist
                 if (d.series.length) chooseSeries(pk, d.series[0].comicid, ul.querySelector('[data-series-id]'));
