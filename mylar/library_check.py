@@ -39,7 +39,8 @@ from lib.rarfile import rarfile
 import mylar
 from mylar import db, logger
 
-STATE = {'state': 'idle', 'done': 0, 'total': 0, 'opened': 0, 'trusted': 0, 'finished': None, 'stop': False, 'error': None}
+STATE = {'state': 'idle', 'done': 0, 'total': 0, 'opened': 0, 'trusted': 0, 'finished': None, 'stop': False, 'error': None,
+         'comicid': None}
 _LOCK = threading.Lock()
 
 IMAGE_EXT = ('.jpg', '.jpeg', '.png', '.webp', '.gif', '.bmp', '.avif', '.jxl')
@@ -107,12 +108,15 @@ def _stat(path):
     return st.st_size, st.st_mtime
 
 
-def scan():
+def scan(comicid=None):
+    """Check the library, or with comicid just that series. A series check reads every one of
+    its files again, whatever was remembered, since it's asked for when something looks wrong."""
     with _LOCK:
         if STATE['state'] == 'running':
             return False
-        STATE.update(state='running', done=0, total=0, opened=0, trusted=0, finished=None, stop=False, error=None)
-    threading.Thread(target=_scan, name='LIBRARY-CHECK', daemon=True).start()
+        STATE.update(state='running', done=0, total=0, opened=0, trusted=0, finished=None, stop=False, error=None,
+                     comicid=comicid)
+    threading.Thread(target=_scan, args=(comicid,), name='LIBRARY-CHECK', daemon=True).start()
     return True
 
 
@@ -141,14 +145,18 @@ def _webp_reads(myDB):
     return out
 
 
-def _scan():
+def _scan(comicid=None):
     from mylar import matching
     try:
         myDB = db.DBConnection()
         ensure(myDB)
-        known = {r['path']: r for r in myDB.select('SELECT path, size, mtime FROM library_check')}
-        webp_read = _webp_reads(myDB)
-        comics = myDB.select('SELECT * FROM comics WHERE ComicLocation IS NOT NULL ORDER BY ComicSortName')
+        if comicid:
+            known, webp_read = {}, {}
+            comics = myDB.select('SELECT * FROM comics WHERE ComicID=? AND ComicLocation IS NOT NULL', [comicid])
+        else:
+            known = {r['path']: r for r in myDB.select('SELECT path, size, mtime FROM library_check')}
+            webp_read = _webp_reads(myDB)
+            comics = myDB.select('SELECT * FROM comics WHERE ComicLocation IS NOT NULL ORDER BY ComicSortName')
         work = []
         for c in comics:
             linked = {r['Location']: r['IssueID'] for r in myDB.select(
@@ -184,7 +192,7 @@ def _scan():
             myDB.upsert('library_check', {'size': size, 'mtime': mtime, 'status': status, 'detail': detail, 'inner': inner,
                                           'comicid': comicid, 'issueid': issueid,
                                           'checked': datetime.datetime.now().strftime('%Y-%m-%d %H:%M')}, {'path': path})
-        if not STATE['stop']:
+        if not STATE['stop'] and not comicid:
             for path in set(known) - seen:
                 myDB.action('DELETE FROM library_check WHERE path=?', [path])
         logger.info('[LIBRARY-CHECK] Checked %s files (%s opened, %s already read through by WebP).' % (
@@ -200,13 +208,15 @@ def stop():
     STATE['stop'] = True
 
 
-def status():
-    out = {k: STATE[k] for k in ('state', 'done', 'total', 'opened', 'trusted', 'finished', 'error')}
+def status(comicid=None):
+    """The check's progress and the files that need a look, or with comicid just that series' files."""
+    out = {k: STATE[k] for k in ('state', 'done', 'total', 'opened', 'trusted', 'finished', 'error', 'comicid')}
     myDB = db.DBConnection()
     ensure(myDB)
     rows = myDB.select("SELECT l.*, c.ComicName, c.ComicYear, i.Issue_Number FROM library_check l "
                        "LEFT JOIN comics c ON c.ComicID=l.comicid LEFT JOIN issues i ON i.IssueID=l.issueid "
-                       "WHERE l.status IN ('damaged', 'nested') ORDER BY c.ComicSortName, l.path")
+                       "WHERE l.status IN ('damaged', 'nested')" + (" AND l.comicid=?" if comicid else "") +
+                       " ORDER BY c.ComicSortName, l.path", [comicid] if comicid else [])
     out['files'] = [{'path': r['path'], 'name': os.path.basename(r['path']), 'status': r['status'], 'detail': r['detail'],
                      'comicid': r['comicid'], 'issueid': r['issueid'], 'series': r['ComicName'], 'year': r['ComicYear'],
                      'number': r['Issue_Number'], 'unwrap': r['status'] == 'nested' and bool(r['inner']),

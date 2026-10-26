@@ -5202,13 +5202,13 @@ class WebInterface(object):
         return serve_template(templatename="librarycheck.html", title="Library check", trash_days=attention.trash_days())
     libraryCheck.exposed = True
 
-    def library_check_status(self):
-        return self._attention_json(library_check.status())
+    def library_check_status(self, comicid=None):
+        return self._attention_json(library_check.status(comicid or None))
     library_check_status.exposed = True
 
-    def library_check_scan(self):
+    def library_check_scan(self, comicid=None):
         self._attention_post()
-        return self._attention_json({'ok': library_check.scan()})
+        return self._attention_json({'ok': library_check.scan(comicid or None)})
     library_check_scan.exposed = True
 
     def library_check_stop(self):
