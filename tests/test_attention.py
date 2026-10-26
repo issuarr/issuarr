@@ -509,7 +509,7 @@ def test_comicvine_search_asks_for_the_best_match_and_ranks_by_alias_and_year(en
     monkeypatch.setattr(mb, 'findComic', find)
     got = attention.find_series('X-Men Annual 1995 (1995)')
     # the "(1995)" is the year, not part of the name, and only ComicVine's best-match search is asked
-    assert asked == [{'name': 'X-Men Annual 1995', 'page': 1, 'pageSize': 10, 'relevance': True}]
+    assert asked == [{'name': 'X-Men Annual 1995', 'page': 1, 'pageSize': 20, 'relevance': True}]
     assert [(s['comicid'], s['alias']) for s in got['series']][0] == ('60462', 'X-Men Annual 1995')
 
 
