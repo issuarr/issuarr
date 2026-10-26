@@ -2,7 +2,12 @@
 
 Issuarr can tell you when it grabs an issue, when an issue is filed, and when tagging fails. Set this up in **Settings > Notifications & advanced > Notifications**. Turn on a service, fill in its fields, and press its **Test** button.
 
-The services are Discord, Email, Gotify, Mattermost, ntfy, Pushbullet, Pushover, Slack, Telegram, Prowl, Boxcar and a plain webhook. Each one has a **Notify when an issue is grabbed** switch. Filed issues and tagging errors are always sent once a service is on (Email has its own switch for filed issues).
+The services are Discord, Email, Gotify, Mattermost, ntfy, Pushbullet, Pushover, Slack, Telegram, Prowl, Boxcar and a plain webhook. Each one has a **Notify when an issue is grabbed** switch. Tagging errors are always sent once a service is on.
+
+Two switches at the top of the section pick the other messages, for every service at once (Email also needs its own switch for filed issues):
+
+- **Notify when an issue is downloaded and filed** (on by default): an issue was downloaded, or a folder was post-processed, and the file was filed in the library.
+- **Notify when files are added by hand** (off by default): a file was matched to an issue on **Needs attention**, a series was imported with its files, or a recheck found files you put in a series folder yourself. A recheck sends one message per series, such as `Added to Issuarr: Saga (2018) #54, #55`.
 
 ## ntfy
 
@@ -38,10 +43,10 @@ The webhook sends a JSON `POST` to any URL, for Home Assistant, n8n, Node-RED or
 
 | Field | Meaning |
 |---|---|
-| `event` | `snatched` (an issue or pack was sent to a downloader), `downloaded` (an issue was filed), `tag_error` (tagging failed) or `test` |
+| `event` | `snatched` (an issue or pack was sent to a downloader), `downloaded` (an issue was filed), `added` (files were added by hand), `tag_error` (tagging failed) or `test` |
 | `title`, `message` | The same text the other services show |
-| `series`, `issue`, `year` | The issue, when known. For a pack, `issue` is the range, such as `#1 - 60` |
-| `issue_id`, `comicvine_url` | The ComicVine issue, for `downloaded` only |
+| `series`, `issue`, `year` | The issue, when known. For a pack, `issue` is the range, such as `#1 - 60`. For `added`, it lists the issues, such as `#54, #55` |
+| `issue_id`, `comicvine_url` | The ComicVine issue, for `downloaded`, and for `added` when one file was matched by hand |
 | `release`, `provider`, `client` | For `snatched`: the release name, where it was found and what is downloading it |
 | `time` | When the message was sent, in UTC |
 

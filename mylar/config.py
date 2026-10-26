@@ -205,6 +205,9 @@ _CONFIG_DEFINITIONS = OrderedDict({
     'DUPLICATE_DUMP': (str, 'Duplicates', None),
     'DUPLICATE_DATED_FOLDERS': (bool, 'Duplicates', False),
 
+    'NOTIFY_ON_DOWNLOAD': (bool, 'Notifications', True),
+    'NOTIFY_ON_ADDED': (bool, 'Notifications', False),
+
     'PROWL_ENABLED': (bool, 'Prowl', False),
     'PROWL_PRIORITY': (int, 'Prowl', 0),
     'PROWL_KEYS': (str, 'Prowl', None),
