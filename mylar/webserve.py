@@ -1239,15 +1239,8 @@ class WebInterface(object):
         """
         db_results = myDB.select(queryline, [query])
         if not db_results:
-            try:
-                results = mb.findComic(query, None, issue=None)
-            except Exception as e:
-                logger.error('[%s] Unable to perform required search for : [name: %s]' % (e, query))
-                return json.dumps({
-                    'iTotalDisplayRecords': 0,
-                    'iTotalRecords': 0,
-                    'aaData': [],
-                })
+            # query is the saved search's id, not text to search ComicVine with
+            results = []
         else:
             results = []
             for rt in db_results:
@@ -1311,6 +1304,8 @@ class WebInterface(object):
         # --pullseries ...  search for comicname displaying a limited # of results based on issue
         # --want       ...  individual comics
         if smode is None: smode = 'series'
+        searchresults = None
+        error = None
         if len(name) == 0:
             raise cherrypy.HTTPRedirect("home")
         if search_type == 'comic' and smode == 'pullseries':
@@ -1322,7 +1317,7 @@ class WebInterface(object):
                 searchline = {'findComic': True, 'name': name, 'mode': smode, 'issue': issue, 'searchtype': 'comic'}
             except TypeError as e:
                 logger.error('[%s] Unable to perform required pull-list search for : [name: %s][issue: %s][mode:%s]' % (e, name, issue, smode))
-                return
+                error = 'search'
         elif search_type == 'comic' and smode == 'series':
             # a pasted ComicVine link (or a bare 4050-/4000- id) shows just its series; an issue link shows the issue's series
             link = cvlink.resolve(name)
@@ -1336,21 +1331,21 @@ class WebInterface(object):
                 searchline = {'findComic': True, 'name': name, 'mode': smode, 'issue': None, 'searchtype': 'comic'}
             except TypeError as e:
                 logger.error('[%s] Unable to perform required search for : [name: %s][mode:%s]' % (e, name, smode))
-                return
+                error = 'search'
         elif search_type == 'comic' and smode == 'want':
             try:
                 searchresults = mb.findComic(name, smode, issue)
                 searchline = {'findComic': True, 'name': name, 'mode': smode, 'issue': issue, 'search_type': 'want'}
             except TypeError as e:
-                logger.error('[%s] Unable to perform required one-off pull-list search for : [name: %s][issue: %s][mode: %s]' % (e, name, issue, mode))
-                return
+                logger.error('[%s] Unable to perform required one-off pull-list search for : [name: %s][issue: %s][mode: %s]' % (e, name, issue, smode))
+                error = 'search'
         elif search_type == 'story_arc':
             try:
                 searchresults = mb.findComic(name, mode=None, issue=None, search_type='story_arc')
                 searchline = {'findComic': True, 'name': name, 'mode': None, 'issue': issue, 'search_type': 'story_arc'}
             except TypeError as e:
                 logger.error('[%s] Unable to perform required story-arc search for : [arc: %s][mode: %s]' % (e, name, smode))
-                return
+                error = 'search'
 
         try:
             searchresults = sorted(searchresults, key=itemgetter('comicyear', 'issues'), reverse=True)
@@ -1360,7 +1355,9 @@ class WebInterface(object):
             logger.error('Unable to retrieve results from ComicVine: %s' % e)
             if mylar.CONFIG.COMICVINE_API is None:
                 logger.error('You NEED to set a ComicVine API key prior to adding anything. It\'s Free - Go get one!')
-                return
+                error = 'nokey'
+            elif error is None:
+                error = 'search'
         else:
             query_id = random.randint(1,999999)
             # write it to temporary db here - so we don't have to continually poll CV
@@ -1394,7 +1391,7 @@ class WebInterface(object):
                     vals['type'] =  x['type']
                 myDB.upsert("tmp_searches", vals, ctrlid)
 
-        return serve_template(templatename="searchresults.html", title='Search Results for: "' + name + '"', query_id=query_id, query=name, search_type=search_type)
+        return serve_template(templatename="searchresults.html", title='Search Results for: "' + name + '"', query_id=query_id, query=name, search_type=search_type, error=error)
         # searchresults=searchresults, search_type=search_type, imported=None, ogcname=None, name=name, serinfo=serinfo)
     searchit.exposed = True
 
@@ -5219,7 +5216,8 @@ class WebInterface(object):
 
     def library_check_act(self, path, action):
         self._attention_post()
-        acts = {'unwrap': library_check.unwrap, 'redownload': library_check.redownload, 'remove': library_check.remove}
+        acts = {'unwrap': library_check.unwrap, 'repack': library_check.repack, 'redownload': library_check.redownload,
+                'remove': library_check.remove}
         if action not in acts:
             raise cherrypy.HTTPError(400)
         return self._attention_json(acts[action](path))

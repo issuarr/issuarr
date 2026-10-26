@@ -886,6 +886,39 @@
     box.addEventListener('keydown', function (e) { if (e.key === 'Escape') { e.preventDefault(); close(); } });
   }
 
+  // A ComicVine search renders its page only once ComicVine answers, so cover the page meanwhile.
+  function setupSearchWait() {
+    var box = null;
+    function show(name) {
+      if (!box) {
+        box = el('div', 'search-wait');
+        box.setAttribute('role', 'status');
+        box.setAttribute('aria-live', 'polite');
+        box.appendChild(el('div', 'search-wait-spin'));
+        box.appendChild(el('p', 'search-wait-title'));
+        box.appendChild(el('p', 'search-wait-sub', 'Please wait. This can take a minute when ComicVine is busy.'));
+        doc.body.appendChild(box);
+      }
+      box.querySelector('.search-wait-title').textContent = name ? 'Searching ComicVine for \u201c' + name + '\u201d\u2026' : 'Searching ComicVine\u2026';
+      box.hidden = false;
+      var add = $id('add-series');
+      if (add) add.hidden = true;
+    }
+    doc.addEventListener('submit', function (e) {
+      var f = e.target;
+      if (e.defaultPrevented || !f.getAttribute || (f.getAttribute('action') || '') !== 'searchit') return;
+      if (f.checkValidity && !f.checkValidity()) return;
+      show(f.elements.name ? f.elements.name.value.trim() : '');
+    });
+    doc.addEventListener('click', function (e) {
+      var a = e.target.closest ? e.target.closest('a[href^="searchit?"]') : null;
+      if (!a || e.defaultPrevented || e.button !== 0 || e.ctrlKey || e.metaKey || e.shiftKey || e.altKey || a.target === '_blank') return;
+      show(new URL(a.href, location.href).searchParams.get('name') || '');
+    });
+    // Back from the results page can restore this page as it was, overlay included.
+    window.addEventListener('pageshow', function () { if (box) box.hidden = true; });
+  }
+
   // Once after an update: the changelog lines this install hasn't shown yet. Closing it marks them seen.
   function setupWhatsNew() {
     var box = $id('whats-new');
@@ -1007,6 +1040,7 @@
     setupDock();
     setupJump();
     setupAddSeries();
+    setupSearchWait();
     setupAppearance();
     setupWhatsNew();
     setupSecrets();
