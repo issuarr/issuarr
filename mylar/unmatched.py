@@ -332,3 +332,42 @@ def match_folder(folder, comicid):
     if left:
         note += ' %s still unmatched; match them one by one.' % left
     return {'ok': True, 'moved': len(moved), 'tied': n_tied, 'left': left, 'note': note}
+
+
+def series_others(comicid):
+    """Files in a series' folder that aren't its own issues: those another series in the same
+    folder counts as its own, and those no issue points to. For the series page."""
+    from mylar import attention, matching, volume_check
+    myDB = db.DBConnection()
+    comic = myDB.selectone('SELECT * FROM comics WHERE ComicID=?', [comicid]).fetchone()
+    if comic is None:
+        return {'ok': False, 'files': []}
+    dirs = [d for d in (_norm(x) for x in matching.series_dirs(comic)) if d]
+    own, others = set(), {}
+    for table in ('issues', 'annuals'):
+        for r in myDB.select("SELECT c.ComicID, c.ComicName, c.ComicYear, c.ComicLocation, i.Location, i.Issue_Number FROM %s i "
+                             "JOIN comics c ON c.ComicID = i.ComicID WHERE i.Location IS NOT NULL AND i.Location != '' "
+                             "AND (c.ComicID=? OR c.ComicLocation IN (%s))" % (table, ','.join('?' * len(dirs))), [comicid] + dirs):
+            if str(r['ComicID']) == str(comicid):
+                own.add(r['Location'])
+            else:
+                others[os.path.normpath(os.path.join(r['ComicLocation'], r['Location']))] = {
+                    'id': r['ComicID'], 'name': r['ComicName'], 'year': r['ComicYear'], 'number': r['Issue_Number']}
+    try:
+        flagged = {f['name']: f['note'] for f in volume_check.check(comicid).get('files', [])}
+    except Exception as e:
+        logger.fdebug('[UNMATCHED] No volume check for %s: %s' % (comicid, e))
+        flagged = {}
+    out = []
+    for f in matching.walk(dirs):
+        if f['name'] in own:
+            continue
+        path = os.path.normpath(f['path'])
+        row = {'name': f['name'], 'sub': f['sub'], 'size': f['size'], 'path': path, 'folder': os.path.dirname(path),
+               'series': others.get(path), 'note': flagged.get(f['name'])}
+        if row['series'] is None:
+            parsed = attention.parse(path)
+            row['reads_as'] = {'series': parsed.get('series'), 'issue': parsed.get('issue'), 'year': parsed.get('year')}
+        out.append(row)
+    out.sort(key=lambda r: (r['series'] is not None, (r['sub'] or '').lower(), r['name'].lower()))
+    return {'ok': True, 'files': out}
