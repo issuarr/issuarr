@@ -87,6 +87,50 @@ def build(row):
     return ('\n'.join(lines) + '\n').encode('utf-8')
 
 
+def append(path, data):
+    """Add ComicInfo.xml to a zip that has none, at its end, without rewriting the pages. Only the
+    zip's directory (a few KB at the end of the file) is rewritten, so a 15 MB comic takes
+    milliseconds instead of a full copy. The old directory is kept, and put back if anything
+    goes wrong, so the file is left as it was."""
+    try:
+        st = os.stat(path)
+        z = zipfile.ZipFile(path)
+    except (OSError, zipfile.BadZipFile) as e:
+        logger.warn('[TAGS] Unable to add ComicInfo to %s: %s' % (os.path.basename(path), e))
+        return False
+    with z:
+        if any(comicinfo._is_comicinfo(n) for n in z.namelist()):
+            return False    # only for files with none: replacing one is comicinfo.write's job
+        start = z.start_dir
+        names = len(z.namelist())
+        entries = {i.filename: (i.header_offset, i.CRC, i.compress_size) for i in z.infolist()}
+        when = max((i.date_time for i in z.infolist()), default=(1980, 1, 1, 0, 0, 0))
+    with open(path, 'rb') as f:
+        f.seek(start)
+        tail = f.read()
+    try:
+        with zipfile.ZipFile(path, 'a') as z:
+            zi = zipfile.ZipInfo('ComicInfo.xml', date_time=when)
+            zi.compress_type = zipfile.ZIP_DEFLATED
+            z.writestr(zi, data)
+        with zipfile.ZipFile(path) as z:
+            if len(z.namelist()) != names + 1 or z.read('ComicInfo.xml') != data:
+                raise ValueError('ComicInfo was not written')
+            if {i.filename: (i.header_offset, i.CRC, i.compress_size) for i in z.infolist() if i.filename in entries} != entries:
+                raise ValueError('the pages moved')
+        return True
+    except Exception as e:
+        logger.warn('[TAGS] Unable to add ComicInfo to %s: %s' % (os.path.basename(path), e))
+        try:
+            with open(path, 'r+b') as f:
+                f.seek(start)
+                f.write(tail)
+                f.truncate(st.st_size)
+        except OSError as e2:
+            logger.error('[TAGS] Unable to put %s back as it was: %s' % (os.path.basename(path), e2))
+        return False
+
+
 def fill(path, myDB=None, force=False):
     """Write a ComicInfo.xml from stored info into an issue file that has none. A .cbr is made a
     .cbz first, since only a zip can hold one, but only once it's known a tag will be written.
@@ -112,7 +156,7 @@ def fill(path, myDB=None, force=False):
                 logger.warn('[TAGS] %s was left as it is and not tagged: %s' % (os.path.basename(path), res['reason']))
                 return None
             path = res['target']
-        if not comicinfo.write(path, build(row)):
+        if not append(path, build(row)):
             return None
     logger.info('[TAGS] %s had no ComicInfo.xml - wrote one from the stored info for %s #%s.' % (
         os.path.basename(path), row['ComicName'], row['Issue_Number']))

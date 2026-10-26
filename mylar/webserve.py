@@ -5217,17 +5217,6 @@ class WebInterface(object):
         return self._attention_json({'ok': True})
     library_check_stop.exposed = True
 
-    def library_check_tag(self):
-        self._attention_post()
-        return self._attention_json({'ok': library_check.tag_untagged()})
-    library_check_tag.exposed = True
-
-    def library_check_tag_stop(self):
-        self._attention_post()
-        library_check.stop_tagging()
-        return self._attention_json({'ok': True})
-    library_check_tag_stop.exposed = True
-
     def library_check_act(self, path, action):
         self._attention_post()
         acts = {'unwrap': library_check.unwrap, 'redownload': library_check.redownload, 'remove': library_check.remove}
