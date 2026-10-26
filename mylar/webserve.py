@@ -5218,6 +5218,24 @@ class WebInterface(object):
         return self._attention_json(unmatched.ignore(path, on != '0'))
     unmatched_ignore.exposed = True
 
+    def unmatched_plan(self, comicid, path=None, folder=None):
+        if folder:
+            paths = [f['path'] for f in unmatched.files() if f['folder'] == os.path.normpath(folder)]
+        else:
+            paths = path if isinstance(path, list) else [path] if path else []
+        return self._attention_json(unmatched.plan(paths, comicid))
+    unmatched_plan.exposed = True
+
+    def unmatched_match_file(self, path, comicid, issueid):
+        self._attention_post()
+        return self._attention_json(unmatched.match_file(path, comicid, issueid))
+    unmatched_match_file.exposed = True
+
+    def unmatched_match_folder(self, folder, comicid):
+        self._attention_post()
+        return self._attention_json(unmatched.match_folder(folder, comicid))
+    unmatched_match_folder.exposed = True
+
     def libraryCheck(self):
         return serve_template(templatename="librarycheck.html", title="Library check", trash_days=attention.trash_days())
     libraryCheck.exposed = True

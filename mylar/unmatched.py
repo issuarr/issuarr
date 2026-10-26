@@ -221,3 +221,114 @@ def cover(path):
     """The front cover of an unmatched file (see attention.cover_of), or None."""
     from mylar import attention
     return attention.cover_of(_norm(path)) if is_unmatched(path) else None
+
+
+def _comic(comicid):
+    return db.DBConnection().selectone('SELECT ComicID, ComicName, ComicYear, ComicLocation FROM comics WHERE ComicID=?', [comicid]).fetchone()
+
+
+def _work_place(folder):
+    """True for a folder nothing may be matched or moved into: a work folder, story arcs or Grabbag."""
+    folder = _norm(folder)
+    root = _root_of(folder, roots())
+    if root is not None and folder != root:
+        if any(part.startswith(('_', '.')) for part in os.path.relpath(folder, root).split(os.sep)):
+            return True
+    return any(_under(folder, o) for o in left_out())
+
+
+def plan(paths, comicid):
+    """What matching these unmatched files to a series does before anything moves: the files
+    that move into its folder, the ones already there, and the ones that can't."""
+    from mylar import matching
+    comic = _comic(comicid)
+    if comic is None or not comic['ComicLocation']:
+        return {'ok': False, 'note': 'That series isn\'t on your watchlist, or has no folder yet.'}
+    dest = _norm(comic['ComicLocation'])
+    if _work_place(dest):
+        return {'ok': False, 'note': '%s\'s folder is a work folder (%s). Nothing is matched into it; fix the series\' folder first.' % (comic['ComicName'], dest)}
+    listed = {f['path'] for f in files(force=True)}
+    here = {_norm(d) for d in matching.series_dirs(comic)}
+    move, stay, blocked = [], [], []
+    for p in paths:
+        p = _norm(p)
+        if p not in listed:
+            blocked.append({'path': p, 'note': 'Not on the Unmatched list any more.'})
+        elif os.path.dirname(p) in here:
+            stay.append(p)
+        elif os.path.exists(os.path.join(dest, os.path.basename(p))):
+            blocked.append({'path': p, 'note': 'A file with this name is already in %s.' % dest})
+        else:
+            move.append(p)
+    return {'ok': True, 'comicid': comic['ComicID'], 'series': comic['ComicName'], 'year': comic['ComicYear'],
+            'dest': dest, 'move': move, 'stay': stay, 'blocked': blocked}
+
+
+def _move(path, dest):
+    """Move a file into a series folder, keeping its name, and carry its scan and Import results rows along."""
+    import shutil
+    os.makedirs(dest, exist_ok=True)
+    target = os.path.join(dest, os.path.basename(path))
+    shutil.move(path, target)
+    st = os.stat(target)
+    myDB = db.DBConnection()
+    myDB.action('DELETE FROM library_files WHERE Path=?', [path])
+    myDB.action('INSERT OR REPLACE INTO library_files (Path, Size, Mtime) VALUES (?, ?, ?)', [target, st.st_size, st.st_mtime])
+    myDB.action('UPDATE importresults SET ComicLocation=? WHERE ComicLocation=?', [target, path])
+    logger.info('[UNMATCHED] Moved %s into %s.' % (os.path.basename(path), dest))
+    return target
+
+
+def match_file(path, comicid, issueid):
+    """Match one unmatched file to an issue by hand, moving it into the series' folder first
+    when it sits elsewhere. The match holds through rechecks (see matching.match)."""
+    from mylar import matching
+    p = plan([path], comicid)
+    if not p['ok']:
+        return p
+    if p['blocked']:
+        return {'ok': False, 'note': p['blocked'][0]['note']}
+    if not db.DBConnection().selectone('SELECT IssueID FROM issues WHERE IssueID=? AND ComicID=?', [issueid, comicid]).fetchone():
+        return {'ok': False, 'note': 'That issue isn\'t part of %s.' % p['series']}
+    try:
+        target = _move(p['move'][0], p['dest']) if p['move'] else p['stay'][0]
+    except OSError as e:
+        logger.warn('[UNMATCHED] Could not move %s: %s' % (path, e))
+        return {'ok': False, 'note': 'Couldn\'t move the file: %s' % e}
+    res = matching.match(comicid, issueid, os.path.basename(target))
+    forget()
+    if p['move'] and res.get('ok'):
+        res['note'] = 'Moved into %s. %s' % (p['dest'], res['note'])
+    return res
+
+
+def match_folder(folder, comicid):
+    """Match a folder's unmatched files to a series: move the ones elsewhere into its folder,
+    then recheck the series so each file is tied to the issue its name says."""
+    from mylar import matching
+    folder = _norm(folder)
+    fs = [f['path'] for f in files(force=True) if f['folder'] == folder]
+    if not fs:
+        return {'ok': False, 'note': 'This folder has no unmatched files now.'}
+    p = plan(fs, comicid)
+    if not p['ok']:
+        return p
+    moved, failed = [], []
+    for path in p['move']:
+        try:
+            moved.append(_move(path, p['dest']))
+        except OSError as e:
+            logger.warn('[UNMATCHED] Could not move %s: %s' % (path, e))
+            failed.append(path)
+    matching._rescan(comicid)
+    forget()
+    tied = importchoice._tied_paths(db.DBConnection())
+    mine = moved + p['stay']
+    n_tied = sum(1 for x in mine if x in tied)
+    note = '%s of %s file%s now count as issues of %s.' % (n_tied, len(mine), '' if len(mine) == 1 else 's', p['series'])
+    if moved:
+        note = 'Moved %s into %s. ' % (len(moved), p['dest']) + note
+    left = len(mine) - n_tied + len(p['blocked']) + len(failed)
+    if left:
+        note += ' %s still unmatched; match them one by one.' % left
+    return {'ok': True, 'moved': len(moved), 'tied': n_tied, 'left': left, 'note': note}
