@@ -467,3 +467,21 @@ def test_pp_activity_survives_a_webp_error(bulk, monkeypatch):
     monkeypatch.setattr(webp, 'dock_summary', boom)
     out = _pp_activity(monkeypatch)
     assert out['webp'] is None and out['state'] == 'Idle' and out['monitor_status'] == 'Paused'
+
+
+@pytest.mark.unit
+def test_a_rar_unrar_faults_on_as_a_whole_is_repacked_when_every_entry_reads(tmp_path, monkeypatch):
+    # old RARs can hold a block unrar stops on although every page is fine
+    from lib.rarfile import rarfile
+
+    def fault(path, dest, timeout):
+        raise rarfile.RarCRCError('unrar stopped with code 3')
+    monkeypatch.setattr(webp, '_unrar_all', fault)
+    src = rar_copy(tmp_path, 'comic-2019.rar', 'Hero 001 (2019).cbr')
+    before, _ = rar_contents(src)
+    res = webp.to_cbz(src)
+    assert res['status'] == 'converted' and res['repacked'], res
+    assert entries(res['target'])[0] == before
+    bad = rar_copy(tmp_path, 'corrupt-data.rar', 'Hero 002 (2019).cbr')
+    original = sha(bad)
+    assert webp.to_cbz(bad)['status'] == 'failed' and sha(bad) == original

@@ -14,17 +14,18 @@
 #  along with Issuarr.  If not, see <http://www.gnu.org/licenses/>.
 
 """Tools > Library check: comic files in the library that are damaged, or that hold another
-archive instead of pages.
+archive instead of pages, or that some readers can't open.
 
 Every file in every series folder is opened and each entry read back (zip CRCs; rar
 through unrar when it's installed). A file is listed when it won't open, isn't a comic
 archive at all (an error page saved as .cbz, say), has no pages, or wraps a single .cbz
-or .cbr in place of its pages. Results are remembered per file, so a second run only
+or .cbr in place of its pages. A solid RAR that reads fine is listed too, since some readers
+(Kavita among them) can't open one. Results are remembered per file, so a second run only
 opens files that changed.
 
 From the list a wrapped file can be unwrapped in place (its own ComicInfo.xml kept), and
 a damaged one can be swapped for a new download: the file goes to the trash and the
-issue is marked Wanted. Nothing happens to a file until you choose.
+issue is marked Wanted. A solid RAR can be repacked as a .cbz, with the original kept in the trash. Nothing happens to a file until you choose.
 """
 
 import datetime
@@ -45,6 +46,7 @@ _LOCK = threading.Lock()
 
 IMAGE_EXT = ('.jpg', '.jpeg', '.png', '.webp', '.gif', '.bmp', '.avif', '.jxl')
 COMIC_EXT = ('.cbz', '.cbr', '.cb7', '.zip', '.rar')
+LISTED = ('damaged', 'nested', 'repack')
 MIN_PAGES = 3
 ZIP_MAGIC = b'PK\x03\x04'
 RAR_MAGIC = b'Rar!\x1a\x07'
@@ -63,8 +65,8 @@ def _entries(arc):
 
 
 def check_file(path):
-    """(status, detail, inner): status is 'ok', 'damaged', 'nested' or 'unchecked'; inner is
-    the wrapped archive's name for a nested file."""
+    """(status, detail, inner): status is 'ok', 'damaged', 'nested', 'repack' or 'unchecked';
+    inner is the wrapped archive's name for a nested file."""
     try:
         with open(path, 'rb') as f:
             head = f.read(8)
@@ -72,6 +74,7 @@ def check_file(path):
         return 'damaged', 'Can\'t be read: %s' % e, None
     if head.startswith(OTHER_MAGIC):
         return 'ok', '', None    # PDF and 7z aren't checked
+    solid = False
     try:
         if head.startswith(ZIP_MAGIC):
             arc = zipfile.ZipFile(path)
@@ -85,6 +88,7 @@ def check_file(path):
             with arc:
                 arc.testrar()
                 entries = _entries(arc)
+                solid = any(e.flags & rarfile.RAR_FILE_SOLID for e in entries)
         else:
             return 'damaged', 'Not a comic archive (it may be an error page saved under a comic name).', None
     except rarfile.RarCannotExec:
@@ -100,6 +104,8 @@ def check_file(path):
         return 'nested', 'Holds %s comic files instead of pages, so it may be a pack.' % len(inner), None
     if len(pages) < MIN_PAGES:
         return 'damaged', 'Has %s page%s.' % (len(pages), '' if len(pages) == 1 else 's'), None
+    if solid:
+        return 'repack', 'Reads fine, but it\'s a solid RAR, which some readers (Kavita among them) can\'t open.', None
     return 'ok', '', None
 
 
@@ -140,7 +146,8 @@ def _webp_reads(myDB):
         reason = r.get('reason') or ''
         if r['status'] == 'converted' or (r['status'] in WEBP_READ and reason.startswith(WEBP_READ_REASONS)):
             out[path] = (r['size'], r['mtime'], 'ok', '')
-        elif r['status'] == 'damaged':
+        elif r['status'] == 'damaged' and not path.lower().endswith(('.cbr', '.rar')):
+            # WebP once called readable RARs damaged when unrar faulted on an old block, so open those here
             out[path] = (r['size'], r['mtime'], 'damaged', 'Found while converting to WebP: %s.' % (reason or 'damaged'))
     return out
 
@@ -215,11 +222,12 @@ def status(comicid=None):
     ensure(myDB)
     rows = myDB.select("SELECT l.*, c.ComicName, c.ComicYear, i.Issue_Number FROM library_check l "
                        "LEFT JOIN comics c ON c.ComicID=l.comicid LEFT JOIN issues i ON i.IssueID=l.issueid "
-                       "WHERE l.status IN ('damaged', 'nested')" + (" AND l.comicid=?" if comicid else "") +
+                       "WHERE l.status IN %s" % (LISTED,) + (" AND l.comicid=?" if comicid else "") +
                        " ORDER BY c.ComicSortName, l.path", [comicid] if comicid else [])
     out['files'] = [{'path': r['path'], 'name': os.path.basename(r['path']), 'status': r['status'], 'detail': r['detail'],
                      'comicid': r['comicid'], 'issueid': r['issueid'], 'series': r['ComicName'], 'year': r['ComicYear'],
                      'number': r['Issue_Number'], 'unwrap': r['status'] == 'nested' and bool(r['inner']),
+                     'repack': r['status'] == 'repack',
                      'size': r['size']} for r in rows if os.path.isfile(r['path'])]
     out['unchecked'] = myDB.select("SELECT COUNT(*) AS n FROM library_check WHERE status='unchecked'")[0]['n']
     out['checked'] = myDB.select('SELECT COUNT(*) AS n FROM library_check')[0]['n']
@@ -308,7 +316,7 @@ def redownload(path):
     from mylar import matching
     myDB = db.DBConnection()
     row = _row(myDB, path)
-    if row is None or row['status'] not in ('damaged', 'nested') or not os.path.isfile(path):
+    if row is None or row['status'] not in LISTED or not os.path.isfile(path):
         return {'ok': False, 'note': 'That file isn\'t one listed here.'}
     if not row['issueid']:
         return {'ok': False, 'note': 'That file isn\'t matched to an issue, so there\'s nothing to search for. Use Remove instead.'}
@@ -326,10 +334,31 @@ def remove(path):
     from mylar import matching
     myDB = db.DBConnection()
     row = _row(myDB, path)
-    if row is None or row['status'] not in ('damaged', 'nested') or not os.path.isfile(path):
+    if row is None or row['status'] not in LISTED or not os.path.isfile(path):
         return {'ok': False, 'note': 'That file isn\'t one listed here.'}
     _trash(path)
     myDB.action('DELETE FROM library_check WHERE path=?', [path])
     if row['comicid']:
         matching._rescan(row['comicid'])
     return {'ok': True, 'note': '%s is in the trash.' % os.path.basename(path)}
+
+
+def repack(path):
+    """Repack a solid RAR as a .cbz with the same entries. The original goes to the trash."""
+    from mylar import attention, matching, webp
+    myDB = db.DBConnection()
+    row = _row(myDB, path)
+    if row is None or row['status'] != 'repack' or not os.path.isfile(path):
+        return {'ok': False, 'note': 'That file isn\'t one listed to repack.'}
+    trash = os.path.join(attention.trash_dir(), datetime.date.today().isoformat())
+    res = webp.to_cbz(path, backup_dir=trash, backup_root=os.path.dirname(path))
+    if res['status'] != 'converted':
+        logger.warn('[LIBRARY-CHECK] Could not repack %s: %s' % (path, res['reason']))
+        return {'ok': False, 'note': 'Couldn\'t repack it: %s' % res['reason']}
+    myDB.action('DELETE FROM library_check WHERE path=?', [path])
+    attention.forget(path)
+    logger.info('[LIBRARY-CHECK] Repacked %s as %s (original in %s).' % (
+        os.path.basename(path), os.path.basename(res['target']), res['backup']))
+    if row['comicid']:
+        matching._rescan(row['comicid'])
+    return {'ok': True, 'note': 'Repacked it as %s. The original is in the trash.' % os.path.basename(res['target'])}

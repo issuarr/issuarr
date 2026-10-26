@@ -288,7 +288,7 @@
                     if (!d.ok) { note.textContent = d.note; note.hidden = false; return; }
                     jQuery('#imp-cvid').dialog('close');
                     cvidFor.disabled = true;
-                    Issuarr.toast(d.queued ? d.note : 'Importing ' + cvidFor.getAttribute('data-title') + ' as ComicVine ' + d.comicid + '. Follow it in Tasks › Jobs.');
+                    Issuarr.toast(d.queued ? d.note : d.joined ? 'Importing ' + cvidFor.getAttribute('data-title') + ' next. The import that\'s running picks it up.' : 'Importing ' + cvidFor.getAttribute('data-title') + ' as ComicVine ' + d.comicid + '. Follow it in Tasks › Jobs.');
                 })
                 .catch(failed);
         });
