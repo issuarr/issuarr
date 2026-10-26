@@ -94,10 +94,39 @@ def folder_job(folder):
                 return (None, None)
         files = filechecker.FileChecker(folder, justparse=True, pp_mode=True).listFiles()
         myDB = db.DBConnection()
-        return (frozenset(run_series(myDB, files.get('comiclist') or [], alternate_names(myDB))), None)
+        alt_list = alternate_names(myDB)
+        return (frozenset(run_series(myDB, year_in_name(myDB, files.get('comiclist') or [], alt_list), alt_list)), None)
     except Exception as e:
         logger.fdebug('[POST-PROCESSING] Holding every search for %s - could not tell which series it holds: %s' % (folder, e))
         return (None, None)
+
+
+def year_in_name(myDB, comiclist, alt_list):
+    """Files named "Uncanny X-Men Annual 1999" read as issue #1999 of Uncanny X-Men Annual. When a
+    watchlist series is called that (or has it as an alternate name, like ComicVine's aliases for
+    Uncanny X-Men 1999), the year is part of the name: file it as that series' only issue, or #1."""
+    for fl in comiclist:
+        number = str(fl.get('issue_number') or '').strip()
+        if not fl.get('series_name') or not re.match(r'^(19|20)\d\d$', number):
+            continue
+        key = _loop_name('%s %s' % (fl['series_name'], number))[0]
+        dyn = {key}
+        for x in alt_list or []:
+            if key in {re.sub(r'[\|\s]', '', a.lower()) for a in (x.get('AS_Alt') or [])}:
+                dyn.add(re.sub(r'[\|\s]', '', (x.get('AS_DyComicName') or '').lower()))
+        rows = []
+        for d in dyn:
+            rows += myDB.select('SELECT ComicID, ComicName FROM comics WHERE DynamicComicName=?', [d])
+        if len({r['ComicID'] for r in rows}) != 1:
+            continue
+        issues = myDB.select('SELECT Issue_Number FROM issues WHERE ComicID=?', [rows[0]['ComicID']])
+        numbers = [str(i['Issue_Number']) for i in issues]
+        issue = numbers[0] if len(numbers) == 1 else '1' if '1' in numbers else None
+        if issue is None:
+            continue
+        logger.fdebug('[POST-PROCESSING] %s: %s %s is the series %s, filing it as #%s' % (fl.get('comicfilename'), fl['series_name'], number, rows[0]['ComicName'], issue))
+        fl['series_name'], fl['issue_number'] = rows[0]['ComicName'], issue
+    return comiclist
 
 
 def run_series(myDB, comiclist, alt_list):
@@ -141,6 +170,14 @@ class PostProcessor(object):
     NZB_NAME = 1
     FOLDER_NAME = 2
     FILE_NAME = 3
+
+    stop_key = None   # the Tasks job running this pass, which Stop can end between issues
+
+    def stopping(self):
+        if self.stop_key and helpers.job_stopping(self.stop_key):
+            logger.info('[POST-PROCESSING] Stopped from Tasks - the rest is filed on the next pass.')
+            return True
+        return False
 
     def __init__(self, nzb_name, nzb_folder, issueid=None, module=None, queue=None, comicid=None, apicall=False, ddl=False, pack=None, download_info=None):
         """
@@ -553,6 +590,10 @@ class PostProcessor(object):
         try:
             result = self._process_main()
             self._clear_pack()
+            try:
+                archives.clear_jd2(getattr(self, 'download_info', None))
+            except Exception as e:
+                logger.warn('[JD2] Unable to clear what the download left in JD2\'s folder: %s' % e)
             return result
         finally:
             archives.cleanup(self.extracted)
@@ -712,6 +753,7 @@ class PostProcessor(object):
                         filelist['comiccount'] = 0
                 #preload the entire ALT list in here.
                 alt_list = alternate_names(myDB)
+                year_in_name(myDB, filelist['comiclist'], alt_list)
 
                 if self.job == (None, None):
                     self._narrow_job(myDB, filelist['comiclist'], alt_list)
@@ -2297,7 +2339,7 @@ class PostProcessor(object):
                             logger.fdebug('%s [%s] Post-Processing completed for: %s' % (module, ml['StoryArc'], ml['ComicLocation']))
                         archives.tally('filed')
 
-                        if any([all([mylar.CONFIG.PUSHOVER_IMAGE, mylar.CONFIG.PUSHOVER_ENABLED]), all([mylar.CONFIG.TELEGRAM_IMAGE, mylar.CONFIG.TELEGRAM_ENABLED]), mylar.CONFIG.DISCORD_ENABLED, mylar.CONFIG.GOTIFY_ENABLED, mylar.CONFIG.MATTERMOST_ENABLED ]):
+                        if any([all([mylar.CONFIG.PUSHOVER_IMAGE, mylar.CONFIG.PUSHOVER_ENABLED]), all([mylar.CONFIG.TELEGRAM_IMAGE, mylar.CONFIG.TELEGRAM_ENABLED]), mylar.CONFIG.DISCORD_ENABLED, mylar.CONFIG.GOTIFY_ENABLED, mylar.CONFIG.MATTERMOST_ENABLED, mylar.CONFIG.NTFY_ENABLED ]):
                             try:
                                 get_cover = getimage.extract_image(grab_dst, single=True, imquality='notif')
                                 imageFile = get_cover['ComicImage']
@@ -2518,6 +2560,8 @@ class PostProcessor(object):
                 i = 0
 
                 for ml in manual_list:
+                    if self.stopping():
+                        break
                     i+=1
                     archives.progress('Filing %s of %s matched issues' % (i, len(manual_list)))
                     comicid = ml['ComicID']
@@ -2920,7 +2964,7 @@ class PostProcessor(object):
                         self._log("Post Processing SUCCESSFUL! ")
                         archives.tally('filed')
 
-                    if any([all([mylar.CONFIG.PUSHOVER_IMAGE, mylar.CONFIG.PUSHOVER_ENABLED]), all([mylar.CONFIG.TELEGRAM_IMAGE, mylar.CONFIG.TELEGRAM_ENABLED]), mylar.CONFIG.DISCORD_ENABLED, mylar.CONFIG.GOTIFY_ENABLED, mylar.CONFIG.MATTERMOST_ENABLED ]):
+                    if any([all([mylar.CONFIG.PUSHOVER_IMAGE, mylar.CONFIG.PUSHOVER_ENABLED]), all([mylar.CONFIG.TELEGRAM_IMAGE, mylar.CONFIG.TELEGRAM_ENABLED]), mylar.CONFIG.DISCORD_ENABLED, mylar.CONFIG.GOTIFY_ENABLED, mylar.CONFIG.MATTERMOST_ENABLED, mylar.CONFIG.NTFY_ENABLED ]):
                         try:
                             get_cover = getimage.extract_image(grab_dst, single=True, imquality='notif')
                             imageFile = get_cover['ComicImage']
@@ -2991,6 +3035,8 @@ class PostProcessor(object):
             i = 0
 
             for ml in manual_list:
+                if self.stopping():
+                    break
                 i+=1
                 archives.progress('Filing %s of %s matched issues' % (i, len(manual_list)))
                 comicid = ml['ComicID']
@@ -3648,7 +3694,7 @@ class PostProcessor(object):
             #    return self.queue.put(self.valreturn)
 
             # If using Pushover with image enabled, Telegram with image enabled, or Discord, extract the first image in the file for the notification
-            if any([all([mylar.CONFIG.PUSHOVER_IMAGE, mylar.CONFIG.PUSHOVER_ENABLED]), all([mylar.CONFIG.TELEGRAM_IMAGE, mylar.CONFIG.TELEGRAM_ENABLED]), mylar.CONFIG.DISCORD_ENABLED, mylar.CONFIG.GOTIFY_ENABLED, mylar.CONFIG.MATTERMOST_ENABLED ]):
+            if any([all([mylar.CONFIG.PUSHOVER_IMAGE, mylar.CONFIG.PUSHOVER_ENABLED]), all([mylar.CONFIG.TELEGRAM_IMAGE, mylar.CONFIG.TELEGRAM_ENABLED]), mylar.CONFIG.DISCORD_ENABLED, mylar.CONFIG.GOTIFY_ENABLED, mylar.CONFIG.MATTERMOST_ENABLED, mylar.CONFIG.NTFY_ENABLED ]):
                 try:
                     get_cover = getimage.extract_image(dst, single=True, imquality='notif')
                     imageFile = get_cover['ComicImage']
@@ -3688,55 +3734,11 @@ class PostProcessor(object):
                 prline = '%s %s' % (series, issuenumOG)
             else:
                 prline = '%s' % (series)
-        prline2 = 'Issuarr has downloaded and post-processed: ' + prline
-
-        try:
-            if mylar.CONFIG.PROWL_ENABLED:
-                pushmessage = prline
-                prowl = notifiers.PROWL()
-                prowl.notify(pushmessage, "Download and Postprocessing completed", module=module)
-
-            if mylar.CONFIG.PUSHOVER_ENABLED:
-                pushover = notifiers.PUSHOVER()
-                pushover.notify(prline, prline2, module=module, imageFile=imageFile)
-
-            if mylar.CONFIG.BOXCAR_ENABLED:
-                boxcar = notifiers.BOXCAR()
-                boxcar.notify(prline=prline, prline2=prline2, module=module)
-
-            if mylar.CONFIG.PUSHBULLET_ENABLED:
-                pushbullet = notifiers.PUSHBULLET()
-                pushbullet.notify(prline=prline, prline2=prline2, module=module)
-
-            if mylar.CONFIG.TELEGRAM_ENABLED:
-                telegram = notifiers.TELEGRAM()
-                telegram.notify(prline2, imageFile)
-
-            if mylar.CONFIG.SLACK_ENABLED:
-                slack = notifiers.SLACK()
-                slack.notify("Download and Postprocessing completed", prline2, module=module)
-
-            if mylar.CONFIG.MATTERMOST_ENABLED:
-                mattermost = notifiers.MATTERMOST()
-                metadata = { 'series':series, 'issue': issuenumOG, 'year': issueyear }
-                mattermost.notify("Downloading and Postprocessing completed", prline2, metadata=metadata, imageFile=imageFile, module=module)
-
-            if mylar.CONFIG.DISCORD_ENABLED:
-                discord = notifiers.DISCORD()
-                discord.notify("Download and Postprocessing completed", prline2, module=module, imageFile=imageFile)
-
-            if mylar.CONFIG.EMAIL_ENABLED and mylar.CONFIG.EMAIL_ONPOST:
-                logger.info("Sending email notification")
-                email = notifiers.EMAIL()
-                email.notify(prline2, "Issuarr notification - Processed", module=module)
-
-            if mylar.CONFIG.GOTIFY_ENABLED:
-                gotify = notifiers.GOTIFY()
-                metadata = { 'series':series, 'issue': issuenumOG, 'year': issueyear, 'issueid': issueid }
-                gotify.notify("Download and Postprocessing completed", prline2, module=module, imageFile=imageFile, metadata=metadata)
-        except Exception as e:
-            logger.warn('[NOTIFICATION] Unable to send notification: %s' % e)
-
+        if not mylar.CONFIG.NOTIFY_ON_DOWNLOAD:
+            return
+        metadata = {'series': series, 'issue': issuenumOG, 'year': issueyear, 'issueid': issueid}
+        notifiers.send_all("Download and Postprocessing completed", prline, 'Issuarr has downloaded and post-processed: ' + prline,
+                           event='downloaded', metadata=metadata, imageFile=imageFile, module=module)
         return
 
 class FolderCheck():
@@ -3770,6 +3772,11 @@ class FolderCheck():
             mylar.MONITOR_STATUS = 'Running'
             logger.info('%s Checking folder %s for newly snatched downloads' % (self.module, mylar.CONFIG.CHECK_FOLDER))
             PostProcess = PostProcessor('Manual Run', mylar.CONFIG.CHECK_FOLDER, queue=self.queue)
-            result = PostProcess.Process()
+            PostProcess.stop_key = 'monitor'   # Stop on Tasks ends it between issues
+            mylar.JOB_STOP.discard('monitor')
+            try:
+                result = PostProcess.Process()
+            finally:
+                mylar.JOB_STOP.discard('monitor')
             logger.info('%s Finished checking for newly snatched downloads' % self.module)
             helpers.job_management(write=True, job='Folder Monitor', last_run_completed=helpers.utctimestamp(), status='Waiting')

@@ -16,6 +16,10 @@ class FakeDB:
     def selectone(self, sql, args):
         return types.SimpleNamespace(fetchone=lambda: self.comic)
 
+    def select(self, sql, args=None):
+        # the series' own file, so Remove may delete its folder
+        return [{'Location': 'k1.cbz'}] if 'FROM issues' in sql else []
+
     def action(self, sql, args=None):
         self.actions.append(sql)
 

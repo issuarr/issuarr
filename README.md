@@ -33,18 +33,22 @@ New issues of the series you follow arrive the same way, week after week.
 
 ### Finding and downloading
 - **Usenet:** any number of Newznab indexers, sent to SABnzbd, NZBGet or a blackhole folder.
-- **Torrents:** Torznab indexers, sent to qBittorrent, Transmission, Deluge, rTorrent or uTorrent.
+- **Torrents:** Torznab indexers, searched and read with the RSS check, sent to qBittorrent, Transmission, Deluge, rTorrent or uTorrent.
+- **Prowlarr:** load your Prowlarr indexers as Newznab and Torznab indexers, and optionally keep them in sync.
 - **Direct download from GetComics.** Issuarr picks the right file even from posts with many links. You can order or switch off download hosts (GetComics' own server, Mega, Mediafire, Pixeldrain and others). Cloudflare is cleared with [FlareSolverr](https://github.com/FlareSolverr/FlareSolverr), and mirror links can be handed to [JDownloader 2](docs/JDOWNLOADER2.md).
 - **Scheduled searches and RSS.** Recent releases are searched actively; older wanted issues are caught as they appear in RSS feeds.
 - **Calendar (weekly pull list).** See every comic released this week, and look weeks ahead or months back. Weeks are numbered the way [TalkHard](https://talkhard.notaninja.party) numbers its pull lists. Upcoming issues of your series are wanted automatically.
-- **Failed download handling:** a failed download is marked Failed and, with auto-retry on, searched for again.
+- **Discover.** Browse new #1s and the latest issues from recent weeks' release lists, or just the new series from the publishers you collect most, and add any of them in one click.
+- **Failed download handling:** a failed download is marked Failed and, with auto-retry on, searched for again. The same release isn't grabbed again, even under a new id or from another indexer.
 - **One download queue for every source.** SABnzbd, NZBGet, qBittorrent, Transmission, Deluge, rTorrent, uTorrent, GetComics and JDownloader 2 downloads show in one list with live progress, speed and time left, and direct downloads can be aborted, removed or restarted.
 
 ### Filing and post-processing
 - **Folder monitor** picks up anything that lands in your downloads folder. Your download client can also call Issuarr when a download finishes.
 - Unpacks zip and rar downloads, including multi-issue packs. Every issue in a pack is matched against your whole watchlist, not only the issue you searched for.
+- **Tools > Library check** reads through every comic in the library and lists damaged files, files that aren't comics, and files that wrap another .cbz or .cbr. Unwrap them in place, or send a damaged one to the trash and search for the issue again.
 - Issues nothing on your watchlist wants are moved to a review folder or deleted, your choice. Issuarr can also add their series automatically.
 - Never silently replaces an issue you own: upgrades follow your duplicate rules.
+- **Tools > Duplicates** finds issues with more than one file in the library and moves the extra copies out, keeping the copy that opens, has tags, has more pages or is bigger. You see the list first.
 - Manual post-processing for a folder of files you drop in yourself.
 
 ### Metadata
@@ -57,6 +61,7 @@ New issues of the series you follow arrive the same way, week after week.
 - Converts the pages of new or existing comics to WebP to save space while keeping the pages looking the same.
 - It only converts pages that benefit. Pages that are low quality, CMYK, unreadable, or that would grow are left as they are. Files that don't shrink by at least 10% are left untouched.
 - Can run on import, for issues from a chosen year onward.
+- Turns cbr files into cbz as part of the conversion (needs `unrar`, which the Docker image includes).
 - **Bulk converter** with filters, a preview, confirmation steps and an optional folder that keeps your originals.
 - Uses every CPU core.
 
@@ -67,12 +72,12 @@ New issues of the series you follow arrive the same way, week after week.
 
 ### Reading lists and story arcs
 - Track story arcs across many series and keep them in reading order, optionally in their own folder.
-- Import [CBL reading lists](https://github.com/DieselTech/CBL-ReadingLists) to add a whole event to your wanted list.
+- Import [CBL reading lists](https://github.com/DieselTech/CBL-ReadingLists) to add a whole event to your wanted list. Pick one from the community lists right on the import page, or choose a .cbl file.
 - A reading list, with optional syncing to a tablet.
 
 ### Integrations
 - **OPDS** catalogue for reading apps on phones and tablets.
-- **Notifications** on snatches and downloads via Discord, Slack, Mattermost, Telegram, Pushover, Pushbullet, Prowl, Boxcar, Gotify or email.
+- **Notifications** on snatches and downloads via Discord, Slack, Mattermost, Telegram, Pushover, Pushbullet, Prowl, Boxcar, Gotify, ntfy, email or a webhook ([setup](docs/NOTIFICATIONS.md)).
 - **Web API** for scripts and other apps (see [docs/API.md](docs/API.md)).
 - Login protection and HTTPS for the web interface.
 
@@ -83,7 +88,7 @@ New issues of the series you follow arrive the same way, week after week.
 - At least one place to download from: a Newznab indexer plus SABnzbd or NZBGet, a Torznab indexer plus a torrent client, or GetComics direct download.
 - Optional: FlareSolverr (for GetComics) and JDownloader 2 (for mirror links).
 
-<img width="144" height="100" alt="Issuarr library cover wall" src="https://github.com/user-attachments/assets/5727ca6c-643e-41e2-8fa1-02b8389f2abd" /><img width="144" height="100" alt="Ledger showing missing issues per series" src="https://github.com/user-attachments/assets/13241f68-2c42-41eb-aa6d-a3e60bd11127" /><img width="144" height="100" alt="Wanted issues page" src="https://github.com/user-attachments/assets/2444ea0e-275c-4f5c-8ca4-adc964e616ac" /><img width="144" height="100" alt="Upcoming releases calendar" src="https://github.com/user-attachments/assets/69b87e52-3dc9-4d63-9cc1-c7bdebfb4a82" /><img width="144" height="100" alt="Trades and collected editions" src="https://github.com/user-attachments/assets/8d19055f-a237-4d29-af5d-098df06aa9d1" /><img width="144" height="130" alt="WebP conversion" src="https://github.com/user-attachments/assets/3f8f698a-43bf-4ef3-b2c5-ef47b908fe0e" />
+<img width="144" height="100" alt="Issuarr library cover wall" src="https://github.com/user-attachments/assets/5727ca6c-643e-41e2-8fa1-02b8389f2abd" /><img width="144" height="100" alt="image" src="https://github.com/user-attachments/assets/a35cd1ee-8a61-4cd4-85bb-94b370c9aeea" /><img width="144" height="100" alt="Wanted issues page" src="https://github.com/user-attachments/assets/2444ea0e-275c-4f5c-8ca4-adc964e616ac" /><img width="144" height="100" alt="Upcoming releases calendar" src="https://github.com/user-attachments/assets/69b87e52-3dc9-4d63-9cc1-c7bdebfb4a82" /><img width="144" height="100" alt="Trades and collected editions" src="https://github.com/user-attachments/assets/8d19055f-a237-4d29-af5d-098df06aa9d1" /><img width="144" height="130" alt="WebP conversion" src="https://github.com/user-attachments/assets/3f8f698a-43bf-4ef3-b2c5-ef47b908fe0e" />
 
 
 
@@ -166,10 +171,10 @@ Open `http://<your-server>:8090`. Every page is in the sidebar on the left, and 
 
 1. **Settings > General:** enter your **ComicVine API key** and set the **Comic folder** to your library (`/comics` in Docker).
 2. **Settings > Download clients:** connect your Usenet or torrent client.
-3. **Settings > Search providers:** add your Newznab or Torznab indexers, or turn on **Download directly from sites** for GetComics. If you use direct downloads, set its **Download folder** there too, and see [Using JDownloader 2](docs/JDOWNLOADER2.md) if you want JDownloader 2 to handle mirror links.
+3. **Settings > Search providers:** add your Newznab or Torznab indexers (or load them all from Prowlarr), or turn on **Download directly from sites** for GetComics. If you use direct downloads, set its **Download folder** there too, and see [Using JDownloader 2](docs/JDOWNLOADER2.md) if you want JDownloader 2 to handle mirror links.
 4. **Settings > Files & post-processing:** turn on **Post-process downloads** and **Watch a folder for new comics**, and point it at the folder where finished downloads land. Turn on **Write metadata into files** if you want ComicInfo written to your files.
 5. **Settings > Notifications & advanced:** check the **Series folder name** and **File name** formats.
-6. **Add comics.** Use **Add series** in the sidebar to search for a series and add it, or **Tools > Import & scan** to import the comics you already have.
+6. **Add comics.** Use **Add series** in the sidebar to search for a series (or paste its ComicVine link) and add it, or **Tools > Import & scan** to import the comics you already have.
 
 Issuarr marks the missing issues of new series *Wanted* and starts searching. Watch progress on the **Wanted** page, **Downloads > Queue**, and **Tasks > Jobs**.
 
@@ -200,7 +205,7 @@ Issuarr marks the missing issues of new series *Wanted* and starts searching. Wa
 - [Moving from Mylar3 to Issuarr](docs/MIGRATING.md): switching an existing install, where pages moved, and changing library paths.
 - [Installing on Unraid](docs/UNRAID.md): the Unraid template, paths and switching from Mylar3.
 - [Using JDownloader 2](docs/JDOWNLOADER2.md) for direct-download mirror links.
-- [Using AirDC++](docs/AIRDCPP.md) to grab from Direct Connect hubs, including when AirDC++ sees folders under different paths.
+- [Using AirDC++](docs/AIRDCPP.md) to grab from Direct Connect hubs, including when AirDC++ sees folders under different paths, and grabbing other wanted issues from the same folder.
 - [Troubleshooting](docs/TROUBLESHOOTING.md): database locking, tagging failures, moved libraries.
 - [docs/API.md](docs/API.md) for the web API.
 

@@ -7,8 +7,8 @@
 <%def name="body()">
     <input type="hidden" id="page_name" value="import_results" />
     <%
-        STATUS = {'Imported': 'is-have', 'Not Imported': 'is-wanted', 'Manual Intervention': 'is-snatched', 'No Results': 'is-ignored', 'Failure': 'is-failed'}
-        LABEL = {'Manual Intervention': 'Needs a choice', 'Not Imported': 'Not imported', 'No Results': 'No results'}
+        STATUS = {'Imported': 'is-have', 'Not Imported': 'is-wanted', 'Manual Intervention': 'is-snatched', 'No Results': 'is-ignored', 'No Issue': 'is-snatched', 'Failure': 'is-failed'}
+        LABEL = {'Manual Intervention': 'Needs a choice', 'Not Imported': 'Not imported', 'No Results': 'No results', 'No Issue': 'Imported, no issue'}
         rows = []
         counts = {}
         for r in (results or []):
@@ -19,7 +19,7 @@
             counts[status] = counts.get(status, 0) + 1
             rows.append(dict(r=r, name=name, vol=vol, status=status, label=LABEL.get(status, status), cls=STATUS.get(status, 'is-idle'),
                              key='%s[%s]|%s' % (r['ComicName'], r['Volume'], r['ComicID'])))
-        order = ['Not Imported', 'Manual Intervention', 'No Results', 'Imported']
+        order = ['Not Imported', 'Manual Intervention', 'No Results', 'No Issue', 'Imported']
         tabs = [s for s in order if s in counts] + sorted([s for s in counts if s not in order])
     %>
     <div class="page imports">
@@ -81,6 +81,7 @@
                         <tr>
                             <th scope="col" class="check"><input type="checkbox" id="imp-check-all" aria-label="Select all shown" /></th>
                             <th scope="col">Series</th>
+                            <th scope="col">ComicVine</th>
                             <th scope="col">Year</th>
                             <th scope="col" class="num">Files</th>
                             <th scope="col">Status</th>
@@ -101,16 +102,20 @@
                                 %if r['AnnualCount']:
                                 <span class="muted">+ ${r['AnnualCount']} annual${'s' if r['AnnualCount'] != 1 else ''}</span>
                                 %endif
+                            </td>
+                            <td class="mono nowrap">
                                 %if r['ComicID']:
-                                <a class="muted mono imp-cvid" href="https://comicvine.gamespot.com/volume/4050-${r['ComicID'] | u}/" target="_blank" rel="noopener" title="Open on ComicVine">CV ${r['ComicID'] | h}</a>
+                                <a class="imp-cvid" href="https://comicvine.gamespot.com/volume/4050-${r['ComicID'] | u}/" target="_blank" rel="noopener" title="Open on ComicVine">4050-${r['ComicID'] | h}</a>
+                                %else:
+                                <span class="muted">-</span>
                                 %endif
                             </td>
                             <td class="mono">${r['ComicYear'] or '-' | h}</td>
-                            <td class="num"><button type="button" class="btn btn-ghost btn-sm mono" data-files="${urlencode({'comicname': r['ComicName'], 'dynamicname': r['DynamicName'], 'volume': r['Volume'], 'fmt': 'json'}) | h}"
+                            <td class="num"><button type="button" class="btn btn-ghost btn-sm mono" data-files="${urlencode({'comicname': r['ComicName'], 'dynamicname': r['DynamicName'], 'volume': r['Volume'], 'status': r['Status'], 'fmt': 'json'}) | h}"
                                 data-title="${x['name'] | h}" title="Show the files">${r['IssueCount']}</button></td>
                             <td><span class="status ${x['cls']}">
-                                %if r['ComicID'] and x['status'] == 'Imported':
-                                <a href="comicDetails?ComicID=${r['ComicID'] | u}">${x['label'] | h}</a>
+                                %if r['ComicID'] and x['status'] in ('Imported', 'No Issue'):
+                                <a href="comicDetails?ComicID=${r['ComicID'] | u}"${' title="The import tied these files to no issue of this series, so they don\'t count as owned."' if x['status'] == 'No Issue' else '' | n}>${x['label'] | h}</a>
                                 %else:
                                 ${x['label'] | h}
                                 %endif
@@ -121,26 +126,55 @@
                                 <button type="button" class="btn btn-sm" data-act="preSearchit?${urlencode({'ComicName': r['ComicName'], 'displaycomic': x['name'], 'comicid': r['ComicID'], 'volume': r['Volume'], 'dynamicname': r['DynamicName'], 'displayline': x['name']}) | h}"
                                         data-done="Importing ${x['name'] | h}.">Import</button>
                                 %endif
-                                %if r['SRID'] is not None and x['status'] not in ('Imported', 'No Results'):
-                                <a class="btn btn-sm btn-primary" href="importresults_popup?${urlencode({'SRID': r['SRID'], 'ComicName': r['ComicName'], 'imported': 'yes', 'ogcname': r['ComicName'], 'DynamicName': r['DynamicName'], 'Volume': r['Volume']}) | h}"
-                                   title="ComicVine has more than one possible match">Choose match</a>
+                                %if r['SRID'] is not None and x['status'] not in ('Imported', 'No Results', 'No Issue'):
+                                <button type="button" class="btn btn-sm btn-primary" data-choose="${urlencode({'DynamicName': r['DynamicName'], 'Volume': r['Volume']}) | h}"
+                                        title="ComicVine has more than one possible match: compare covers and pick one">Choose match</button>
+                                %endif
+                                %if x['status'] not in ('Imported', 'Importing', 'No Issue'):
+                                <button type="button" class="btn btn-sm btn-ghost" data-cvid="${urlencode({'ComicName': r['ComicName'], 'DynamicName': r['DynamicName'], 'Volume': r['Volume']}) | h}"
+                                        data-title="${x['name'] | h}" title="Import with a ComicVine series you pick">ComicVine ID</button>
+                                %endif
+                                %if x['status'] == 'Imported' and r['ComicID']:
+                                <a class="btn btn-sm btn-ghost" href="comicDetails?ComicID=${r['ComicID'] | u}#wrong-series"
+                                   title="Imported as the wrong ComicVine series: find the right one (or paste its ComicVine link) and move the files to it">Wrong series…</a>
                                 %endif
                                 <a class="btn btn-sm btn-ghost" href="deleteimport?${urlencode({'ComicName': r['ComicName'], 'volume': r['Volume'], 'DynamicName': r['DynamicName'], 'Status': r['Status']}) | h}">Remove</a>
                             </td>
                         </tr>
                     %endfor
                     %if not rows:
-                        <tr><td colspan="7" class="empty-state">No results. <a href="manage#tabs-1">Scan a folder</a> to find series you already have.</td></tr>
+                        <tr><td colspan="8" class="empty-state">No results. <a href="manage#tabs-1">Scan a folder</a> to find series you already have.</td></tr>
                     %endif
                     </tbody>
                 </table>
             </div>
         </section>
     </div>
+    <div id="imp-cvid" title="ComicVine ID" style="display:none">
+        <form id="imp-cvid-form">
+            <label for="imp-cvid-input">ComicVine ID or link</label>
+            <input type="text" id="imp-cvid-input" class="mono" autocomplete="off" placeholder="https://comicvine.gamespot.com/invincible/4050-39340/" style="width: 100%" />
+            <p class="muted">A series or issue link, 4050-39340 (a series), 4000-664333 (an issue, which stands for its series), or just the number. The series is added and its files are moved and renamed like any other import.</p>
+            <p class="set-warn" id="imp-cvid-note" hidden></p>
+            <button type="submit" class="btn btn-primary">Import</button>
+        </form>
+    </div>
     <div id="imp-files" title="Files" style="display:none"><p class="muted" id="imp-files-count"></p><ul class="imp-file-list" id="imp-file-list"></ul></div>
+    <dialog id="choose-dialog" class="match-dialog choose-dialog" aria-labelledby="choose-title">
+        <div class="choose-top">
+            <h2 id="choose-title">Choose a match</h2>
+            <span class="muted" id="choose-pos"></span>
+        </div>
+        <div id="choose-body" class="match-body"></div>
+        <div class="match-actions choose-actions">
+            <button type="button" class="btn" data-choose-skip>Skip</button>
+            <button type="button" class="btn btn-ghost" data-choose-close>Close</button>
+        </div>
+    </dialog>
 </%def>
 
 <%def name="javascriptIncludes()">
+    <script src="js/importchoice.js?v=${mylar.CURRENT_VERSION}"></script>
     <script>
     (function () {
         var table = document.getElementById('imp-table');
@@ -150,10 +184,13 @@
         function renderBulk() {
             var n = picked().length;
             document.getElementById('imp-bulk').hidden = !n;
+            document.querySelector('#imp-bulk [data-bulk="importselected"]').hidden = !picked().some(function (tr) { return ['Imported', 'No Issue'].indexOf(tr.getAttribute('data-status')) < 0; });
             document.getElementById('imp-bulk-count').textContent = n + (n === 1 ? ' series selected' : ' series selected');
         }
         function applyTab() {
             rows().forEach(function (tr) { tr.hidden = !!status && tr.getAttribute('data-status') !== status; });
+            // the Imported tabs have nothing left to import
+            document.getElementById('imp-all').hidden = status === 'Imported' || status === 'No Issue';
             document.querySelectorAll('#imp-tabs [data-status]').forEach(function (b) { b.setAttribute('aria-pressed', String(b.getAttribute('data-status') === status)); });
             document.getElementById('imp-check-all').checked = false;
             renderBulk();
@@ -165,6 +202,15 @@
             });
         }
         function failed() { Issuarr.toast('That didn\'t work. Check the log.', false); }
+        // Links can open a tab: importResults#needs-a-choice (from the sidebar count and Tasks > Jobs)
+        var HASH = {'#not-imported': 'Not Imported', '#needs-a-choice': 'Manual Intervention', '#no-results': 'No Results', '#imported-no-issue': 'No Issue', '#imported': 'Imported'};
+        function fromHash() {
+            if (HASH[location.hash] && document.querySelector('#imp-tabs [data-status="' + HASH[location.hash] + '"]')) { status = HASH[location.hash]; applyTab(); }
+        }
+        fromHash();
+        window.addEventListener('hashchange', fromHash);
+        // the same link clicked again changes no hash
+        document.addEventListener('click', function (e) { if (e.target.closest('a[href^="importResults#"]')) setTimeout(fromHash, 0); });
 
         document.addEventListener('click', function (e) {
             var t = e.target;
@@ -174,6 +220,15 @@
             if (act) {
                 act.disabled = true;
                 get(act.getAttribute('data-act'), act.getAttribute('data-done') + ' Follow it in Tasks › Jobs.').catch(function () { act.disabled = false; failed(); });
+                return;
+            }
+            var cvid = t.closest('[data-cvid]');
+            if (cvid) {
+                cvidFor = cvid;
+                document.getElementById('imp-cvid-input').value = '';
+                document.getElementById('imp-cvid-note').hidden = true;
+                jQuery('#imp-cvid').dialog({ modal: true, title: 'ComicVine ID for ' + cvid.getAttribute('data-title'), width: Math.min(560, window.innerWidth - 32) });
+                document.getElementById('imp-cvid-input').focus();
                 return;
             }
             var files = t.closest('[data-files]');
@@ -193,28 +248,49 @@
             if (bulk) {
                 var action = bulk.getAttribute('data-bulk');
                 var sel = picked();
-                if (action === 'removeimport' && !window.confirm('Remove ' + sel.length + ' series from the results? Nothing is deleted from disk; scan again to find them again.')) return;
-                var body = new URLSearchParams({ action: action });
-                sel.forEach(function (tr) { var cb = tr.querySelector('[data-key]'); body.append(cb.getAttribute('data-key'), cb.getAttribute('data-dyn')); });
-                fetch('markImports', { method: 'POST', credentials: 'same-origin', body: body })
-                    .then(function (r) {
-                        if (!r.ok) throw new Error(r.status);
-                        Issuarr.toast(action === 'removeimport' ? 'Removed ' + sel.length + ' series from the results.' : 'Importing ' + sel.length + ' series. Follow it in Tasks › Jobs.');
-                        setTimeout(function () { location.reload(); }, 900);
-                    })
-                    .catch(failed);
+                var go = function () {
+                    var body = new URLSearchParams({ action: action });
+                    sel.forEach(function (tr) { var cb = tr.querySelector('[data-key]'); body.append(cb.getAttribute('data-key'), cb.getAttribute('data-dyn')); });
+                    fetch('markImports', { method: 'POST', credentials: 'same-origin', body: body })
+                        .then(function (r) {
+                            if (!r.ok) throw new Error(r.status);
+                            Issuarr.toast(action === 'removeimport' ? 'Removed ' + sel.length + ' series from the results.' : 'Importing ' + sel.length + ' series. Follow it in Tasks › Jobs.');
+                            setTimeout(function () { location.reload(); }, 900);
+                        })
+                        .catch(failed);
+                };
+                if (action === 'removeimport') Issuarr.ask('Remove ' + sel.length + ' series from the results? Nothing is deleted from disk; scan again to find them again.', { ok: 'Remove', danger: true }, go);
+                else go();
                 return;
             }
             if (t.closest('#imp-none')) { rows().forEach(function (tr) { tr.querySelector('[data-key]').checked = false; }); renderBulk(); return; }
             if (t.closest('#imp-all')) {
-                if (!window.confirm('Import every series that is not imported yet? Each one is looked up on ComicVine, which takes a while on a big scan.')) return;
-                get('markImports?action=massimport', 'Importing everything not imported yet. Follow it in Tasks › Jobs.').catch(failed);
+                Issuarr.ask('Import every series that is not imported yet? Each one is looked up on ComicVine, which takes a while on a big scan.', { ok: 'Import all' }, function () {
+                    get('markImports?action=massimport', 'Importing everything not imported yet. Follow it in Tasks › Jobs.').catch(failed);
+                });
                 return;
             }
             if (t.closest('#imp-flush')) {
-                if (!window.confirm('Clear every import result? Nothing is deleted from disk; scan again to find the series again.')) return;
-                get('flushImports', 'Cleared the import results.').then(function () { setTimeout(function () { location.reload(); }, 900); }).catch(failed);
+                Issuarr.ask('Clear every import result? Nothing is deleted from disk; scan again to find the series again.', { ok: 'Clear results', danger: true }, function () {
+                    get('flushImports', 'Cleared the import results.').then(function () { setTimeout(function () { location.reload(); }, 900); }).catch(failed);
+                });
             }
+        });
+        var cvidFor = null;
+        document.getElementById('imp-cvid-form').addEventListener('submit', function (e) {
+            e.preventDefault();
+            var note = document.getElementById('imp-cvid-note');
+            var body = new URLSearchParams(cvidFor.getAttribute('data-cvid'));
+            body.set('cvid', document.getElementById('imp-cvid-input').value);
+            fetch('importByCvid', { method: 'POST', credentials: 'same-origin', body: body })
+                .then(function (r) { if (!r.ok) throw new Error(r.status); return r.json(); })
+                .then(function (d) {
+                    if (!d.ok) { note.textContent = d.note; note.hidden = false; return; }
+                    jQuery('#imp-cvid').dialog('close');
+                    cvidFor.disabled = true;
+                    Issuarr.toast(d.queued ? d.note : d.joined ? 'Importing ' + cvidFor.getAttribute('data-title') + ' next. The import that\'s running picks it up.' : 'Importing ' + cvidFor.getAttribute('data-title') + ' as ComicVine ' + d.comicid + '. Follow it in Tasks › Jobs.');
+                })
+                .catch(failed);
         });
         document.addEventListener('change', function (e) {
             if (e.target.id === 'imp-check-all') {

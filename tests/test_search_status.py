@@ -19,7 +19,7 @@ def item(issueid, name='Alpha', number='1'):
 
 @pytest.mark.unit
 def test_nothing_to_report_when_idle(idle):
-    assert search.search_status() == {'current': None, 'waiting': [], 'busy': False}
+    assert search.search_status() == {'current': None, 'waiting': [], 'paused': False, 'busy': False}
 
 
 @pytest.mark.unit
@@ -30,6 +30,6 @@ def test_reports_the_issue_being_searched_and_the_queue_in_order(idle):
     mylar.SEARCH_QUEUE.put('exit')
     mylar.SEARCH_QUEUE.put(item('b', 'Batman', '3'))
     status = search.search_status()
-    assert status['current'] == {'issueid': '617854', 'name': 'Star Wars: Mace Windu', 'number': '1'}
+    assert status['current'] == {'issueid': '617854', 'comicid': '1', 'name': 'Star Wars: Mace Windu', 'number': '1'}
     assert [w['issueid'] for w in status['waiting']] == ['a', 'b']
     assert status['busy'] is True

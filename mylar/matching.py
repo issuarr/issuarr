@@ -1,8 +1,10 @@
 """Matching the files in a series folder to its issues: matches made by hand on the series page,
 and files whose ComicInfo tags carry a ComicVine issue ID of the series."""
 import os
+import re
 import shutil
 import threading
+import time
 
 import mylar
 from mylar import comicinfo, db, logger
@@ -13,6 +15,37 @@ _LOCK = threading.Lock()
 
 def _extensions():
     return tuple(x for x in ('.cbr', '.cbz', '.cb7', '.pdf') if x not in (mylar.CONFIG.IGNORE_SEARCH_WORDS or []))
+
+
+YEAR_GAP = 3   # years between a file's name and its issue's cover date before it counts as another volume's
+
+
+def name_year(name):
+    """The first four-digit year in brackets in a file name, or None."""
+    m = re.search(r'[(\[]\s*(?:[^)\]]*?[\s,\-/])?((?:19|20)\d\d)(?=[\s,\-/)\]])', name or '')
+    return int(m.group(1)) if m else None
+
+
+def year_off(name, issue_year):
+    """Whether the year in a file name is YEAR_GAP or more years from the issue's. A file with no year, or an issue
+    with none, is never off."""
+    fy = name_year(name)
+    try:
+        iy = int(str(issue_year)[:4])
+    except (TypeError, ValueError):
+        return False
+    return fy is not None and abs(fy - iy) >= YEAR_GAP
+
+
+def year_preference(new, existing, issue_year):
+    """Of two files for one issue, 'new' or 'existing' when only that one's year fits the issue (the other is
+    YEAR_GAP or more years away), else None and the size or type rule decides."""
+    new_off, old_off = year_off(new, issue_year), year_off(existing, issue_year)
+    if old_off and not new_off:
+        return 'new'
+    if new_off and not old_off:
+        return 'existing'
+    return None
 
 
 def series_dirs(comic):
@@ -198,7 +231,7 @@ def match(comicid, issueid, name):
     if comic is None:
         return {'ok': False, 'note': 'That series isn\'t on your watchlist.'}
     myDB = db.DBConnection()
-    issue = myDB.selectone('SELECT IssueID, Issue_Number FROM issues WHERE IssueID=? AND ComicID=?', [issueid, comicid]).fetchone()
+    issue = myDB.selectone('SELECT IssueID, Issue_Number, Status FROM issues WHERE IssueID=? AND ComicID=?', [issueid, comicid]).fetchone()
     if issue is None:
         return {'ok': False, 'note': 'That issue isn\'t part of this series.'}
     f = next((f for f in walk(series_dirs(comic)) if f['name'] == name), None)
@@ -209,6 +242,9 @@ def match(comicid, issueid, name):
                 [name, str(f['size']), issueid])
     logger.info('[MATCHING] %s is now #%s of %s, matched by hand.' % (name, issue['Issue_Number'], comic['ComicName']))
     _rescan(comicid)
+    if issue['Status'] not in ('Downloaded', 'Archived'):
+        from mylar import notifiers
+        notifiers.files_added(comic['ComicName'], comic['ComicYear'], [issue['Issue_Number']], issueid=issueid, module='[MATCHING]')
     return {'ok': True, 'note': '%s is now #%s.' % (name, issue['Issue_Number'])}
 
 
@@ -269,3 +305,83 @@ def move_to(comicid, newid):
             len(kept), '' if len(kept) == 1 else 's', 'it was' if len(kept) == 1 else 'they were')
     return {'ok': True, 'moved': moved, 'kept': kept, 'have': have, 'note': note,
             'series': {'comicid': str(newid), 'name': new['ComicName']}}
+
+
+# Wrong series runs in the background: the page asks whether to move the files and remove the wrong
+# series up front, then adding the right one (which can take a minute while its issues load from
+# ComicVine), moving, rechecking and removing go on after the dialog is closed.
+_JOBS = {}      # wrong series' ComicID -> how its job is going
+JOB_POLL = 3    # seconds between looks at whether the right series has loaded
+JOB_WAIT = 15 * 60
+
+
+def wrong_series(comicid, newid, name=None, year=None, move=True, remove=False):
+    """Start a Wrong series job: add the right series, then move the files of the wrong one to it
+    (move) and take the wrong one off the watchlist (remove). Its folder is never deleted."""
+    comicid, newid = str(comicid), re.sub(r'^4050-', '', str(newid or '')).strip()
+    old = _comic(comicid)
+    if old is None:
+        return {'ok': False, 'note': 'That series isn\'t on your watchlist.'}
+    if not newid.isdigit() or newid == comicid:
+        return {'ok': False, 'note': 'Pick a different series to move the files to.'}
+    with _LOCK:
+        job = _JOBS.get(comicid)
+        if job and job['state'] not in ('done', 'failed'):
+            return dict(job, ok=False, note='%s is already being moved to %s.' % (job['old'], job['new']))
+        label = lambda n, y: '%s (%s)' % (n, y) if y else n
+        job = {'comicid': comicid, 'newid': newid, 'move': bool(move), 'remove': bool(remove),
+               'old': label(old['ComicName'], old['ComicYear']), 'new': label(name or 'the right series', year),
+               'state': 'adding', 'note': 'Adding %s and loading its issues from ComicVine…' % label(name or 'the right series', year),
+               'removed': False}
+        _JOBS[comicid] = job
+    threading.Thread(target=_wrong_series_run, args=(job, name, year), name='WRONG-SERIES', daemon=True).start()
+    return dict(job, ok=True)
+
+
+def wrong_series_state(comicid):
+    job = _JOBS.get(str(comicid))
+    return dict(job, ok=True) if job else {'ok': True, 'state': 'none'}
+
+
+def _wrong_series_run(job, name, year):
+    from mylar import attention, helpers
+    comicid, newid = job['comicid'], job['newid']
+
+    def step(state, note, **more):
+        job.update(more, state=state, note=note)
+        logger.info('[MATCHING] Wrong series %s -> %s: %s' % (comicid, newid, note))
+
+    try:
+        added = attention.add_series(newid, name, year)
+        if not added.get('ok'):
+            return step('failed', added.get('note') or 'Couldn\'t add the right series.')
+        waited = 0
+        while attention.series_state(newid)['state'] != 'ready':
+            if waited >= JOB_WAIT:
+                return step('failed', '%s is still being added. Open Wrong series again when it shows up in your library.' % job['new'])
+            time.sleep(JOB_POLL)
+            waited += JOB_POLL
+        new = _comic(newid)
+        if new is not None:
+            job['new'] = '%s (%s)' % (new['ComicName'], new['ComicYear']) if new['ComicYear'] else new['ComicName']
+        note = '%s is on your watchlist.' % job['new']
+        if job['move']:
+            step('moving', 'Moving the files to %s and matching them…' % job['new'])
+            moved = move_to(comicid, newid)
+            if not moved['ok']:
+                return step('failed', moved['note'])
+            note = moved['note']
+            if job['remove'] and moved['kept']:
+                # removing it now would leave those files in a folder nothing watches
+                return step('done', note + ' %s stays on your watchlist because of them.' % job['old'], kept=moved['kept'], have=moved['have'])
+        if job['remove']:
+            step('removing', 'Removing %s from your watchlist…' % job['old'])
+            if helpers.remove_series(comicid):
+                note += ' Removed %s from your watchlist. Its folder was left alone.' % job['old']
+                job['removed'] = True
+            else:
+                note += ' Couldn\'t remove %s. Check the log.' % job['old']
+        step('done', note)
+    except Exception as e:
+        logger.error('[MATCHING] Wrong series %s -> %s failed: %s' % (comicid, newid, e))
+        step('failed', 'That didn\'t work: %s' % e)

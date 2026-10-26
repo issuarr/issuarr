@@ -12,13 +12,14 @@ import collections
 import datetime
 import os
 import re
+import shutil
 import threading
 from queue import Empty, Queue
 
 import mylar
 from .. import logger, helpers
 from mylar import archiveorg, db, getcomics
-from mylar.downloaders import mediafire, mega, pixeldrain
+from mylar.downloaders import jdownloader2, mediafire, mega, pixeldrain
 
 
 GC_LINK_TYPES = (None, 'GC-Main', 'GC-Mirror')
@@ -105,12 +106,12 @@ def _finished_path(row):
     """(path, is_folder) for a finished download that's still on disk, or None.
 
     Built-in downloads are the file in DDL_LOCATION (Mega's under mega/), or the folder a .zip
-    was unpacked into; JD2 ones are the folder jd2.py names '<name> - <id>' in JD2_DEST_DIR.
+    was unpacked into; JD2 ones are the folder jd2.py names '<name> - <id>' in JD2's folder.
     """
     location = getattr(mylar.CONFIG, 'DDL_LOCATION', None) or ''
     if row['jd2_job_id']:
-        dest = getattr(mylar.CONFIG, 'JD2_DEST_DIR', None)
-        if not dest or dest == 'None':
+        dest = jdownloader2.local_folder()
+        if not dest:
             return None
         # the package name jd2.py submits, then the folder name its monitor hands to filing
         names = ['%s (%s) - %s' % (row['series'], row['year'], row['id'])]
@@ -318,7 +319,7 @@ def start_waiting():
             moved = list(PENDING)
             PENDING.clear()
         else:
-            while PENDING and RUNNING[0] < limit and not STOP.is_set():
+            while PENDING and RUNNING[0] < limit and not STOP.is_set() and not mylar.DDL_PAUSED:
                 RUNNING[0] += 1
                 starting.append(PENDING.popleft())
     for item in moved:
@@ -350,11 +351,24 @@ def _next(q, stop):
     return None
 
 
+def _hold(q, item):
+    """Put an item back at the front of its queue, where it was."""
+    with q.mutex:
+        q.queue.appendleft(item)
+        q.not_empty.notify()
+
+
 def gc_worker(gc_queue, stop):
     while True:
+        # paused from Downloads: nothing new starts until it's resumed
+        while mylar.DDL_PAUSED and not stop.is_set():
+            stop.wait(WORKER_POLL)
         item = _next(gc_queue, stop)
         if item is None:
             break
+        if mylar.DDL_PAUSED:
+            _hold(gc_queue, item)   # paused while this worker was waiting for an item
+            continue
         with GC_SLOT:
             run_download(item)
 
@@ -387,6 +401,10 @@ def run_download(item):
             logger.warn('[DDL-QUEUE] Unable to mark %s as waiting for another source: %s' % (item.get('series'), e))
         # after it stops counting as active, or failover would take it for a stale attempt
         send_to_failover(item, result)
+
+
+# how many other posts a failed item may follow, one after another
+MAX_LINKED_POSTS = 3
 
 
 def send_to_failover(item, result, jd2_gave_up=False):
@@ -493,17 +511,39 @@ def handle_failure(myDB, item, result, jd2_gave_up=False, repick=False):
             forget(item['id'])
             return
 
-        if 'links_exhausted' in result or not item.get('mainlink'):
+        if not item.get('mainlink'):
             ddl_give_up(myDB, item)
             return
 
-        ggc = getcomics.GC(comicid=item.get('comicid'), issueid=item.get('issueid'), oneoff=item.get('oneoff'))
-        if state['no_jd2']:
-            ggc.jd2 = None
-        # parse_downloadresults saves the next link to ddl_info and puts it back on DDL_QUEUE;
-        # when nothing is left it only returns links_exhausted
-        redo = ggc.parse_downloadresults(item['id'], item['mainlink'], item.get('comicinfo'), item.get('packinfo'), state['failed'])
-        if isinstance(redo, dict) and 'links_exhausted' in redo:
+        made = []
+
+        def gc():
+            # made only when a page is read; an exhausted item with no linked post needs none
+            if not made:
+                made.append(getcomics.GC(comicid=item.get('comicid'), issueid=item.get('issueid'), oneoff=item.get('oneoff')))
+                if state['no_jd2']:
+                    made[0].jd2 = None
+            return made[0]
+
+        exhausted = 'links_exhausted' in result
+        if not exhausted:
+            # parse_downloadresults saves the next link to ddl_info and puts it back on DDL_QUEUE;
+            # when nothing is left it only returns links_exhausted
+            redo = gc().parse_downloadresults(item['id'], item['mainlink'], item.get('comicinfo'), item.get('packinfo'), state['failed'])
+            exhausted = isinstance(redo, dict) and 'links_exhausted' in redo
+        posts = state.setdefault('posts', [item['mainlink']])
+        while exhausted and len(posts) <= MAX_LINKED_POSTS:
+            # every link on the post failed: try a post it links to for the same item, if there is one
+            post = getcomics.linked_post(item['id'], item.get('comicinfo'), posts)
+            if not post:
+                break
+            posts.append(post)
+            logger.info('[DDL-FAILOVER] Every link for %s failed - trying the post it links to: %s' % (item.get('series'), post))
+            myDB.upsert('ddl_info', {'mainlink': post}, {'id': item['id']})
+            state['failed'] = []  # the new post's sources haven't been tried
+            redo = gc().parse_downloadresults(item['id'], post, item.get('comicinfo'), item.get('packinfo'), state['failed'])
+            exhausted = isinstance(redo, dict) and 'links_exhausted' in redo
+        if exhausted:
             ddl_give_up(myDB, item)
     finally:
         with LOCK:
@@ -640,8 +680,46 @@ def ddl_process(myDB, item):
         forget(item['id'])
         ddl_cleanup(item['id'])
     else:
+        discard_download(myDB, item, ddzstat)
         return ddzstat
     return None
+
+
+def _inside(path, root):
+    path, root = os.path.realpath(path), os.path.realpath(root)
+    return path != root and path.startswith(root.rstrip(os.sep) + os.sep)
+
+
+def discard_download(myDB, item, ddzstat):
+    """Delete what a failed download left in DDL_LOCATION: an empty, cut-short or corrupt file,
+    a .zip that wouldn't unpack, and the folder it was partly unpacked into. The next source
+    writes a new file, so nothing here is worth keeping. Only touches paths inside DDL_LOCATION."""
+    location = getattr(mylar.CONFIG, 'DDL_LOCATION', None)
+    if not location:
+        return
+    paths = [ddzstat.get('path')]
+    try:
+        row = myDB.selectone('SELECT tmp_filename FROM ddl_info WHERE id=?', [item['id']]).fetchone()
+        if row is not None and row['tmp_filename']:
+            tmp = row['tmp_filename']
+            paths.append(tmp if os.path.isabs(tmp) else os.path.join(location, tmp))
+    except Exception as e:
+        logger.fdebug('[DDL] Unable to look up the partial download for %s: %s' % (item.get('id'), e))
+    for path in paths:
+        if not path or not _inside(path, location):
+            continue
+        if os.path.isfile(path):
+            try:
+                os.remove(path)
+                logger.info('[DDL] Deleted the failed download %s' % path)
+            except Exception as e:
+                logger.warn('[DDL] Unable to delete the failed download %s: %s' % (path, e))
+        if path.lower().endswith('.zip'):
+            # getcomics.zip_zip unpacks into DDL_LOCATION/<name without .zip>
+            folder = os.path.join(location, re.sub('.zip', '', os.path.basename(path)).strip())
+            if os.path.isdir(folder) and _inside(folder, location):
+                shutil.rmtree(folder, ignore_errors=True)
+                logger.info('[DDL] Deleted the partly unpacked folder %s' % folder)
 
 
 def ddl_cancelled(item, ddzstat=None):

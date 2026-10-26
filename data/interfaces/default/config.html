@@ -3,6 +3,9 @@
     import re
     import mylar
     from operator import itemgetter
+
+    # Settings boxes are not a sign-in form: stop browsers and password managers offering to save or fill them.
+    NOSAVE = 'autocomplete="off" data-lpignore="true" data-1p-ignore="true" data-bwignore="true" data-form-type="other"'
 %>
 
 <%doc>
@@ -15,7 +18,7 @@
 %endif
 </%def>
 
-<%def name="field(name, label, value, help='', id=None, type='text', placeholder='', attrs='', suffix='')">
+<%def name="field(name, label, value, help='', id=None, type='text', placeholder='', attrs='', suffix='', nosave=True)">
 <%
     fid = id or ('f_' + name)
     unset = value is None or str(value) == 'None'
@@ -23,7 +26,11 @@
 <div class="set-row">
     <label class="set-label" for="${fid}"><b>${label}</b>${hint(help)}</label>
     <div class="set-ctl">
-        <input type="${type}" name="${name}" id="${fid}" value="${'' if unset else value | h}" ${'data-none="1"' if unset else ''} ${('placeholder="%s"' % placeholder.replace('"', '&quot;')) if placeholder else ''} ${attrs} />${suffix}
+        %if type == 'secret':
+        <input type="text" class="secret" spellcheck="false" name="${name}" id="${fid}" value="${'' if unset else value | h}" ${'data-none="1"' if unset else ''} ${('placeholder="%s"' % placeholder.replace('"', '&quot;')) if placeholder else ''} ${NOSAVE} ${attrs} />${suffix}
+        %else:
+        <input type="${type}" name="${name}" id="${fid}" value="${'' if unset else value | h}" ${'data-none="1"' if unset else ''} ${('placeholder="%s"' % placeholder.replace('"', '&quot;')) if placeholder else ''} ${NOSAVE if nosave else ''} ${attrs} />${suffix}
+        %endif
     </div>
 </div>
 </%def>
@@ -132,6 +139,8 @@
             <div class="set-group-head"><h2 id="sg-cv">ComicVine</h2></div>
             ${field('comicvine_api', 'ComicVine API key', config['comicvine_api'], id='comicvine_api', attrs='class="set-wide" spellcheck="false"',
                     help='Needed for searching, series details and covers. <a href="https://comicvine.gamespot.com/api" target="_blank" rel="noopener">Get a free key</a>.')}
+            ${field('cvapi_rate', 'Wait between ComicVine requests', config['cvapi_rate'], attrs='inputmode="numeric" class="set-num"', suffix='<span class="set-unit">seconds</span>',
+                    help='Every ComicVine request waits its turn: series searches and refreshes, library scans and tagging. Issuarr also keeps each kind of request under ComicVine\'s limit of about 200 an hour. Between 2 and 60 seconds.')}
         </section>
 
         <section class="set-group" aria-labelledby="sg-web">
@@ -146,8 +155,9 @@
             </div>
             ${select('authentication', 'Sign-in', [(0, 'None'), (1, 'Browser pop-up (basic)'), (2, 'Login page (forms)')], config['authentication'], id='authentication', attrs='onchange="authoptions()"')}
             <div class="set-sub" id="auth_options">
-                ${field('http_username', 'User name', config['http_user'], attrs='autocomplete="off"')}
-                ${field('http_password', 'Password', config['http_pass'], type='password', attrs='autocomplete="new-password"')}
+                <%doc>Issuarr's own sign-in: a real user name and password pair, so the browser offers to save it.</%doc>
+                ${field('http_username', 'User name', config['http_user'], id='http_username', nosave=False, attrs='autocomplete="username"')}
+                ${field('http_password', 'Password', config['http_pass'], id='http_password', type='password', nosave=False, attrs='autocomplete="new-password"')}
             </div>
             ${field('instance_name', 'Instance name', config['instance_name'], id='instance_name', help='Shown in the browser tab. Useful when you run more than one.')}
             ${toggle('launch_browser', 'Open a browser when Issuarr starts', config['launch_browser'])}
@@ -177,7 +187,7 @@
                          help='Your Issuarr sign-in works, or set an OPDS-only user below. When off, anyone who can reach Issuarr can read the feed.')}
                 <div class="set-sub" id="opdscredentials">
                     ${field('opds_username', 'OPDS user name', config['opds_username'])}
-                    ${field('opds_password', 'OPDS password', config['opds_password'], type='password', attrs='autocomplete="new-password"')}
+                    ${field('opds_password', 'OPDS password', config['opds_password'], type='secret')}
                 </div>
                 ${toggle('opds_metainfo', 'Include writers and summaries', config['opds_metainfo'], id='opds_metainfo', help='Makes issue lists noticeably slower.')}
             </div>
@@ -212,7 +222,7 @@
         </section>
     </div>
 
-    <div id="tabs-3" class="set-panel" data-title="Download clients" data-sub="Where Issuarr sends what it finds: a Usenet client, a torrent client, or a folder another program watches.">
+    <div id="tabs-3" class="set-panel" data-title="Download clients" data-sub="Where Issuarr sends what it finds: a Usenet client, a torrent client, JDownloader 2, or a folder another program watches.">
         <section class="set-group" aria-labelledby="sg-usenet">
             <div class="set-group-head"><h2 id="sg-usenet">Usenet</h2></div>
             <div class="set-row">
@@ -228,7 +238,7 @@
             <div class="set-sub set-client" id="sabnzbd_options">
                 ${field('sab_host', 'SABnzbd address', config['sab_host'], id='sab_host', placeholder='http://localhost:8080')}
                 ${field('sab_username', 'User name', config['sab_user'], id='sab_username')}
-                ${field('sab_password', 'Password', config['sab_pass'], id='sab_password', type='password', attrs='autocomplete="new-password"')}
+                ${field('sab_password', 'Password', config['sab_pass'], id='sab_password', type='secret')}
                 <div class="set-row">
                     <label class="set-label" for="sab_apikey"><b>API key</b><span>Fill in the address, user name and password, then Get key can read it from SABnzbd.</span></label>
                     <div class="set-ctl">
@@ -259,7 +269,7 @@
                 ${field('nzbget_port', 'NZBGet port', config['nzbget_port'], id='nzbget_port', attrs='inputmode="numeric" class="set-num"')}
                 ${field('nzbget_sub', 'Sub-path', config['nzbget_sub'], id='nzbget_sub', help='Only if NZBGet is served under a path, e.g. /myname/nzbget, with no slash at the end.')}
                 ${field('nzbget_username', 'User name', config['nzbget_user'], id='nzbget_username')}
-                ${field('nzbget_password', 'Password', config['nzbget_pass'], id='nzbget_password', type='password', attrs='autocomplete="new-password"')}
+                ${field('nzbget_password', 'Password', config['nzbget_pass'], id='nzbget_password', type='secret')}
                 ${field('nzbget_directory', 'NZBGet download folder', config['nzbget_directory'], help='Where NZBGet puts finished downloads. Optional.')}
                 ${field('nzbget_category', 'Category', config['nzbget_cat'])}
                 ${select('nzbget_priority', 'Priority', [(p, p) for p in ['Default', 'Low', 'Normal', 'High', 'Force', 'Paused']], config['nzbget_priority'])}
@@ -306,7 +316,7 @@
                         ${field('seedbox_host', 'Seedbox address', config['seedbox_host'])}
                         ${field('seedbox_port', 'SFTP port', config['seedbox_port'], attrs='inputmode="numeric" class="set-num"')}
                         ${field('seedbox_user', 'User name', config['seedbox_user'])}
-                        ${field('seedbox_pass', 'Password', config['seedbox_pass'], type='password', attrs='autocomplete="new-password"')}
+                        ${field('seedbox_pass', 'Password', config['seedbox_pass'], type='secret')}
                         ${field('seedbox_watchdir', 'Watch folder', config['seedbox_watchdir'], help='The folder the seedbox client watches.')}
                     </div>
                 </div>
@@ -314,7 +324,7 @@
                 <div class="set-client" id="utorrent_options">
                     ${field('utorrent_host', 'uTorrent address', config['utorrent_host'])}
                     ${field('utorrent_username', 'User name', config['utorrent_username'])}
-                    ${field('utorrent_password', 'Password', config['utorrent_password'], type='password', attrs='autocomplete="new-password"')}
+                    ${field('utorrent_password', 'Password', config['utorrent_password'], type='secret')}
                     ${field('utorrent_label', 'Label', config['utorrent_label'], help='Given to every torrent Issuarr adds.')}
                 </div>
 
@@ -326,7 +336,7 @@
                     ${field('rtorrent_rpc_url', 'RPC path', config['rtorrent_rpc_url'], id='rtorrent_rpc_url',
                             help='httprpc plugin: rutorrent/plugins/httprpc/action.php. RPC plugin: user/RPC2.')}
                     ${field('rtorrent_username', 'User name', config['rtorrent_username'], id='rtorrent_username')}
-                    ${field('rtorrent_password', 'Password', config['rtorrent_password'], id='rtorrent_password', type='password', attrs='autocomplete="new-password"')}
+                    ${field('rtorrent_password', 'Password', config['rtorrent_password'], id='rtorrent_password', type='secret')}
                     ${field('rtorrent_directory', 'Download folder', config['rtorrent_directory'], help='Where rTorrent saves the torrents Issuarr adds.')}
                     ${field('rtorrent_label', 'Label', config['rtorrent_label'], help='Given to every torrent Issuarr adds.')}
                     ${toggle('rtorrent_startonload', 'Start torrents as soon as they are added', config['rtorrent_startonload'], id='rtorrent_startonload')}
@@ -336,7 +346,7 @@
                 <div class="set-client" id="transmission_options">
                     ${field('transmission_host', 'Transmission address', config['transmission_host'])}
                     ${field('transmission_username', 'User name', config['transmission_username'])}
-                    ${field('transmission_password', 'Password', config['transmission_password'], type='password', attrs='autocomplete="new-password"')}
+                    ${field('transmission_password', 'Password', config['transmission_password'], type='secret')}
                     ${field('transmission_directory', 'Download folder', config['transmission_directory'], help='Where Transmission saves the torrents Issuarr adds.')}
                 </div>
 
@@ -344,7 +354,7 @@
                     ${field('deluge_host', 'Deluge daemon address', config['deluge_host'], id='deluge_host', placeholder='192.168.1.2:58846',
                             help='Host and daemon port. Remote connections must be allowed in Deluge.')}
                     ${field('deluge_username', 'User name', config['deluge_username'], id='deluge_username')}
-                    ${field('deluge_password', 'Password', config['deluge_password'], id='deluge_password', type='password', attrs='autocomplete="new-password"')}
+                    ${field('deluge_password', 'Password', config['deluge_password'], id='deluge_password', type='secret')}
                     ${field('deluge_label', 'Label', config['deluge_label'], help='Given to every torrent Issuarr adds.')}
                     ${field('deluge_download_directory', 'Download folder', config['deluge_download_directory'])}
                     ${field('deluge_done_directory', 'Move finished downloads to', config['deluge_done_directory'])}
@@ -356,12 +366,22 @@
                     ${field('qbittorrent_host', 'qBittorrent address', config['qbittorrent_host'], id='qbittorrent_host', help='Host and port.')}
                     ${toggle('qbittorrent_ignore_ssl', 'Ignore SSL warnings', config['qbittorrent_ignore_ssl'], id='qbittorrent_ignore_ssl', help='Allows self-signed certificates.')}
                     ${field('qbittorrent_username', 'User name', config['qbittorrent_username'], id='qbittorrent_username')}
-                    ${field('qbittorrent_password', 'Password', config['qbittorrent_password'], id='qbittorrent_password', type='password', attrs='autocomplete="new-password"')}
+                    ${field('qbittorrent_password', 'Password', config['qbittorrent_password'], id='qbittorrent_password', type='secret')}
                     ${field('qbittorrent_label', 'Label', config['qbittorrent_label'], help='Given to every torrent Issuarr adds.')}
                     ${field('qbittorrent_folder', 'Download folder', config['qbittorrent_folder'])}
                     ${select('qbittorrent_loadaction', 'When a torrent is added', [('default', 'Use qBittorrent\'s default'), ('force_start', 'Force start'), ('pause', 'Add paused')], config['qbittorrent_loadaction'])}
                     ${tester('qbittorrent_test', 'Test qBittorrent', 'qbittorrent_statusicon')}
                 </div>
+            </div>
+        </section>
+
+        <section class="set-group" aria-labelledby="sg-jd2">
+            <div class="set-group-head"><h2 id="sg-jd2">JDownloader 2</h2><p>Used for direct downloads. When it's on, the mirror links in GetComics posts go to JDownloader 2, including hosts Issuarr can't download from itself, such as TeraBox. Issuarr still downloads from GetComics' own server. Everything Issuarr sends gets the comment <code>issuarr</code>, and downloads you add to JDownloader 2 yourself with that comment are filed too.</p></div>
+            ${toggle('jd2_enable', 'Send mirror links to JDownloader 2', config['jd2_enable'], id='jd2_enable')}
+            <div class="set-sub" id="jd2_options" style="display:none">
+                ${field('jd2_url', 'JDownloader 2 address', config['jd2_url'], id='jd2_url', placeholder='http://127.0.0.1:3128')}
+                ${field('jd2_dest_dir', 'Download folder', config['jd2_dest_dir'], id='jd2_dest_dir', help='Full path, as JDownloader 2 sees it.')}
+                ${field('jd2_local_dir', 'Same folder, as Issuarr sees it', config['jd2_local_dir'], id='jd2_local_dir', help='Only when the two see it under different paths, for example /output in JDownloader 2 and /downloads in Issuarr. Leave empty if the path is the same.')}
             </div>
         </section>
     </div>
@@ -386,11 +406,8 @@
             def ready(rows):
                 return any(str(r[5]) == '1' and re.sub(r'^\w+://', '', str(r[1] or '').strip()).strip('/') for r in rows or [])
             ogaps = []
-            if C.ENABLE_TORRENT_SEARCH and not C.ENABLE_32P:
-                if not C.ENABLE_TORZNAB:
-                    ogaps.append('Torrent search is on, but Use Torznab indexers is off.')
-                elif not ready(C.EXTRA_TORZNABS):
-                    ogaps.append('Torznab is on, but no indexer is turned on with an address.')
+            if C.ENABLE_TORZNAB and not ready(C.EXTRA_TORZNABS):
+                ogaps.append('Torznab is on, but no indexer is turned on with an address.')
             if C.NEWZNAB and not ready(C.EXTRA_NEWZNABS):
                 ogaps.append('Newznab is on, but no indexer is turned on with an address.')
             if C.ENABLE_DDL and not (C.ENABLE_GETCOMICS or C.ENABLE_ARCHIVEORG or C.ENABLE_EXTERNAL_SERVER):
@@ -439,6 +456,19 @@
             </div>
         </section>
 
+        <section class="set-group" aria-labelledby="sg-prowlarr">
+            <div class="set-group-head"><h2 id="sg-prowlarr">Prowlarr</h2></div>
+            <p class="set-note">Add your Prowlarr indexers here instead of one at a time. Usenet indexers become Newznab indexers and torrent indexers become Torznab indexers, each searched through Prowlarr.</p>
+            ${field('prowlarr_url', 'Prowlarr address', config['prowlarr_url'], id='prowlarr_url', placeholder='http://192.168.1.2:9696')}
+            ${field('prowlarr_apikey', 'Prowlarr API key', config['prowlarr_apikey'], id='prowlarr_apikey', attrs='class="set-wide mono" spellcheck="false"', help='In Prowlarr under Settings > General.')}
+            ${toggle('prowlarr_sync', 'Keep in sync', config['prowlarr_sync'], id='prowlarr_sync', help='Every 6 hours, add indexers you turn on in Prowlarr later, and turn off ones removed or turned off there. An indexer you remove here is not added back.')}
+            <div class="set-row">
+                <span class="set-label"><b>Indexers</b><span>Adding them saves them and reloads this page, so save other changes first.</span></span>
+                <div class="set-ctl"><input type="button" class="btn" id="prowlarr_load" value="Load from Prowlarr" /></div>
+            </div>
+            <div id="prowlarr_list" class="set-sub" hidden></div>
+        </section>
+
         <section class="set-group" aria-labelledby="sg-newznab">
             <div class="set-group-head"><h2 id="sg-newznab">Usenet indexers (Newznab)</h2></div>
             ${toggle('newznab', 'Use Newznab indexers', config['newznab'], id='usenewznab')}
@@ -473,35 +503,33 @@
 
         <section class="set-group" aria-labelledby="sg-torznab">
             <div class="set-group-head"><h2 id="sg-torznab">Torrent indexers (Torznab)</h2></div>
-            ${toggle('enable_torrent_search', 'Search torrent indexers', config['enable_torrent_search'], id='enable_torrent_search')}
-            <div class="set-sub">
-                ${toggle('enable_torznab', 'Use Torznab indexers', config['enable_torznab'], id='enable_torznab')}
-                <div class="set-sub" id="torznab_providers">
-                    %for tz in config['extra_torznabs']:
-                    <%
-                        tid = tz[6]
-                        tz_verify = 'checked' if tz[2] in ('1', 1) else ''
-                        tz_enabled = 'checked' if tz[5] in ('1', 1) else ''
-                    %>
-                    <div class="set-provider config" id="torznab${tid}">
-                        <div class="set-provider-head">
-                            <b>${tz[0] or 'Indexer' | h}</b>
-                            <label class="set-inline"><input type="checkbox" class="switch" id="torznab_enabled${tid}" name="torznab_enabled${tid}" value="1" ${tz_enabled} /> On</label>
-                        </div>
-                        ${field('torznab_name%s' % tid, 'Name', tz[0], id='torznab_name%s' % tid)}
-                        ${field('torznab_host%s' % tid, 'Address', tz[1], id='torznab_host%s' % tid)}
-                        ${toggle('torznab_verify%s' % tid, 'Verify the SSL certificate', tz_verify, id='torznab_verify%s' % tid)}
-                        ${field('torznab_apikey%s' % tid, 'API key', tz[3], id='torznab_apikey%s' % tid, attrs='class="set-wide mono" spellcheck="false"')}
-                        ${field('torznab_category%s' % tid, 'Category', tz[4], id='torznab_category%s' % tid)}
-                        <div class="set-provider-foot">
-                            <img name="torznabstatus${tid}" id="torznabstatus${tid}" src="images/success.png" class="set-test-icon" style="visibility:hidden;" width="18" height="18" alt="" />
-                            <input type="button" class="btn torznabtest" value="Test" id="torznab_test${tid}" name="torznab_test${tid}" />
-                            <input type="button" class="btn btn-ghost remove" value="Remove" />
-                        </div>
+            ${toggle('enable_torznab', 'Search Torznab indexers', config['enable_torznab'], id='enable_torznab',
+                     help='Found torrents go to the torrent client set under Download clients, so Use torrents needs to be on there too. The newest comics on each indexer are also read with the RSS check, like Newznab indexers.')}
+            <div class="set-sub" id="torznab_providers">
+                %for tz in config['extra_torznabs']:
+                <%
+                    tid = tz[6]
+                    tz_verify = 'checked' if tz[2] in ('1', 1) else ''
+                    tz_enabled = 'checked' if tz[5] in ('1', 1) else ''
+                %>
+                <div class="set-provider config" id="torznab${tid}">
+                    <div class="set-provider-head">
+                        <b>${tz[0] or 'Indexer' | h}</b>
+                        <label class="set-inline"><input type="checkbox" class="switch" id="torznab_enabled${tid}" name="torznab_enabled${tid}" value="1" ${tz_enabled} /> On</label>
                     </div>
-                    %endfor
-                    <input type="button" value="Add an indexer" class="btn add_torznab" id="add_torznab" />
+                    ${field('torznab_name%s' % tid, 'Name', tz[0], id='torznab_name%s' % tid)}
+                    ${field('torznab_host%s' % tid, 'Address', tz[1], id='torznab_host%s' % tid)}
+                    ${toggle('torznab_verify%s' % tid, 'Verify the SSL certificate', tz_verify, id='torznab_verify%s' % tid)}
+                    ${field('torznab_apikey%s' % tid, 'API key', tz[3], id='torznab_apikey%s' % tid, attrs='class="set-wide mono" spellcheck="false"')}
+                    ${field('torznab_category%s' % tid, 'Category', tz[4], id='torznab_category%s' % tid)}
+                    <div class="set-provider-foot">
+                        <img name="torznabstatus${tid}" id="torznabstatus${tid}" src="images/success.png" class="set-test-icon" style="visibility:hidden;" width="18" height="18" alt="" />
+                        <input type="button" class="btn torznabtest" value="Test" id="torznab_test${tid}" name="torznab_test${tid}" />
+                        <input type="button" class="btn btn-ghost remove" value="Remove" />
+                    </div>
                 </div>
+                %endfor
+                <input type="button" value="Add an indexer" class="btn add_torznab" id="add_torznab" />
             </div>
         </section>
 
@@ -523,7 +551,7 @@
                         </div>
                     </div>
                     <div class="set-row">
-                        <div class="set-label"><b>Download sources, in the order to try them</b><span>Sources a post doesn't offer are skipped. Cloud shares other than Mega, MediaFire and Pixeldrain need JDownloader 2.
+                        <div class="set-label"><b>Download sources, in the order to try them</b><span>Sources a post doesn't offer are skipped. Cloud shares other than Mega, MediaFire and Pixeldrain need JDownloader 2, set up under Download clients.
                             The Internet Archive is searched before GetComics when it's above all three GetComics sources, and right after GetComics otherwise.
                             Its zips of pages are saved as .cbz, so filing, WebP and tagging handle them as usual.</span></div>
                         <div class="set-ctl ddl-sources" id="ddl_sources_box">
@@ -553,17 +581,12 @@
                         <label class="set-label" for="pixeldrain_api_key"><b>Pixeldrain API key</b><span id="pixeldrain_status">Optional. Without a key Pixeldrain allows about 6 GB a day per connection.</span></label>
                         <div class="set-ctl">
                             %if config['pixeldrain_env']:
-                            <input type="password" id="pixeldrain_api_key" value="" placeholder="Set by the PIXELDRAIN_API_KEY environment variable" class="set-wide" disabled>
+                            <input type="text" id="pixeldrain_api_key" value="" placeholder="Set by the PIXELDRAIN_API_KEY environment variable" class="set-wide" disabled>
                             %else:
-                            <input type="password" autocomplete="off" name="pixeldrain_api_key" id="pixeldrain_api_key" value="${config['pixeldrain_api_key'] | h}" placeholder="None (free daily limit)" class="set-wide">
+                            <input type="text" ${NOSAVE} spellcheck="false" name="pixeldrain_api_key" id="pixeldrain_api_key" value="${config['pixeldrain_api_key'] | h}" placeholder="None (free daily limit)" class="set-wide secret">
                             %endif
                             <input type="button" class="btn" value="Test" id="test_pixeldrain">
                         </div>
-                    </div>
-                    ${toggle('jd2_enable', 'Send other hosts to JDownloader 2', config['jd2_enable'], id='jd2_enable')}
-                    <div class="set-sub" id="jd2_options" style="display:none">
-                        ${field('jd2_url', 'JDownloader 2 address', config['jd2_url'], id='jd2_url', placeholder='http://127.0.0.1:3128')}
-                        ${field('jd2_dest_dir', 'Download folder', config['jd2_dest_dir'], id='jd2_dest_dir', help='Full path, as JDownloader 2 sees it.')}
                     </div>
                     %if mylar.EXT_SERVER:
                     ${toggle('enable_external_server', 'External server', config['enable_external_server'], id='enable_external_server')}
@@ -583,13 +606,14 @@
             <div class="set-sub" id="airdcpp_options">
                 ${field('airdcpp_host', 'Address', config['airdcpp_host'], id='airdcpp_host', placeholder='http://localhost:5600')}
                 ${field('airdcpp_username', 'User name', config['airdcpp_username'], id='airdcpp_username')}
-                ${field('airdcpp_password', 'Password', config['airdcpp_password'], id='airdcpp_password', type='password', attrs='autocomplete="new-password"')}
+                ${field('airdcpp_password', 'Password', config['airdcpp_password'], id='airdcpp_password', type='secret')}
                 ${select('airdcpp_folder_mode', 'Where downloads go', [('issuarr', 'Issuarr sends the download folder'), ('airdcpp', 'AirDC++ uses its own download folder')], config['airdcpp_folder_mode'], id='airdcpp_folder_mode', help='Pick AirDC++\'s own folder when the two programs see folders under different paths, such as Docker or Windows.')}
                 ${field('airdcpp_download_dir', 'Download folder', config['airdcpp_download_dir'], id='airdcpp_download_dir', help='As Issuarr sees it. With AirDC++\'s own folder, this is that folder from Issuarr\'s side.')}
                 <div id="airdcpp_own_folder">
                 ${field('airdcpp_remote_dir', 'AirDC++ download folder, as AirDC++ sees it', config['airdcpp_remote_dir'], id='airdcpp_remote_dir', placeholder='/downloads', help='Optional. Lets Issuarr swap AirDC++\'s path for its own, so files in subfolders are found too.')}
                 </div>
                 ${field('airdcpp_hubs', 'Hubs to search', config['airdcpp_hubs'], id='airdcpp_hubs', help='Comma-separated. Leave empty for all hubs.')}
+                ${toggle('airdcpp_folder_packs', 'Grab other wanted issues from the same folder', config['airdcpp_folder_packs'], id='airdcpp_folder_packs', help='After an issue downloads, open the folder it came from on that user and queue the other Wanted issues of the series found there, one file each. Uses no extra hub searches.')}
                 ${field('airdcpp_announce_hub', 'Announcement hub', config['airdcpp_announce_hub'], id='airdcpp_announce_hub', help='One hub, as address:port, to watch for new releases the way an RSS feed would.')}
                 ${field('airdcpp_announce_bots', 'Announcement bots', config['airdcpp_announce_bots'], id='airdcpp_announce_bots', help='Nicknames whose announcements are read.')}
                 <%
@@ -601,7 +625,7 @@
 
         <section class="set-group" aria-labelledby="sg-rss">
             <div class="set-group-head"><h2 id="sg-rss">RSS</h2></div>
-            ${toggle('enable_rss', 'Check RSS feeds', config['enable_rss'], id='enable_rss', help='New releases are picked up from your Newznab and torrent indexers\' feeds between searches.')}
+            ${toggle('enable_rss', 'Check RSS feeds', config['enable_rss'], id='enable_rss', help='Between searches, Issuarr reads the newest posts from your Newznab indexers, GetComics (when direct downloads are on) and the AirDC++ announcement hub, and grabs any that match a wanted issue. Torznab indexers\' feeds aren\'t read.')}
             <div class="set-sub">
                 ${field('rss_checkinterval', 'Check every', config['rss_checkinterval'], attrs='inputmode="numeric" class="set-num"', suffix='<span class="set-unit">minutes</span>')}
                 <div class="set-row">
@@ -629,7 +653,7 @@
                     <select id="ignore_words" name="ignore_search_words[]" multiple placeholder="Add a word"></select>
                 </div>
             </div>
-            ${toggle('use_minsize', 'Minimum file size', config['use_minsize'], id='use_minsize')}
+            ${toggle('use_minsize', 'Minimum file size', config['use_minsize'], id='use_minsize', help='Results under 1 MB are always skipped as fakes. Turn this on for a higher floor.')}
             <div class="set-sub">
                 ${field('minsize', 'At least', config['minsize'], attrs='inputmode="numeric" class="set-num"', suffix='<span class="set-unit">MB</span>')}
             </div>
@@ -647,7 +671,7 @@
             <div class="set-sub">
                 ${field('duplicate_dump', 'Duplicates folder', config['duplicate_dump'], help='Full path.')}
             </div>
-            ${toggle('failed_download_handling', 'Handle failed downloads', config['failed_download_handling'], id='enable_failed')}
+            ${toggle('failed_download_handling', 'Handle failed downloads', config['failed_download_handling'], id='enable_failed', help='A failed release is never grabbed again, even when it comes back under another id or from another indexer with the same name.')}
             <div class="set-sub">
                 ${toggle('failed_auto', 'Retry failed downloads automatically', config['failed_auto'])}
             </div>
@@ -714,7 +738,7 @@
         </section>
 
         <section class="set-group" aria-labelledby="sg-meta">
-            <div class="set-group-head"><h2 id="sg-meta">Metadata</h2><p>Uses ComicTagger to write ComicInfo.xml into each file. Each tagged issue uses ComicVine API requests.</p></div>
+            <div class="set-group-head"><h2 id="sg-meta">Metadata</h2><p>Uses ComicTagger to write ComicInfo.xml into each file it files, which uses ComicVine API requests. Files already in your library that have no ComicInfo.xml get one on their own (once an hour Issuarr looks for them), built from the series and issue details Issuarr already has, without asking ComicVine. Credits and characters need Write metadata on the series page.</p></div>
             <div class="set-row set-tog">
                 <label class="set-label" for="cbr2cbz_only"><b>Convert CBR to CBZ</b><span id="cbr2cbz_section" style="display:none;"><span id="cbr2cbz_blurb"></span></span></label>
                 <% cbr2cbz_config = int(mylar.CONFIG.CBR2CBZ_ONLY) %>
@@ -794,6 +818,24 @@
 
         <section class="set-group" aria-labelledby="sg-notify">
             <div class="set-group-head"><h2 id="sg-notify">Notifications</h2><p>Turn on a service to set it up.</p></div>
+            ${toggle('notify_on_download', 'Notify when an issue is downloaded and filed', config['notify_on_download'])}
+            ${toggle('notify_on_added', 'Notify when files are added by hand', config['notify_on_added'], help='Files matched by hand on Needs attention, imported, or found in a series folder by a recheck. A recheck sends one message per series.')}
+            ${toggle('notify_on_attention', 'Notify when files land in Needs attention', config['notify_on_attention'], help='One message for the new files, checked every few minutes.')}
+            ${toggle('notify_on_match_needed', 'Notify when Import results needs you to choose a match', config['notify_on_match_needed'])}
+            ${toggle('notify_on_action', 'Notify when a download client can\'t be reached', config['notify_on_action'], help='The clients listed under Service status in the sidebar. Sent once when one goes down.')}
+            ${toggle('notify_on_disk_low', 'Notify when disk space runs low', config['notify_on_disk_low'], help='Checks the library, download and config folders. Sent once until there is space again.')}
+            ${field('notify_disk_min_gb', 'Warn below', config['notify_disk_min_gb'], attrs='inputmode="numeric" class="set-num"', suffix='<span class="set-unit">GB free</span>')}
+            ${toggle('notify_on_task_start', 'Notify when a task starts', config['notify_on_task_start'])}
+            ${toggle('notify_on_task_done', 'Notify when a task finishes', config['notify_on_task_done'])}
+            <div class="set-row">
+                <span class="set-label"><b>Tasks to notify about</b>${hint('The scheduled tasks on the Tasks page. RSS Feeds and Folder Monitor run every few minutes.')}</span>
+                <input type="hidden" name="notify_tasks_shown" value="1" />
+                <div class="set-ctl set-checks">
+                %for name, checked in config['notify_tasks']:
+                    <label><input type="checkbox" name="notify_task" value="${name}" ${checked} /> ${name}</label>
+                %endfor
+                </div>
+            </div>
 
             <%self:notifier key="discord" label="Discord" logo="discord.png" name="discord_enabled" checked="${config['discord_enabled']}">
                 ${field('discord_webhook_url', 'Webhook URL', config['discord_webhook_url'], id='discord_webhook_url', attrs='class="set-wide"')}
@@ -810,7 +852,7 @@
                     <div class="set-ctl"><input type="number" name="email_port" id="email_port" value="${config['email_port'] | h}" class="set-num" /></div>
                 </div>
                 ${field('email_user', 'SMTP user name', config['email_user'], id='email_user')}
-                ${field('email_password', 'SMTP password', config['email_password'], id='email_password', type='password', attrs='autocomplete="new-password"')}
+                ${field('email_password', 'SMTP password', config['email_password'], id='email_password', type='secret')}
                 <div class="set-row">
                     <div class="set-label"><b>Encryption</b><span>What your SMTP server requires.</span></div>
                     <div class="seg" role="radiogroup" aria-label="Encryption">
@@ -835,6 +877,14 @@
                 ${field('mattermost_webhook_url', 'Webhook URL', config['mattermost_webhook_url'], id='mattermost_webhook_url', attrs='class="set-wide"')}
                 ${toggle('mattermost_onsnatch', 'Notify when an issue is grabbed', config['mattermost_onsnatch'])}
                 ${tester('mattermost_test', 'Test Mattermost', 'mattermost_statusicon', 'mattermoststatus')}
+            </%self:notifier>
+
+            <%self:notifier key="ntfy" label="ntfy" logo="ntfy.png" name="ntfy_enabled" checked="${config['ntfy_enabled']}">
+                ${field('ntfy_server_url', 'Server address', config['ntfy_server_url'], id='ntfy_server_url', attrs='class="set-wide"', placeholder='https://ntfy.sh', help='https://ntfy.sh or your own ntfy server.')}
+                ${field('ntfy_topic', 'Topic', config['ntfy_topic'], id='ntfy_topic', help='On the public ntfy.sh anyone who knows the topic can read it, so pick one that is hard to guess.')}
+                ${field('ntfy_token', 'Access token', config['ntfy_token'], id='ntfy_token', type='secret', help='Only if your topic needs one.')}
+                ${toggle('ntfy_onsnatch', 'Notify when an issue is grabbed', config['ntfy_onsnatch'])}
+                ${tester('ntfy_test', 'Test ntfy', 'ntfy_statusicon', 'ntfystatus')}
             </%self:notifier>
 
             <%self:notifier key="pushbullet" label="Pushbullet" logo="pushbullet_logo.png" name="pushbullet_enabled" checked="${config['pushbullet_enabled']}">
@@ -880,6 +930,12 @@
                 ${field('boxcar_token', 'Token', config['boxcar_token'], id='boxcar_token')}
                 ${toggle('boxcar_onsnatch', 'Notify when an issue is grabbed', config['boxcar_onsnatch'])}
                 ${tester('boxcar_test', 'Test Boxcar', 'boxcar_statusicon')}
+            </%self:notifier>
+
+            <%self:notifier key="webhook" label="Webhook" logo="webhook.png" name="webhook_enabled" checked="${config['webhook_enabled']}">
+                ${field('webhook_url', 'URL', config['webhook_url'], id='webhook_url', attrs='class="set-wide"', help='Issuarr POSTs a JSON body here (Home Assistant, n8n, Node-RED or your own script). The fields are in the Notifications guide.')}
+                ${toggle('webhook_onsnatch', 'Notify when an issue is grabbed', config['webhook_onsnatch'])}
+                ${tester('webhook_test', 'Test webhook', 'webhook_statusicon', 'webhookstatus')}
             </%self:notifier>
         </section>
     </div>
@@ -1633,6 +1689,14 @@ $("#enable_airdcpp").click(function(){
                     {
                         $("#emailoptions").slideUp();
                     }
+                });
+
+                $.each(["ntfy", "webhook"], function (i, key) {
+                    $("#" + key + "options").toggle($("#" + key).is(":checked"));
+                    $("#" + key).click(function () {
+                        if ($(this).is(":checked")) { $("#" + key + "options").slideDown(); }
+                        else { $("#" + key + "options").slideUp(); }
+                    });
                 });
 
                 if ($("#gotify").is(":checked"))
@@ -2639,6 +2703,57 @@ $("#enable_airdcpp").click(function(){
                 });
 
 
+                function notifyTest(key, url, params) {
+                    var imagechk = document.getElementById(key + "_statusicon");
+                    $.get(url, params, function (data) {
+                        $('#' + key + 'status').val(data);
+                        $('#ajaxMsg').removeClass();
+                        $('#ajaxMsg').html("<div class='msg'><span class='ui-icon ui-icon-check'></span>" + $('<div>').text(data).html() + "</div>");
+                        imagechk.src = data.indexOf("Successfully") > -1 ? "images/success.png" : "images/x_red.png";
+                        imagechk.style.visibility = "visible";
+                    });
+                    $('#ajaxMsg').addClass('success').fadeIn().delay(3000).fadeOut();
+                }
+                $('#ntfy_test').click(function () {
+                    notifyTest('ntfy', 'testntfy', { server_url: $('#ntfy_server_url').val(), topic: $('#ntfy_topic').val(), token: $('#ntfy_token').val() });
+                });
+                $('#webhook_test').click(function () {
+                    notifyTest('webhook', 'testwebhook', { url: $('#webhook_url').val() });
+                });
+
+                /* Prowlarr: list its indexers, tick, add */
+                function prowlarrPost(url, data) {
+                    return $.ajax({ type: 'POST', url: url, data: $.extend({ url: $('#prowlarr_url').val(), apikey: $('#prowlarr_apikey').val() }, data), dataType: 'json' });
+                }
+                $('#prowlarr_load').click(function () {
+                    var box = $('#prowlarr_list');
+                    box.prop('hidden', false).html('<p class="muted">Asking Prowlarr…</p>');
+                    prowlarrPost('prowlarr_indexers', {}).done(function (d) {
+                        if (!d.ok) { box.html($('<p class="muted">').text(d.note)); return; }
+                        if (!d.indexers.length) { box.html('<p class="muted">Prowlarr has no Usenet or torrent indexers yet.</p>'); return; }
+                        var list = $('<ul class="prowlarr-list">');
+                        d.indexers.forEach(function (ix) {
+                            var note = [ix.protocol === 'usenet' ? 'Usenet (Newznab)' : 'Torrent (Torznab)',
+                                        ix.enabled ? '' : 'off in Prowlarr', ix.comics ? '' : 'no Comics category listed',
+                                        ix.added ? 'already added' : ''].filter(Boolean).join(' · ');
+                            var cb = $('<input type="checkbox">').val(ix.id).prop('checked', !ix.added && ix.enabled && ix.comics).prop('disabled', ix.added);
+                            list.append($('<li>').append($('<label class="set-inline">').append(cb, ' ', $('<b>').text(ix.name), ' ', $('<span class="muted">').text(note))));
+                        });
+                        var add = $('<input type="button" class="btn btn-primary" value="Add the ticked indexers" />');
+                        add.click(function () {
+                            var ids = list.find('input:checked').map(function () { return this.value; }).get();
+                            if (!ids.length) { Issuarr.toast('Tick at least one indexer.', false); return; }
+                            add.prop('disabled', true);
+                            prowlarrPost('prowlarr_add', { ids: ids.join(','), sync: $('#prowlarr_sync').is(':checked') ? '1' : '0' }).done(function (r) {
+                                Issuarr.toast(r.note, !!r.ok);
+                                if (r.ok) setTimeout(function () { location.reload(); }, 1200);
+                                else add.prop('disabled', false);
+                            }).fail(function () { Issuarr.toast('Couldn\'t add them. Check the log.', false); add.prop('disabled', false); });
+                        });
+                        box.empty().append(list, add);
+                    }).fail(function () { box.html('<p class="muted">Couldn\'t ask Prowlarr. Check the log.</p>'); });
+                });
+
 		$(function() {
 			$( "#tabs" ).tabs();
 		});
@@ -2733,7 +2848,6 @@ $("#enable_airdcpp").click(function(){
 		//initConfigCheckbox("#usenzbsu");
                 //initConfigCheckbox("#usedognzb");
                 initConfigCheckbox("#enable_torrents");
-                initConfigCheckbox("#enable_torrent_search");
                 initConfigCheckbox("#enable_rss");
 		
                 initConfigCheckbox("#replace_spaces");
@@ -2783,8 +2897,28 @@ $("#enable_airdcpp").click(function(){
         function comparable() { return $.param(fields().filter(function (f) { return f.name !== 'ignore_search_words[]'; })); }
         function pick(arr) { return $.param(arr.filter(function (f) { return APPEARANCE.test(f.name); })); }
         function dirty() { return saved !== null && comparable() !== saved; }
+        // Each section's fields on their own, so the sidebar can dot the sections with unsaved changes.
+        var savedPanels = null;
+        function panels() {
+            var out = {};
+            form.querySelectorAll('.set-panel').forEach(function (p) {
+                out[p.id] = $(p).find(':input[name]').not('[name="ignore_search_words[]"]').serialize();
+            });
+            return out;
+        }
+        function markPanels(d) {
+            var now = d && savedPanels ? panels() : null;
+            form.querySelectorAll('.set-panel').forEach(function (p) {
+                var changed = !!now && now[p.id] !== savedPanels[p.id];
+                document.querySelectorAll('#sidebar a.nav-child[href="config#' + p.id + '"]').forEach(function (a) {
+                    a.classList.toggle('has-unsaved', changed);
+                    if (changed) a.setAttribute('title', 'Unsaved changes'); else a.removeAttribute('title');
+                });
+            });
+        }
         function render() {
             var d = dirty();
+            markPanels(d);
             bar.classList.toggle('is-dirty', d);
             state.textContent = d ? 'Unsaved changes' : 'No unsaved changes';
             discardBtn.hidden = !d;
@@ -2802,13 +2936,35 @@ $("#enable_airdcpp").click(function(){
                 .done(function () {
                     var reload = savedAppearance !== null && pick(arr) !== savedAppearance;
                     saved = comparable();
+                    savedPanels = panels();
                     savedAppearance = pick(arr);
                     render();
                     Issuarr.toast(reload ? 'Settings saved. Reloading to apply your CSS.' : 'Settings saved.');
+                    offerSignInSave();
                     if (reload) { leaving = true; setTimeout(function () { location.reload(); }, 700); }
                 })
                 .fail(function () { Issuarr.toast('Couldn\'t save the settings. Check the log.', false); })
                 .always(function () { saveBtn.disabled = false; });
+        }
+        // Browsers don't notice a sign-in change saved in the background, so hand a changed
+        // login-page user name and password to the browser's password manager where it allows it
+        // (Chrome and Edge, over HTTPS or on localhost).
+        var signIn = signInNow();
+        function signInNow() {
+            var u = document.getElementById('http_username'), p = document.getElementById('http_password');
+            var mode = document.getElementById('authentication');
+            return { user: u ? u.value : '', pass: p ? p.value : '', forms: !!mode && mode.value === '2' };
+        }
+        function offerSignInSave() {
+            var now = signInNow(), before = signIn;
+            signIn = now;
+            if (!now.forms || !now.user || !now.pass) return;
+            // Only a newly typed password: the box can hold the stored, encrypted value.
+            if (now.pass === before.pass) return;
+            if (!window.PasswordCredential || !navigator.credentials || !navigator.credentials.store) return;
+            try {
+                navigator.credentials.store(new PasswordCredential({ id: now.user, password: now.pass, name: 'Issuarr' })).catch(function () {});
+            } catch (e) {}
         }
         saveBtn.addEventListener('click', save);
         discardBtn.addEventListener('click', function () { leaving = true; location.reload(); });
@@ -2819,7 +2975,7 @@ $("#enable_airdcpp").click(function(){
             if (!leaving && dirty()) { e.preventDefault(); e.returnValue = ''; }
         });
         // Take the starting point after the page scripts have filled in their fields.
-        $(function () { setTimeout(function () { saved = comparable(); savedAppearance = pick(fields()); render(); }, 0); });
+        $(function () { setTimeout(function () { saved = comparable(); savedPanels = panels(); savedAppearance = pick(fields()); render(); }, 0); });
 
         // The subtitle follows the section shown.
         var sub = document.getElementById('set-sub');
@@ -2860,6 +3016,34 @@ $("#enable_airdcpp").click(function(){
             none.hidden = !v || hits > 0;
             if (!v && lastPanel) { location.hash = '#' + lastPanel.id; lastPanel = null; }
         });
+
+        // Wide screens: deal each section's groups into columns that stack independently (see .set-cols).
+        var tabsEl = document.getElementById('tabs'), ncols = 0;
+        function layoutCols() {
+            var w = tabsEl.clientWidth, n = w >= 2400 ? 3 : w >= 1480 ? 2 : 1;
+            if (n === ncols) return;
+            ncols = n;
+            form.querySelectorAll('.set-panel:not(#tabs-7)').forEach(function (p) {
+                // in page order, kept from the first pass since the columns change the DOM order
+                var groups = p._setGroups || (p._setGroups = Array.prototype.slice.call(p.querySelectorAll('.set-group')));
+                var old = p.querySelector('.set-cols');
+                if (!groups.length) return;
+                if (n > 1) {
+                    var wrap = document.createElement('div'), cols = [];
+                    wrap.className = 'set-cols' + (n === 3 ? ' set-cols-3' : '');
+                    for (var i = 0; i < n; i++) { cols.push(wrap.appendChild(document.createElement('div'))); cols[i].className = 'set-col'; }
+                    groups.forEach(function (g, i) { cols[i % n].appendChild(g); });
+                    if (old) old.replaceWith(wrap); else p.appendChild(wrap);
+                } else if (old) {
+                    groups.forEach(function (g) { p.insertBefore(g, old); });
+                    old.remove();
+                }
+                p.classList.toggle('set-multi', n > 1);
+            });
+        }
+        layoutCols();
+        if (window.ResizeObserver) new ResizeObserver(layoutCols).observe(tabsEl);
+        else window.addEventListener('resize', layoutCols);
     })();
     </script>
 </%def>

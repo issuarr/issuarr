@@ -487,3 +487,93 @@ def test_a_night_with_nothing_left_does_not_walk_the_library_again(monkeypatch):
     monkeypatch.setattr(webp, 'select', lambda *a, **k: calls.append(a) or {'files': []})
     assert webp.run_gradual(busy=lambda: '') == 'nothing left to convert'
     assert calls == []
+
+
+# --- .cbr files are made .cbz by the library and nightly runs ---
+
+def cbr(env, name, fixture='comic-2019.rar'):
+    folder = env.lib / 'Hero'
+    folder.mkdir(exist_ok=True)
+    (folder / name).write_bytes(open(os.path.join(os.path.dirname(__file__), 'data', 'rar', fixture), 'rb').read())
+    return str(folder / name)
+
+
+def library_db(env, folder, name):
+    myDB = db.DBConnection()
+    myDB.action('CREATE TABLE IF NOT EXISTS comics (ComicID TEXT, ComicLocation TEXT)')
+    for table in ('issues', 'annuals'):
+        myDB.action('CREATE TABLE IF NOT EXISTS %s (IssueID TEXT, ComicID TEXT, Location TEXT, ComicSize TEXT)' % table)
+    myDB.action('CREATE TABLE IF NOT EXISTS storyarcs (IssueID TEXT, Location TEXT)')
+    myDB.action('INSERT INTO comics VALUES (?, ?)', ['1', folder])
+    myDB.action('INSERT INTO issues VALUES (?, ?, ?, ?)', ['10', '1', name, '0'])
+    return myDB
+
+
+@pytest.mark.unit
+def test_selection_includes_cbr_files_when_unrar_is_there(env, monkeypatch):
+    a = cbr(env, 'Hero 001 (2019).cbr')
+    (env.lib / 'Hero' / 'Hero 002 (2019).cb7').write_bytes(b'7z')
+    found = select(env)
+    assert found['files'] == [a] and found['other'] == 1   # dated 2019 by the ComicInfo.xml inside the RAR
+    monkeypatch.setattr(webp, 'rar_tool', lambda: False)
+    found = select(env)
+    assert found['files'] == [] and found['other'] == 2
+
+
+@pytest.mark.unit
+def test_bulk_run_makes_a_cbr_a_webp_cbz_and_keeps_the_cbr(env, monkeypatch):
+    from .test_webp import entries, rar_contents, sha
+    a = cbr(env, 'Hero 001 (2019).cbr')
+    original, pages = sha(a), rar_contents(a)[0]
+    myDB = library_db(env, str(env.lib / 'Hero'), 'Hero 001 (2019).cbr')
+    hold = env.root / 'hold'
+    webp.BULK.update(active=[], done=0, errors=[], before=0, after=0, saved=0)
+    webp._one(a, webp.options(root=str(env.lib), backup_dir=str(hold), threads=1))
+    new = str(env.lib / 'Hero' / 'Hero 001 (2019).cbz')
+    assert not os.path.exists(a) and webp.BULK['converted'] == 1, webp.BULK
+    after, _, order = entries(new)
+    assert order == ['001.webp', '002.webp', 'ComicInfo.xml'] and after['ComicInfo.xml'] == pages['ComicInfo.xml']
+    # the .cbr itself is what's kept, once
+    assert os.listdir(str(hold / 'Hero')) == ['Hero 001 (2019).cbr'] and sha(str(hold / 'Hero' / 'Hero 001 (2019).cbr')) == original
+    row = myDB.selectone('SELECT Location, ComicSize FROM issues').fetchone()
+    assert row['Location'] == 'Hero 001 (2019).cbz' and row['ComicSize'] == str(os.path.getsize(new))
+    assert webp.remembered()[new]['status'] == 'converted'
+    assert select(env)['files'] == []
+
+
+@pytest.mark.unit
+def test_a_cbr_with_nothing_to_gain_still_becomes_a_cbz(env, monkeypatch):
+    a = cbr(env, 'Hero 001 (2019).cbr')
+    env.cfg.WEBP_MIN_SOURCE_Q = 100   # every page counts as too low a quality to re-encode
+    webp.BULK.update(active=[], done=0, errors=[], before=0, after=0, saved=0)
+    webp._one(a, webp.options(root=str(env.lib), no_backup=True, threads=1, min_q=100))
+    new = str(env.lib / 'Hero' / 'Hero 001 (2019).cbz')
+    assert not os.path.exists(a) and os.path.exists(new) and webp.BULK['skipped'] == 1
+    assert webp.remembered()[new]['status'] == 'nothing to gain'
+
+
+@pytest.mark.unit
+def test_a_damaged_cbr_goes_to_needs_attention_and_a_locked_one_waits(env):
+    from .test_webp import sha
+    bad = cbr(env, 'Hero 001 (2019).cbr', 'corrupt-data.rar')
+    locked = cbr(env, 'Hero 002 (2019).cbr', 'rar5-psw.rar')
+    before = sha(bad), sha(locked)
+    webp.BULK.update(active=[], done=0, errors=[], before=0, after=0, saved=0)
+    opts = webp.options(root=str(env.lib), no_backup=True, threads=1)
+    for path in (bad, locked):
+        webp._one(path, opts)
+    assert (sha(bad), sha(locked)) == before and sorted(os.listdir(str(env.lib / 'Hero'))) == ['Hero 001 (2019).cbr', 'Hero 002 (2019).cbr']
+    assert webp.remembered()[bad]['status'] == 'damaged' and webp.remembered()[locked]['status'] == 'failed'
+    assert db.DBConnection().selectone('SELECT reason FROM attention WHERE path=?', [bad]).fetchone()['reason'] == 'damaged'
+    assert db.DBConnection().selectone('SELECT path FROM attention WHERE path=?', [locked]).fetchone() is None
+    assert select(env, unknown=True)['files'] == []   # neither is tried again until it changes
+
+
+@pytest.mark.unit
+def test_gradual_converts_cbr_files_too(night, env, monkeypatch):
+    a = cbr(env, 'Hero 000 (2019).cbr')
+    with open(a, 'ab') as f:   # the largest file, so tonight's first: unrar ignores data after the archive's end
+        f.write(bytes(10 ** 6))
+    env.cfg.WEBP_PER_NIGHT = 1
+    assert webp.run_gradual(clock=night.clock, busy=lambda: '') == 'done for tonight'
+    assert night.seen == [str(env.lib / 'Hero' / 'Hero 000 (2019).cbz')] and not os.path.exists(a)

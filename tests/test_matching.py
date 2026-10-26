@@ -92,7 +92,7 @@ def test_matching_a_file_to_another_issue_moves_it(series):
     assert matching.match('500', '1003', 'Foo 002 (2020).cbz')['ok']
     assert issue('1003')['Location'] == 'Foo 002 (2020).cbz'
     # its old issue has no file now, and the tagged file has nowhere left to go
-    assert issue('1002')['Status'] == 'Archived'
+    assert (issue('1002')['Status'], issue('1002')['Location']) == ('Skipped', None)
     assert issue('1001')['Location'] == 'Foo 001 (2020).cbz'
 
 
@@ -113,7 +113,20 @@ def test_a_match_whose_file_is_gone_is_dropped(series):
     os.remove(series / 'Bar 007.cbz')
     updater.forceRescan('500')
     assert issue('1004')['forced_file'] == 0
+    assert (issue('1004')['Status'], issue('1004')['Location']) == ('Skipped', None)
+
+
+@pytest.mark.unit
+def test_a_downloaded_issue_whose_file_is_gone_is_skipped_and_archived_ones_are_kept(series):
+    updater.forceRescan('500')
+    db.DBConnection().action("UPDATE issues SET Status='Archived' WHERE IssueID='1004'")
+    os.remove(series / 'Foo 002 (2020).cbz')
+    updater.forceRescan('500')
+    assert (issue('1002')['Status'], issue('1002')['Location']) == ('Skipped', None)
+    assert issue('1001')['Status'] == 'Downloaded'
     assert issue('1004')['Status'] == 'Archived'
+    have, total = db.DBConnection().selectone("SELECT Have, Total FROM comics WHERE ComicID='500'").fetchone()
+    assert (have, total) == (3, 4)
 
 
 @pytest.mark.unit
@@ -188,3 +201,75 @@ def test_wrong_series_needs_a_different_series_with_its_issues(series, tmp_path)
     got = matching.move_to('500', '700')
     assert got['ok'] is False and 'still being added' in got['note']
     assert len(os.listdir(series)) == 4
+
+
+def wrong_job(monkeypatch, tmp_path, kept_file=False, **choices):
+    """Run a Wrong series job to the end, with ComicVine standing in: the right series turns up
+    after a couple of looks, the way it does while its issues load."""
+    from mylar import attention, helpers, search
+    right = tmp_path / 'library' / 'Foo (2019)'
+    looks = []
+
+    def state(comicid):
+        looks.append(comicid)
+        if len(looks) == 2:
+            right_series(right)
+            if kept_file:
+                comic_file(right / 'Foo 001 (2020).cbz')
+        return attention.__wrapped_state(comicid)
+
+    monkeypatch.setattr(attention, '__wrapped_state', attention.series_state, raising=False)
+    monkeypatch.setattr(attention, 'add_series', lambda comicid, name=None, year=None: {'ok': True, 'state': 'adding'})
+    monkeypatch.setattr(attention, 'series_state', state)
+    monkeypatch.setattr(search, 'drop_series', lambda comicid: 0)
+    monkeypatch.setattr(helpers, 'ComicSort', lambda **k: None)
+    monkeypatch.setattr(matching, 'JOB_POLL', 0)
+    monkeypatch.setattr(matching, '_JOBS', {})
+    started = matching.wrong_series('500', '600', 'Foo', '2019', **choices)
+    assert started['ok'] and started['state'] == 'adding'
+    for t in __import__('threading').enumerate():
+        if t.name == 'WRONG-SERIES':
+            t.join(10)
+    return right, matching.wrong_series_state('500')
+
+
+def watched(comicid):
+    return db.DBConnection().selectone('SELECT ComicID FROM comics WHERE ComicID=?', [comicid]).fetchone() is not None
+
+
+@pytest.mark.unit
+def test_wrong_series_runs_in_the_background_and_removes_the_wrong_one_when_asked(series, tmp_path, monkeypatch):
+    right, job = wrong_job(monkeypatch, tmp_path, move=True, remove=True)
+    assert job['state'] == 'done' and job['removed'], job
+    assert sorted(os.listdir(right)) == ['Bar 007.cbz', 'Foo 001 (2020).cbz', 'Foo 002 (2020).cbz', 'weird scan.cbz']
+    assert issue('2001')['Status'] == 'Downloaded'
+    assert not watched('500') and watched('600')
+    assert os.path.isdir(series)   # the wrong series' folder is left alone
+
+
+@pytest.mark.unit
+def test_wrong_series_keeps_the_wrong_one_unless_asked(series, tmp_path, monkeypatch):
+    right, job = wrong_job(monkeypatch, tmp_path, move=True, remove=False)
+    assert job['state'] == 'done' and not job['removed']
+    assert watched('500') and len(os.listdir(right)) == 4
+
+
+@pytest.mark.unit
+def test_wrong_series_keeps_the_wrong_one_while_files_are_left_in_its_folder(series, tmp_path, monkeypatch):
+    right, job = wrong_job(monkeypatch, tmp_path, kept_file=True, move=True, remove=True)
+    assert job['state'] == 'done' and not job['removed'] and job['kept'] == ['Foo 001 (2020).cbz']
+    assert watched('500') and os.path.exists(series / 'Foo 001 (2020).cbz')
+
+
+@pytest.mark.unit
+def test_wrong_series_can_just_add_the_right_one(series, tmp_path, monkeypatch):
+    right, job = wrong_job(monkeypatch, tmp_path, move=False, remove=False)
+    assert job['state'] == 'done' and watched('500') and watched('600')
+    assert len(os.listdir(series)) == 4
+
+
+@pytest.mark.unit
+def test_wrong_series_needs_a_different_series(series):
+    assert matching.wrong_series('500', '500')['ok'] is False
+    assert matching.wrong_series('999', '600')['ok'] is False
+    assert matching.wrong_series('500', 'abc')['ok'] is False

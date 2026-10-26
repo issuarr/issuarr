@@ -31,7 +31,7 @@ import requests
 import threading
 
 import mylar
-from mylar import logger, filers, helpers, db, mb, cv, parseit, filechecker, search, updater, moveit, comicbookdb, series_metadata
+from mylar import logger, filers, helpers, db, mb, cv, parseit, filechecker, search, updater, moveit, comicbookdb, series_metadata, want_from, importchoice
 
 
 def is_exists(comicid):
@@ -647,6 +647,9 @@ def addComictoDB(comicid, mismatch=None, pullupd=None, imported=None, ogcname=No
     statbefore = myDB.selectone("SELECT Status FROM issues WHERE ComicID=? AND Int_IssueNumber=?", [comicid, helpers.issue_number_parser(latestiss).asInt]).fetchone()
     logger.fdebug('issue: ' + latestiss + ' status before chk :' + str(statbefore['Status']))
     updater.forceRescan(comicid)
+    if imported not in (None, 'None', 'futurecheck'):
+        moveit.tag_imported(comicid)
+        importchoice.mark_untied(comicid)
 
     #series.json updater here (after all data written out)
     if not json_updated and mylar.CONFIG.SERIES_METADATA_LOCAL is True:
@@ -910,11 +913,6 @@ def GCDimport(gcomicid, pullupd=None, imported=None, ogcname=None):
 
     coverfile = os.path.join(mylar.CONFIG.CACHE_DIR, str(gcomicid) + ".jpg")
 
-    #new CV API restriction - one api request / second.
-    if mylar.CONFIG.CVAPI_RATE is None or mylar.CONFIG.CVAPI_RATE < 2:
-        time.sleep(2)
-    else:
-        time.sleep(mylar.CONFIG.CVAPI_RATE)
 
     urllib.request.urlretrieve(str(ComicImage), str(coverfile))
     try:
@@ -1093,6 +1091,8 @@ def GCDimport(gcomicid, pullupd=None, imported=None, ogcname=None):
 
     #check for existing files...
     updater.forceRescan(gcomicid)
+    if imported not in (None, 'None'):
+        importchoice.mark_untied(gcomicid)
 
 
     if pullupd is None:
@@ -1160,6 +1160,8 @@ def issue_collection(issuedata, nostatus, serieslast_updated=None, suppress_adda
                             "ImageURL_ALT":       issue['ImageURL_ALT']
                             #"Status":             "Skipped"  #set this to Skipped by default to avoid NULL entries.
                             }
+            if issue.get('Description'):
+                newValueDict['Description'] = issue['Description']   # kept for tags written from stored info
 
             # check if the issue already exists
             iss_exists = myDB.selectone('SELECT * from issues WHERE IssueID=?', [issue['IssueID']]).fetchone()
@@ -1203,6 +1205,7 @@ def issue_collection(issuedata, nostatus, serieslast_updated=None, suppress_adda
                                 newValueDict['Status'] = "Wanted"
                             else:
                                 newValueDict['Status'] = "Skipped"
+                            newValueDict['Status'] = want_from.adjust(issue['ComicID'], issue['Issue_Number'], newValueDict['Status'])
                         #logger.fdebug('status is : %s' % (newValueDict,))
                 else:
                     #logger.fdebug('Existing status for issue #%s : %s' % (issue['Issue_Number'], iss_exists['Status']))
@@ -1472,7 +1475,8 @@ def updateissuedata(comicid, comicname=None, issued=None, comicIssues=None, call
                               "Int_IssueNumber":    int_issnum,
                               "AltIssueNumber":     legacy_num,
                               "ImageURL":           firstval['Image'],
-                              "ImageURL_ALT":       firstval['ImageALT']})
+                              "ImageURL_ALT":       firstval['ImageALT'],
+                              "Description":        firstval.get('Description')})
 
             n+=1
 

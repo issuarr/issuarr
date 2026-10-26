@@ -183,6 +183,10 @@ LOCAL_IP = None
 APILOCK = False
 SEARCHLOCK = False
 SEARCH_CURRENT = None  # the search-queue item being searched, for the Wanted page
+SEARCH_ABORT = None  # ComicID of SEARCH_CURRENT once its series is deleted, '*' once the queue is stopped
+SEARCH_PAUSED = False  # search queue paused from Wanted: nothing new starts until it's resumed
+DDL_PAUSED = False  # direct-download queue paused from Downloads: nothing new starts until it's resumed
+JOB_STOP = set()  # Tasks: running jobs asked to stop ('search', 'rss', 'monitor'); each ends at its next safe point
 CMTAGGER_PATH = None
 STATIC_COMICRN_VERSION = "1.01"
 STATIC_APC_VERSION = "2.04"
@@ -394,9 +398,11 @@ def initialize(config_file):
 
         # startup check(s) here so that the config values are already loaded against.
         if all([mylar.USE_SABNZBD is True, mylar.CONFIG.SAB_HOST is not None]):
-            s_to_the_ab = sabnzbd.SABnzbd(params=None)
-            s_to_the_ab.sab_versioncheck()
-            logger.info('[SAB-VERSION-CHECK] SABnzbd version detected as: %s' % mylar.CONFIG.SAB_VERSION)
+            # in the background, so a SABnzbd address that doesn't answer can't hold up startup
+            def sab_startup_check():
+                sabnzbd.SABnzbd(params=None).sab_versioncheck()
+                logger.info('[SAB-VERSION-CHECK] SABnzbd version detected as: %s' % mylar.CONFIG.SAB_VERSION)
+            threading.Thread(target=sab_startup_check, name='SAB-VERSION-CHECK', daemon=True).start()
 
         # make sure the intLatestIssue field is populated with values...
         # ??helpers.latestissue_update()
@@ -509,10 +515,28 @@ def start():
             SCHED.add_job(func=webp.gradual_tick, id='webp', name='WebP Gradual', max_instances=1, coalesce=True,
                           trigger=IntervalTrigger(hours=0, minutes=webp.GRADUAL_TICK, timezone='UTC'))
 
+            # Untagged issue files get tags from the stored issue info while tagging is on (does nothing otherwise)
+            from mylar import autotag
+            SCHED.add_job(func=autotag.tick, id='autotag', name='Auto-Tag', max_instances=1, coalesce=True,
+                          next_run_time=datetime.datetime.utcnow() + datetime.timedelta(minutes=10),
+                          trigger=IntervalTrigger(hours=0, minutes=autotag.TICK, timezone='UTC'))
+
             # Snatched issues whose download was lost or removed, or whose files were moved into the library by hand
             from mylar import downloadqueue
             SCHED.add_job(func=downloadqueue.clear_stuck_tick, id='snatched', name='Stuck Snatched', max_instances=1, coalesce=True,
                           trigger=IntervalTrigger(hours=0, minutes=downloadqueue.CLEAR_EVERY, timezone='UTC'))
+
+            # Indexers from Prowlarr, while Keep in sync is on (does nothing otherwise)
+            from mylar import prowlarr
+            SCHED.add_job(func=prowlarr.sync, id='prowlarr', name='Prowlarr Sync', max_instances=1, coalesce=True,
+                          next_run_time=datetime.datetime.utcnow() + datetime.timedelta(minutes=5),
+                          trigger=IntervalTrigger(hours=prowlarr.SYNC_HOURS, timezone='UTC'))
+
+            # Notifications about Issuarr itself: Needs attention, matches to choose, clients down, low disk space
+            from mylar import alerts
+            SCHED.add_job(func=alerts.tick, id='alerts', name='Alerts', max_instances=1, coalesce=True,
+                          next_run_time=datetime.datetime.utcnow() + datetime.timedelta(minutes=1),
+                          trigger=IntervalTrigger(hours=0, minutes=alerts.TICK, timezone='UTC'))
 
             #load up the previous runs from the job sql table so we know stuff...
             monitors = helpers.job_management(startup=True)
@@ -827,7 +851,7 @@ def dbcheck():
         except sqlite3.OperationalError:
             logger.warn('Unable to update readinglist table to new storyarc table format.')
 
-    c.execute('CREATE TABLE IF NOT EXISTS comics (ComicID TEXT UNIQUE, ComicName TEXT, ComicSortName TEXT, ComicYear TEXT, DateAdded TEXT, Status TEXT, IncludeExtras INTEGER, Have INTEGER, Total INTEGER, ComicImage TEXT, FirstImageSize INTEGER, ComicPublisher TEXT, PublisherImprint TEXT, ComicLocation TEXT, ComicPublished TEXT, NewPublish TEXT, LatestIssue TEXT, intLatestIssue INT, LatestDate TEXT, Description TEXT, DescriptionEdit TEXT, QUALalt_vers TEXT, QUALtype TEXT, QUALscanner TEXT, QUALquality TEXT, LastUpdated TEXT, AlternateSearch TEXT, UseFuzzy TEXT, ComicVersion TEXT, SortOrder INTEGER, DetailURL TEXT, ForceContinuing INTEGER, ComicName_Filesafe TEXT, AlternateFileName TEXT, ComicImageURL TEXT, ComicImageALTURL TEXT, DynamicComicName TEXT, AllowPacks TEXT, Type TEXT, Corrected_SeriesYear TEXT, Corrected_Type TEXT, Corrected_Publisher TEXT, Corrected_Imprint TEXT, TorrentID_32P TEXT, LatestIssueID TEXT, Collects CLOB, IgnoreType INTEGER, AgeRating TEXT, FilesUpdated TEXT, seriesjsonPresent INT, dirlocked INTEGER, cv_removed INTEGER)')
+    c.execute('CREATE TABLE IF NOT EXISTS comics (ComicID TEXT UNIQUE, ComicName TEXT, ComicSortName TEXT, ComicYear TEXT, DateAdded TEXT, Status TEXT, IncludeExtras INTEGER, Have INTEGER, Total INTEGER, ComicImage TEXT, FirstImageSize INTEGER, ComicPublisher TEXT, PublisherImprint TEXT, ComicLocation TEXT, ComicPublished TEXT, NewPublish TEXT, LatestIssue TEXT, intLatestIssue INT, LatestDate TEXT, Description TEXT, DescriptionEdit TEXT, QUALalt_vers TEXT, QUALtype TEXT, QUALscanner TEXT, QUALquality TEXT, LastUpdated TEXT, AlternateSearch TEXT, UseFuzzy TEXT, ComicVersion TEXT, SortOrder INTEGER, DetailURL TEXT, ForceContinuing INTEGER, ComicName_Filesafe TEXT, AlternateFileName TEXT, ComicImageURL TEXT, ComicImageALTURL TEXT, DynamicComicName TEXT, AllowPacks TEXT, UsePacks INTEGER, Type TEXT, Corrected_SeriesYear TEXT, Corrected_Type TEXT, Corrected_Publisher TEXT, Corrected_Imprint TEXT, TorrentID_32P TEXT, LatestIssueID TEXT, Collects CLOB, IgnoreType INTEGER, AgeRating TEXT, FilesUpdated TEXT, seriesjsonPresent INT, dirlocked INTEGER, cv_removed INTEGER)')
     c.execute('CREATE TABLE IF NOT EXISTS issues (IssueID TEXT, ComicName TEXT, IssueName TEXT, Issue_Number TEXT, DateAdded TEXT, Status TEXT, Type TEXT, ComicID TEXT, ArtworkURL Text, ReleaseDate TEXT, Location TEXT, IssueDate TEXT, DigitalDate TEXT, Int_IssueNumber INT, ComicSize TEXT, AltIssueNumber TEXT, IssueDate_Edit TEXT, ImageURL TEXT, ImageURL_ALT TEXT, forced_file INT)')
     c.execute('CREATE TABLE IF NOT EXISTS snatched (IssueID TEXT, ComicName TEXT, Issue_Number TEXT, Size INTEGER, DateAdded TEXT, Status TEXT, FolderName TEXT, ComicID TEXT, Provider TEXT, Hash TEXT, crc TEXT)')
     c.execute('CREATE TABLE IF NOT EXISTS upcoming (ComicName TEXT, IssueNumber TEXT, ComicID TEXT, IssueID TEXT, IssueDate TEXT, Status TEXT, DisplayComicName TEXT)')
@@ -852,11 +876,14 @@ def dbcheck():
     c.execute('CREATE TABLE IF NOT EXISTS notifs(session_id INT, date TEXT, event TEXT, comicid TEXT, comicname TEXT, issuenumber TEXT, seriesyear TEXT, status TEXT, message TEXT, PRIMARY KEY (session_id, date))')
     c.execute('CREATE TABLE IF NOT EXISTS provider_searches(id INTEGER UNIQUE, provider TEXT UNIQUE, type TEXT, lastrun INTEGER, active TEXT, hits INTEGER DEFAULT 0)')
     c.execute('CREATE TABLE IF NOT EXISTS mylar_info(DatabaseVersion INTEGER PRIMARY KEY)')
+    c.execute('CREATE TABLE IF NOT EXISTS library_files (Path TEXT PRIMARY KEY, Size INTEGER, Mtime REAL)')
+    c.execute('CREATE TABLE IF NOT EXISTS unmatched_ignored (Path TEXT PRIMARY KEY, Size INTEGER, Mtime REAL)')
     conn.commit()
 
     #create some indexes
     c.execute('CREATE INDEX IF NOT EXISTS issues_id on issues(IssueID)')
     c.execute('CREATE INDEX IF NOT EXISTS comics_id on comics(ComicID)')
+    c.execute('CREATE INDEX IF NOT EXISTS importresults_location on importresults(ComicLocation)')
 
     #might enable these at a later date.
     #c.execute('''PRAGMA synchronous = EXTRA''')
@@ -969,6 +996,12 @@ def dbcheck():
     except sqlite3.OperationalError:
         c.execute('ALTER TABLE comics ADD COLUMN AllowPacks TEXT')
 
+    # AllowPacks was 32P-only and saved as off for every series; UsePacks starts empty (allowed)
+    try:
+        c.execute('SELECT UsePacks from comics')
+    except sqlite3.OperationalError:
+        c.execute('ALTER TABLE comics ADD COLUMN UsePacks INTEGER')
+
     try:
         c.execute('SELECT Type from comics')
     except sqlite3.OperationalError:
@@ -1056,6 +1089,11 @@ def dbcheck():
         c.execute('ALTER TABLE comics ADD COLUMN cv_removed INT')
 
     try:
+        c.execute('SELECT WantFrom from comics')
+    except sqlite3.OperationalError:
+        c.execute('ALTER TABLE comics ADD COLUMN WantFrom TEXT')
+
+    try:
         c.execute('SELECT DynamicComicName from comics')
         if CONFIG.DYNAMIC_UPDATE < 3:
             dynamic_upgrade = True
@@ -1106,6 +1144,11 @@ def dbcheck():
         c.execute('SELECT forced_file from issues')
     except sqlite3.OperationalError:
         c.execute('ALTER TABLE issues ADD COLUMN forced_file INT')
+
+    try:
+        c.execute('SELECT Description from issues')
+    except sqlite3.OperationalError:
+        c.execute('ALTER TABLE issues ADD COLUMN Description TEXT')
 
     ## -- ImportResults Table --
 

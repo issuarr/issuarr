@@ -13,7 +13,7 @@
 #  You should have received a copy of the GNU General Public License
 #  along with Issuarr.  If not, see <http://www.gnu.org/licenses/>.
 
-"""The way from Wanted into the library, for the flow line on Wanted and Downloads > Queue.
+"""The way from Wanted into the library, for the flow line on Downloads > Queue (and the Wanted rows).
 
 An issue goes Wanted -> searched -> downloading -> filed. Each step keeps its own state
 (the search queue, ddl_info, the download clients, post-processing); flow() puts them side
@@ -124,7 +124,7 @@ def _search(issues):
         if w.get('issueid') is not None:
             issues.setdefault(str(w['issueid']), {'stage': 'search', 'state': 'waiting', 'place': n + 1})
     return {'current': current, 'waiting': len(waiting), 'next': [w for w in waiting[:3]],
-            'busy': st['busy'], 'blocked': blocked, 'next_run': nxt}
+            'busy': st['busy'], 'blocked': blocked, 'next_run': nxt, 'paused': st['paused']}
 
 
 def _ddl(rows, issues):
@@ -174,7 +174,7 @@ def _stalled(now, stuck):
     Work at JD2 doesn't count as downloading: it never picks up these rows, and a job it can't
     finish can sit there for hours.
     """
-    return bool(stuck) and not any(n['via'] != 'JDownloader 2' for n in now)
+    return bool(stuck) and not any(n['via'] != 'JDownloader 2' for n in now) and not mylar.DDL_PAUSED
 
 
 def stalled_downloads(myDB):
@@ -188,7 +188,8 @@ def _downloads(myDB, issues):
     sent = downloadqueue.client_snatches(myDB)
     for w in sent:
         issues.setdefault(str(w['issueid']), {'stage': 'download', 'state': 'client'})
-    return {'now': now, 'queued': queued, 'client': len(sent), 'incomplete': held, 'stalled': _stalled(now, stuck)}
+    return {'now': now, 'queued': queued, 'client': len(sent), 'incomplete': held, 'stalled': _stalled(now, stuck),
+            'paused': bool(mylar.DDL_PAUSED)}
 
 
 def _filing():
@@ -261,7 +262,8 @@ def flow(events=8):
         out['download'] = _downloads(myDB, issues)
     except Exception as e:
         logger.fdebug('[ACTIVITY] Could not read the download queue: %s' % e)
-        out['download'] = {'now': [], 'queued': 0, 'client': 0, 'incomplete': 0, 'stalled': False}
+        out['download'] = {'now': [], 'queued': 0, 'client': 0, 'incomplete': 0, 'stalled': False,
+                           'paused': bool(mylar.DDL_PAUSED)}
     out['filing'] = _filing()
     out['wanted'] = _wanted(myDB)
     today = datetime.datetime.now().strftime('%Y-%m-%d 00:00:00')

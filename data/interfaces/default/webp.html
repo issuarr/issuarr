@@ -22,7 +22,7 @@
 		<ul>
 			<li>ComicInfo.xml and every non-page file in each archive are kept byte for byte, and no page is ever dropped. A page that can't be read, is CMYK, is a low-quality JPEG, or wouldn't get smaller stays exactly as it is.</li>
 			<li>Each new file is checked (every page decoded at the same size, page order unchanged, all other entries identical) before it replaces the original. A file that fails a check is left alone.</li>
-			<li>Keep the originals in a holding folder until you've looked through some converted issues. Only .cbz files are converted.</li>
+			<li>Keep the originals in a holding folder until you've looked through some converted issues. .cbz and .cbr files are converted: a .cbr is repacked as a .cbz first (checked entry for entry, and the issue's file name updated), and stays a .cbz even when WebP saves nothing.</li>
 			<li>Pause Kavita's folder watching while this runs, and scan the library once at the end.</li>
 		</ul>
 	</div>

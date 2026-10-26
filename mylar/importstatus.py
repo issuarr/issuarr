@@ -44,6 +44,7 @@ def _blank():
             'message': None,
             'stop_requested': False,
             'files_found': 0,
+            'files_unchanged': 0,
             'files_total': 0,
             'files_parsed': 0,
             'files_analyzed': 0,
@@ -61,6 +62,9 @@ def _blank():
             'phase_started': None}
 
 _state = _blank()
+# series picked on Import results while an import runs: it does them next (START_LOCK guards it)
+_picked = []
+_closing = [False]
 _ratelimit = {'until': None, 'reason': None, 'resource': None, 'attempt': 0, 'count': 0}
 
 
@@ -75,6 +79,31 @@ def start(mode, message=None):
         _state['phase'] = 'scanning' if mode == 'scan' else 'importing'
         _state['message'] = message
         _state['rl_base'] = rl_count
+        _closing[0] = False
+
+
+def add_picked(comicinfo):
+    """Hand a picked series to the running import. False when no import can take it: none is
+    running, or it is finishing. The caller holds START_LOCK."""
+    if running() != 'import' or _closing[0]:
+        return False
+    _picked.append(comicinfo)
+    inc('series_total')
+    return True
+
+
+def next_picked():
+    with START_LOCK:
+        return _picked.pop(0) if _picked else None
+
+
+def close_if_no_picks():
+    """The running import is done once nothing more was picked; after this, picks start their own."""
+    with START_LOCK:
+        if _picked:
+            return False
+        _closing[0] = True
+        return True
 
 
 def phase(name, message=None):
@@ -112,6 +141,7 @@ def finish(result='completed', message=None):
         _state['result'] = result
         _state['series_current'] = None
         _state['stop_requested'] = False
+        del _picked[:]   # a stopped import leaves its picks under Not Imported, with their ComicID
         if message is not None:
             _state['message'] = message
 

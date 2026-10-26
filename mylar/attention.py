@@ -37,7 +37,7 @@ import threading
 import time
 
 import mylar
-from mylar import db, logger, editions
+from mylar import db, logger, editions, cvlink
 
 COMIC_EXT = ('.cbz', '.cbr', '.cb7', '.pdf')
 # Most telling first: a file that failed on volume for one series and on name for the rest
@@ -217,13 +217,48 @@ def _norm(name):
     return re.sub(r'[^a-z0-9]+', ' ', name).strip()
 
 
+def _year_hint(text):
+    """A "(1996)" in typed text is the year it's from, not part of the name: (text without it, year)."""
+    m = re.search(r'\((\d{4})\)', text or '')
+    if not m:
+        return (text or '').strip(), None
+    return re.sub(r'\s+', ' ', (text[:m.start()] + text[m.end():])).strip(), m.group(1)
+
+
+def _name_years(norm):
+    """Years a normalised name carries: "x men annual 1995", or "x men 95" for X-Men '95."""
+    words = norm.split()
+    years = {w for w in words if re.match(r'^(19|20)\d\d$', w)}
+    if len(words) > 1 and re.match(r'^\d\d$', words[-1]):
+        years.add(('19' if int(words[-1]) >= 30 else '20') + words[-1])
+    return years
+
+
+def _years_clash(a, b):
+    """Both names carry a year and no year is shared: Annual 1995 is not Annual 1999,
+    however alike the rest of the name is."""
+    ya, yb = _name_years(a), _name_years(b)
+    return bool(ya and yb and not ya & yb)
+
+
+def _names(name, aliases):
+    """A series' name and its other names (ComicVine's aliases and the user's alternate names,
+    kept '##'-separated in AlternateSearch), each normalised once."""
+    out = [_norm(name)]
+    for a in str(aliases or '').split('##'):
+        n = _norm(a)
+        if n and a.strip() != 'None' and n not in out:
+            out.append(n)
+    return out
+
+
 def _watchlist():
     if time.time() - _COMICS[0] < 300 and _COMICS[1]:
         return _COMICS[1]
-    rows = db.DBConnection().select('SELECT ComicID, ComicName, ComicYear, ComicVersion, Total, Type, Corrected_Type FROM comics WHERE ComicName IS NOT NULL')
+    rows = db.DBConnection().select('SELECT ComicID, ComicName, ComicYear, ComicVersion, Total, Type, Corrected_Type, AlternateSearch FROM comics WHERE ComicName IS NOT NULL')
     rows = [dict(r, norm=_norm(r['ComicName'])) for r in rows]
     for r in rows:
-        r['chars'] = collections.Counter(r['norm'])
+        r['names'] = [(n, collections.Counter(n)) for n in _names(r['ComicName'], r['AlternateSearch'])]
     _COMICS[:] = [time.time(), rows]
     _NAMED.clear()
     return _COMICS[1]
@@ -242,6 +277,7 @@ def parse(path):
     if not isinstance(p, dict) or p.get('parse_status') != 'success':
         return out
     out.update(series=p.get('series_name'), issue=p.get('issue_number'), year=p.get('issue_year'), volume=p.get('series_volume'))
+    out['search'] = _titled(out) or out['series']
     return out
 
 
@@ -275,14 +311,18 @@ def _named(want, comicid=None, floor=0.75):
         if comicid and str(c['ComicID']) == str(comicid):
             named.append((1.0, c))
             continue
-        both = total + len(c['norm'])
-        if not both or 2.0 * min(total, len(c['norm'])) / both < floor:
-            continue
-        if 2.0 * sum((have & c['chars']).values()) / both < floor:
-            continue
-        s = difflib.SequenceMatcher(None, want, c['norm']).ratio()
-        if s >= floor:
-            named.append((s, c))
+        best = 0
+        for norm, chars in c['names']:
+            if _years_clash(want, norm):
+                continue
+            both = total + len(norm)
+            if not both or 2.0 * min(total, len(norm)) / both < max(floor, best):
+                continue
+            if 2.0 * sum((have & chars).values()) / both < max(floor, best):
+                continue
+            best = max(best, difflib.SequenceMatcher(None, want, norm).ratio())
+        if best >= floor:
+            named.append((best, c))
     named.sort(key=lambda x: -x[0])
     if len(_NAMED) > 2000:
         _NAMED.clear()
@@ -297,11 +337,20 @@ def suggest(parsed, limit=3, comicid=None):
     want = _norm(parsed.get('series'))
     if not want and not comicid:
         return []
-    named = _named(want, comicid)
+    named = [(s, c, False) for s, c in _named(want, comicid)]
+    titled = _titled(parsed)
+    if titled:
+        # "X-Men Annual 1995" may be a series' whole name (or alias) rather than issue #1995
+        tnorm = _norm(titled)
+        # a series named for another year isn't this year's annual
+        named = [n for n in named if not all(_years_clash(tnorm, nm) for nm, _ in n[1]['names'])]
+        best = {str(c['ComicID']): s for s, c, _ in named}
+        extra = [(s, c, True) for s, c in _named(tnorm, comicid) if s > best.get(str(c['ComicID']), 0)]
+        named = sorted([n for n in named if not any(str(n[1]['ComicID']) == str(e[1]['ComicID']) for e in extra)] + extra, key=lambda x: -x[0])
     myDB = db.DBConnection()
     fyear = str(parsed.get('year') or '')
     out = []
-    for s, c in named[:10]:
+    for s, c, by_title in named[:10]:
         # A collected edition is numbered by its volume ("Vol 2" is #2 of a TPB series). It isn't
         # offered as an issue of a series of single issues; picking one by hand still can.
         is_collected = editions.collected(parsed['name'], c['ComicName']) if parsed.get('name') else bool(parsed.get('collected'))
@@ -310,13 +359,16 @@ def suggest(parsed, limit=3, comicid=None):
         number = parsed.get('issue')
         if is_collected and collection and _vol(parsed.get('volume')) is not None:
             number = str(_vol(parsed.get('volume')))
-        target = _num(number) if number and not (is_collected and singles) else None
+        target = _num(number) if number and not by_title and not (is_collected and singles) else None
         issue = None
+        rows = myDB.select('SELECT IssueID, Issue_Number, Status, IssueDate, ReleaseDate FROM issues WHERE ComicID=?', [c['ComicID']])
         if target is not None:
-            for r in myDB.select('SELECT IssueID, Issue_Number, Status, IssueDate, ReleaseDate FROM issues WHERE ComicID=?', [c['ComicID']]):
+            for r in rows:
                 if _num(r['Issue_Number']) == target:
                     issue = dict(r)
                     break
+        elif len(rows) == 1 and s >= 0.92 and not (is_collected and singles):
+            issue = dict(rows[0])   # a one-shot: the name says no number, or the number was part of the name
         iyear = str((issue or {}).get('IssueDate') or (issue or {}).get('ReleaseDate') or '')[:4]
         fvol, svol = _vol(parsed.get('volume')), _vol(c.get('ComicVersion'))
         agree = {
@@ -337,6 +389,15 @@ def suggest(parsed, limit=3, comicid=None):
                      'status': (issue or {}).get('Status'), 'issue_year': iyear or None})
     out.sort(key=lambda m: -m['rank'])
     return out[:limit]
+
+
+def _titled(parsed):
+    """Series name with the issue number put back when that number looks like a year:
+    "X-Men Annual 1995 (1995)" reads as X-Men Annual #1995, but the series may be called that."""
+    series, number = parsed.get('series'), str(parsed.get('issue') or '').strip()
+    if series and re.match(r'^(19|20)\d\d$', number):
+        return '%s %s' % (series, number)
+    return None
 
 
 def items():
@@ -385,15 +446,27 @@ def status():
     return {'jobs': dict(JOBS), 'refile': refile, 'count': count()}
 
 
+def search_link(text):
+    """For a ComicVine link pasted into the manual pick: its series when it's on the watchlist,
+    and for an issue link which issue to pick. None when text isn't a link. Never asks
+    ComicVine, since this runs as the user types (find_series does)."""
+    link = cvlink.resolve(text, ask_cv=False)
+    if link is None:
+        return None
+    row = link['comicid'] and db.DBConnection().selectone('SELECT ComicID, ComicName, ComicYear, ComicVersion FROM comics WHERE ComicID=?', [link['comicid']]).fetchone()
+    series = [{'comicid': row['ComicID'], 'name': row['ComicName'], 'year': row['ComicYear'], 'volume': row['ComicVersion']}] if row else []
+    return {'series': series, 'link': link}
+
+
 def search(text, limit=12):
     """Watchlist series for the manual pick."""
-    want = _norm(text)
+    want = _norm(_year_hint(text)[0])
     if not want:
         return []
     hits = []
     for c in _watchlist():
-        n = c['norm']
-        s = 3.0 if n == want else 2.0 if n.startswith(want) else 1.0 if want in n else difflib.SequenceMatcher(None, want, n).ratio()
+        s = max(0 if _years_clash(want, n) else 3.0 if n == want else 2.0 if n.startswith(want) else 1.0 if want in n else
+                difflib.SequenceMatcher(None, want, n).ratio() for n, _ in c['names'])
         if s >= 0.5:
             hits.append((s, c))
     hits.sort(key=lambda x: (-x[0], x[1]['ComicName']))
@@ -406,25 +479,60 @@ def _cv_key():
     return key if key and key != 'None' else None
 
 
-def find_series(text, limit=20):
+def _cv_rank(found, want, year=None):
+    """ComicVine's answers best first: how close the name or one of its aliases is to what was
+    asked for, then whether the start year fits. ComicVine's own order breaks ties."""
+    ranked = []
+    for at, x in enumerate(found):
+        best, alias = 0.0, None
+        for i, n in enumerate([x.get('name')] + list(x.get('aliases') or [])):
+            norm = _norm(n)
+            s = 1.0 if norm == want else 0.0 if _years_clash(want, norm) else difflib.SequenceMatcher(None, want, norm).ratio() if want and norm else 0.0
+            if s > best:
+                best, alias = s, (n if i else None)
+        sy = str(x.get('comicyear') or '')
+        fit = 0.0
+        if year and sy.isdigit():
+            gap = abs(int(sy) - int(year))
+            fit = 0.2 if gap == 0 else 0.1 if gap == 1 else -0.1
+        ranked.append((best + fit - 0.005 * at, alias, x))
+    ranked.sort(key=lambda r: -r[0])
+    return [(alias, x) for _, alias, x in ranked]
+
+
+def find_series(text, limit=20, year=None):
     """Series on ComicVine for the manual pick, for when the right one isn't on the watchlist yet.
-    Uses the same search as Add series, one page of it."""
+    Asks ComicVine's own search, which puts the best match first and also reads each series'
+    aliases ("X-Men '95" is also "X-Men Annual 1995"), and only for comic series ("volumes";
+    ComicVine's "series" are TV shows). If that finds nothing, falls back to Add series' name
+    search. A "(1996)" in the text, or year, ranks series from that year first. A pasted
+    ComicVine link finds just its series; for an issue link, link.issueid says which issue to pick."""
     from mylar import mb
     text = (text or '').strip()
     if not text:
         return {'ok': True, 'series': []}
     if not _cv_key():
         return {'ok': False, 'note': 'Searching ComicVine needs a ComicVine API key (Settings).', 'series': []}
+    link = cvlink.resolve(text)
+    if link is not None and link['comicid'] is None:
+        return {'ok': False, 'note': 'Couldn\'t find that issue on ComicVine. If ComicVine was busy or down, the log says so.', 'series': [], 'link': link}
+    words, hinted = _year_hint(text)
+    year = hinted or (str(year) if year and str(year).isdigit() else None)
     try:
-        found = mb.findComic(text, 'series', None, page=1, pageSize=limit) or []
+        if link is not None:
+            found = mb.findComic(text, 'series', None, volumeid=link['comicid']) or []
+        else:
+            found = mb.findComic(words or text, 'series', None, page=1, pageSize=limit, relevance=True) or \
+                mb.findComic(words or text, 'series', None, page=1, pageSize=limit) or []
     except Exception as e:
         logger.warn('[ATTENTION] ComicVine search for %s failed: %s' % (text, e))
         return {'ok': False, 'note': 'The ComicVine search didn\'t work. The log has why.', 'series': []}
+    ranked = [(None, x) for x in found] if link is not None else _cv_rank(found, _norm(words or text), year)
     watched = {str(r['ComicID']) for r in db.DBConnection().select('SELECT ComicID FROM comics')}
     return {'ok': True, 'series': [{'comicid': str(x['comicid']), 'name': x['name'], 'year': x.get('comicyear'),
                                     'publisher': x.get('publisher'), 'issues': x.get('issues'), 'volume': x.get('volume'),
-                                    'thumb': x.get('comicthumb'), 'type': x.get('type'),
-                                    'watched': str(x['comicid']) in watched} for x in found]}
+                                    'thumb': x.get('comicthumb'), 'type': x.get('type'), 'alias': alias,
+                                    'watched': str(x['comicid']) in watched} for alias, x in ranked[:limit]], 'link': link}
 
 
 def add_series(comicid, name=None, year=None):
@@ -548,9 +656,14 @@ def issue_cover(issueid):
     """The issue's cover from ComicVine, fetched once and cached, or None."""
     row = db.DBConnection().selectone('SELECT ImageURL, ImageURL_ALT FROM issues WHERE IssueID=?', [issueid]).fetchone()
     url = row and (row['ImageURL'] or row['ImageURL_ALT'])
+    return url_cover('issue-%s' % re.sub(r'[^0-9A-Za-z_-]', '', str(issueid)), url)
+
+
+def url_cover(name, url):
+    """A cover image from url, fetched once and cached as name.jpg, BUSY, or None."""
     if not url or not str(url).startswith('http'):
         return None
-    out = os.path.join(_cover_dir(), 'issue-%s.jpg' % re.sub(r'[^0-9A-Za-z_-]', '', str(issueid)))
+    out = os.path.join(_cover_dir(), '%s.jpg' % name)
     if os.path.isfile(out):
         return out
     if _remembered_none(out, NO_COVER_DAYS):
@@ -566,7 +679,7 @@ def issue_cover(issueid):
                              verify=getattr(mylar.CONFIG, 'CV_VERIFY', True))
             r.raise_for_status()
         except Exception as e:
-            logger.fdebug('[ATTENTION] Could not fetch the cover for issue %s: %s' % (issueid, e))
+            logger.fdebug('[ATTENTION] Could not fetch the cover %s: %s' % (name, e))
             _remember_none(out)
             return None
         if not r.headers.get('Content-Type', '').startswith('image/'):
@@ -625,7 +738,44 @@ def _trash_file(path):
         dest = '%s (%s)%s' % (base, int(time.time()), ext)
     shutil.move(path, dest)
     forget(path)
+    prune_empty(os.path.dirname(path))
     return dest_dir
+
+
+def _download_roots():
+    """Folders Issuarr downloads into itself; empty folders are only cleared below these."""
+    from mylar.downloaders import jdownloader2
+    roots = [getattr(mylar.CONFIG, 'DDL_LOCATION', None)]
+    try:
+        roots.append(jdownloader2.local_folder())
+    except Exception:
+        pass
+    return [os.path.realpath(r) for r in roots if r]
+
+
+def prune_empty(folder):
+    """Remove folder, then each parent, while it's empty and below one of Issuarr's download
+    folders - the download's own folder once its last file was filed or trashed. Never the
+    download folder itself, the review, trash or mega folders, or anything not empty."""
+    folder = os.path.realpath(folder)
+    roots = _download_roots()
+    keep = set(roots)
+    for f in (review_dir, trash_dir):
+        try:
+            keep.add(os.path.realpath(f()))
+        except Exception:
+            pass
+    keep.update(os.path.join(r, 'mega') for r in roots)  # the Mega downloader needs its folder
+    root = next((r for r in roots if folder.startswith(r.rstrip(os.sep) + os.sep)), None)
+    while root and folder not in keep and folder.startswith(root.rstrip(os.sep) + os.sep):
+        try:
+            if os.listdir(folder):
+                return
+            os.rmdir(folder)
+        except OSError:
+            return
+        logger.fdebug('[ATTENTION] Removed the empty folder %s' % folder)
+        folder = os.path.dirname(folder)
 
 
 def purge_trash():
@@ -738,6 +888,7 @@ def _file_now(path, issue):
                 # filing copies when set to copy - the original isn't needed here any more
                 trash(path)
             forget(path)
+            prune_empty(os.path.dirname(path))
             JOBS[path] = {'state': 'filed', 'note': 'Filed as %s' % label}
             logger.info('[ATTENTION] Filed %s as %s.' % (os.path.basename(path), label))
         else:

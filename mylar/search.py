@@ -34,7 +34,7 @@ from mylar import (
     downloaders,
 )
 from mylar.downloaders import external_server as exs
-from mylar.downloaders import airdcpp
+from mylar.downloaders import airdcpp, airdcpp_pack
 from mylar import archiveorg, ddlsources
 
 import feedparser
@@ -1354,6 +1354,7 @@ def verification(verified_matches, is_info):
                     verified_index +=1
                     continue
                 # generate the send-to and actually send the nzb / torrent.
+                check_aborted(verified['ComicID'])
                 try:
                     links = {'id': verified['entry']['id'], 'link': verified['entry']['link'],
                              'torrent': verified['entry'].get('torrent')}
@@ -1575,12 +1576,11 @@ def queued_issueids():
     return {x.get('issueid') for x in waiting if isinstance(x, dict)}
 
 
-def drop_series(comicid):
-    """Take a deleted series' issues out of the search queue. Left in, each one still came up and was
-    dropped only after a lookup ('Unable to locate IssueID'), holding up the issues behind it."""
+def _drop(match):
+    """Take the waiting searches that match out of the search queue; returns how many."""
     q = mylar.SEARCH_QUEUE
     with q.mutex:
-        keep = [x for x in q.queue if not (isinstance(x, dict) and str(x.get('comicid')) == str(comicid))]
+        keep = [x for x in q.queue if not (isinstance(x, dict) and match(x))]
         dropped = len(q.queue) - len(keep)
         if dropped:
             q.queue.clear()
@@ -1591,15 +1591,57 @@ def drop_series(comicid):
     return dropped
 
 
+def drop_series(comicid):
+    """Take a deleted series' issues out of the search queue. Left in, each one still came up and was
+    dropped only after a lookup ('Unable to locate IssueID'), holding up the issues behind it."""
+    dropped = _drop(lambda x: str(x.get('comicid')) == str(comicid))
+    # The series' issue being searched right now stops at its next provider and the queue moves on.
+    current = mylar.SEARCH_CURRENT
+    if isinstance(current, dict) and str(current.get('comicid')) == str(comicid):
+        mylar.SEARCH_ABORT = str(comicid)
+        logger.info('[SEARCH-QUEUE] %s #%s is being searched and its series was deleted - stopping that search.'
+                    % (current.get('comicname'), current.get('issuenumber')))
+    return dropped
+
+
+def stop_queue():
+    """Stop on the search queue: drop every waiting search and stop the one running now. Returns
+    (searches dropped, the item that was being searched or None)."""
+    from mylar.queues import search as search_worker
+    dropped = _drop(lambda x: True)
+    search_worker.HELD.clear()
+    current = mylar.SEARCH_CURRENT
+    if isinstance(current, dict):
+        mylar.SEARCH_ABORT = '*'
+    logger.info('[SEARCH-QUEUE] Stopped: %s waiting searches dropped%s.'
+                % (dropped, ', stopping the search for %s #%s' % (current.get('comicname'), current.get('issuenumber'))
+                   if isinstance(current, dict) else ''))
+    return dropped, current if isinstance(current, dict) else None
+
+
+class SearchAborted(Exception):
+    """The search was stopped part way through: its series was deleted, or the search queue was stopped."""
+
+
+def check_aborted(comicid):
+    """Stop the search for a deleted series' issue, or any search once the queue is stopped, before the
+    next provider is asked or a find is sent."""
+    abort = mylar.SEARCH_ABORT
+    if abort == '*' or (abort is not None and comicid is not None and str(comicid) == abort):
+        raise SearchAborted(comicid)
+
+
 def search_status():
     """What the search queue is doing, for the Wanted page: the issue being searched and the ones waiting."""
     def brief(item):
-        return {'issueid': item.get('issueid'), 'name': item.get('comicname'), 'number': item.get('issuenumber')}
+        return {'issueid': item.get('issueid'), 'comicid': item.get('comicid'), 'name': item.get('comicname'),
+                'number': item.get('issuenumber')}
     with mylar.SEARCH_QUEUE.mutex:
         waiting = [brief(x) for x in mylar.SEARCH_QUEUE.queue if isinstance(x, dict)]
     current = mylar.SEARCH_CURRENT
     return {'current': brief(current) if isinstance(current, dict) else None,
             'waiting': waiting,
+            'paused': bool(mylar.SEARCH_PAUSED),
             # The lock without a current issue: the RSS check is running.
             'busy': bool(mylar.SEARCHLOCK)}
 
@@ -1863,6 +1905,9 @@ def searchforissue(issueid=None, new=False, rsschecker=None, manual=False, all_t
 
             tier_date = helpers.search_tier_date()
             for result in sorted(results, key=itemgetter('StoreDate'), reverse=True):
+                if helpers.job_stopping('rss' if rsschecker else 'search'):
+                    logger.info('[SEARCH] Stopped from Tasks - not going through the rest of the Wanted list.')
+                    break
 
                 try:
                     OneOff = False
@@ -2129,7 +2174,7 @@ def searchforissue(issueid=None, new=False, rsschecker=None, manual=False, all_t
                         ]
                     )
                     or all([mylar.CONFIG.ENABLE_AIRDCPP is True, len(mylar.CONFIG.AIRDCPP_ANNOUNCE_HUB) > 0])
-                    or all([mylar.CONFIG.TORZNAB is True, len(ens) > 0])
+                    or all([mylar.CONFIG.ENABLE_TORZNAB is True, len(mylar.rsscheck.torznab_feed_hosts()) > 0])
                     and any(
                         [
                             mylar.CONFIG.ENABLE_TORRENTS is True,
@@ -2143,6 +2188,9 @@ def searchforissue(issueid=None, new=False, rsschecker=None, manual=False, all_t
                 # Split the results by IssueID to then break on the first successful snatch
                 unique_issue_ids = set([x['info']['IssueID'] for x in results['entries']])
                 for unique_issue_id in unique_issue_ids:
+                    if helpers.job_stopping('rss'):
+                        logger.info('[RSS] Stopped from Tasks - not trying the rest of the RSS matches.')
+                        break
                     issue_results = [r for r in results['entries'] if r['info']['IssueID'] == unique_issue_id]
                     logger.debug(f'Attempting RSS downloads for Issue ID {unique_issue_id}')
 
@@ -2559,6 +2607,12 @@ def searchforissue(issueid=None, new=False, rsschecker=None, manual=False, all_t
                     #    hash=foundNZB['info']['t_hash'],
                     #)
                 return foundNZB
+
+            except SearchAborted:
+                logger.info('[SEARCH] Stopped searching for %s #%s: %s.'
+                            % (result['ComicName'], result['Issue_Number'],
+                               'the search queue was stopped' if mylar.SEARCH_ABORT == '*' else 'the series was deleted'))
+                return {'status': False}
 
             except Exception as err:
                 exc_type, exc_value, exc_tb = sys.exc_info()
@@ -3388,6 +3442,9 @@ def searcher(
                     prov=tnzbprov,
                     oneoff=oneoff
                 )
+            if all([IssueArcID is None, oneoff is not True, isinstance(comicinfo, list), len(comicinfo) > 0]):
+                # the peer's folder may hold more of this series' Wanted issues
+                airdcpp_pack.start(ComicID, tmp_issueid, comicinfo[0].get('entry'))
         else:
             logger.info('[%s] Failed to download %s from AirDC++.' % (tnzbprov, filename))
             return "ddl-fail"
@@ -3910,6 +3967,26 @@ def notify_snatch(sent_to, comicname, comyear, IssueNumber, nzbprov, pack):
             sent_to=sent_to,
             prov=nzbprov,
         )
+    if mylar.CONFIG.NTFY_ENABLED and mylar.CONFIG.NTFY_ONSNATCH:
+        logger.info("Sending ntfy notification")
+        notifiers.NTFY().notify(
+            "Snatched",
+            snline,
+            snatched_nzb=snatched_name,
+            sent_to=sent_to,
+            prov=nzbprov,
+        )
+    if mylar.CONFIG.WEBHOOK_ENABLED and mylar.CONFIG.WEBHOOK_ONSNATCH:
+        logger.info("Sending webhook notification")
+        notifiers.WEBHOOK().notify(
+            "Snatched",
+            snline,
+            snatched_nzb=snatched_name,
+            sent_to=sent_to,
+            prov=nzbprov,
+            metadata={'series': comicname, 'issue': IssueNumber, 'year': comyear},
+            event='snatched',
+        )
 
     return
 
@@ -4271,6 +4348,7 @@ def check_the_search_delay(manual=False):
     return pause_the_search
 
 def search_the_matrix(scarios):
+    check_aborted(scarios['ComicID'])
     return NZB_SEARCH(
                 scarios['ComicName'],
                 scarios['tmp_IssueNumber'],

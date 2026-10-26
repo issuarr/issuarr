@@ -69,14 +69,17 @@
         $('#ip_started').text(ts(d.started));
         $('#ip_elapsed').text(d.started ? dur(d.elapsed) : '-');
         $('#ip_eta').text(d.eta !== null ? dur(d.eta) : '-');
-        $('#ip_files_found').text(d.files_found || '-');
+        $('#ip_files_found').text(d.files_found ? d.files_found + (d.files_unchanged ? ' (' + d.files_unchanged + ' unchanged, left out)' : '') : '-');
         $('#ip_files_parsed').text(d.files_parsed || '-');
         $('#ip_parse_failures').text(d.parse_failures || '-');
         $('#ip_files_analyzed').text(ratio(d.files_analyzed, d.files_total));
         $('#ip_issueids').text(ratio(d.issueids_resolved, d.issueids_total));
         $('#ip_rl_waits').text(d.ratelimit.waits || '-');
         $('#ip_series').text(ratio(d.series_done, d.series_total));
-        $('#ip_series_breakdown').text(d.series_total ? (d.series_added + ' / ' + d.series_manual + ' / ' + d.series_noresults + ' / ' + d.series_failed) : '-');
+        // Manual = ComicVine had several possible series: they wait on Import results under Needs a choice.
+        $('#ip_series_breakdown').html(d.series_total ? (esc(d.series_added) + ' / ' +
+            (d.series_manual ? '<a href="importResults#needs-a-choice" title="Choose their ComicVine match on Import results">' + esc(d.series_manual) + '</a>' : '0') +
+            ' / ' + esc(d.series_noresults) + ' / ' + esc(d.series_failed)) : '-');
         $('#ip_current').text(d.series_current ? d.series_current + (d.series_started ? ' (for ' + dur(Date.now() / 1000 - d.series_started) + ')' : '') : '-');
 
         var rl = d.ratelimit;
@@ -138,12 +141,14 @@
 
     $(document).ready(function() {
         $('#ip_stop').on('click', function() {
-            if (confirm('Stop the running ' + ($(this).text().indexOf('scan') > -1 ? 'library scan' : 'import') + '? An import stops after the current series; pending series can be resumed later.')) {
-                action('import_stop', this);
-            }
+            var btn = this;
+            Issuarr.ask('Stop the running ' + ($(this).text().indexOf('scan') > -1 ? 'library scan' : 'import') + '? An import stops after the current series; pending series can be resumed later.', { ok: 'Stop', danger: true }, function () {
+                action('import_stop', btn);
+            });
         });
         $('#ip_resume').on('click', function() {
-            if (confirm('Resume importing all pending (Not Imported) series?')) action('import_resume', this);
+            var btn = this;
+            Issuarr.ask('Resume importing all pending (Not Imported) series?', { ok: 'Resume' }, function () { action('import_resume', btn); });
         });
         $('#ip_log_filter, #ip_log_lines').on('change', pollLog);
         if (window.importStatusInitial) {

@@ -10,11 +10,9 @@ import sys
 import re
 import shutil
 import sqlite3
-import threading
 import time
 import zipfile
 import subprocess
-from collections import deque
 import mylar
 
 from mylar import logger, notifiers, comicinfo, importstatus
@@ -202,15 +200,13 @@ FAILURES = {
 
 # ComicVine allows about 200 calls an hour on each resource, and each tag fetches its
 # issue unless ComicTagger has it cached. Every file gets a new ComicTagger process whose
-# limiter starts fresh, so the hourly pace is kept here, with some room left for
-# Issuarr's own calls. ComicTagger's shared key is only allowed 100 an hour.
+# limiter starts fresh, so each tag books its call from Issuarr's own ComicVine schedule
+# (cv.reserve), with some room left for Issuarr's own calls. ComicTagger's shared key is
+# only allowed 100 an hour.
 HOURLY_TAGS = 180
 HOURLY_TAGS_DEFAULT_KEY = 90
 
 RATE_LIMITED = re.compile(r'rate limit|slow down|abnormal traffic|did not provide json|\b(?:107|420|429): ', re.I)
-
-_fetches = deque()
-_pace_lock = threading.Lock()
 
 
 def personal_key():
@@ -239,7 +235,7 @@ def cached(issueid):
 
 def pace(issueid, module):
     """Wait out a ComicVine back-off Issuarr already knows about, then hold the tag until
-    it fits in the hourly limit. False when Issuarr is shutting down meanwhile."""
+    its slot in Issuarr's ComicVine schedule. False when Issuarr is shutting down meanwhile."""
     from mylar import cv
     remaining = importstatus.ratelimit_remaining()
     if remaining > 0:
@@ -249,19 +245,10 @@ def pace(issueid, module):
     if cached(issueid):
         return True
     limit = HOURLY_TAGS if personal_key() else HOURLY_TAGS_DEFAULT_KEY
-    with _pace_lock:
-        while True:
-            now = time.time()
-            while _fetches and now - _fetches[0] >= 3600:
-                _fetches.popleft()
-            if len(_fetches) < limit:
-                break
-            wait = _fetches[0] + 3600 - now
-            logger.info('%s[COMIC-TAGGER] %s issues were tagged from ComicVine in the last hour. Waiting %s minutes to stay under its limit.' % (module, len(_fetches), round(wait / 60, 1)))
-            if not cv._cv_wait(wait):
-                return False
-        _fetches.append(time.time())
-    return True
+    wait = cv.reserve('issue', limit)
+    if wait >= 60:
+        logger.info('%s[COMIC-TAGGER] Waiting %s minutes for a ComicVine slot before tagging.' % (module, round(wait / 60, 1)))
+    return wait <= 0 or cv._cv_wait(wait)
 
 
 def series_publisher(issueid):
@@ -442,6 +429,12 @@ def sendnotify(message, filename, module):
         if mylar.CONFIG.GOTIFY_ENABLED:
             gotify = notifiers.GOTIFY()
             gotify.notify("Issuarr metatagging error: ", prline2, module=module)
+
+        if mylar.CONFIG.NTFY_ENABLED:
+            notifiers.NTFY().notify("Issuarr metatagging error", prline2, module=module)
+
+        if mylar.CONFIG.WEBHOOK_ENABLED:
+            notifiers.WEBHOOK().notify("Issuarr metatagging error", prline2, module=module, event='tag_error')
     except Exception as e:
         logger.warn('[NOTIFICATION] Unable to send notification: %s' % e)
 

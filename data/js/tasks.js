@@ -40,7 +40,11 @@
       var next = paused || !j.next_ts ? '<span class="muted">-</span>'
         : esc(I().relTime(j.next_ts)) + ' <span class="muted">· ' + esc(I().clock(j.next_ts)) + '</span>';
       var last = j.prev_ts ? '<span title="' + esc(I().clock(j.prev_ts)) + '">' + esc(I().relTime(j.prev_ts)) + '</span>' : '<span class="muted">never</span>';
-      var actions = (j.force ? '<button type="button" class="btn btn-sm" data-run="' + esc(j.force) + '" data-name="' + esc(j.jobname) + '">Run now</button>' : '') +
+      // A running job that can end part way gets Stop; it ends at its next safe point.
+      var stop = j.stoppable && j.status === 'Running'
+        ? '<button type="button" class="btn btn-sm btn-danger" data-stop="' + esc(j.jobname) + '"' + (j.stopping ? ' disabled>Stopping…' : '>Stop') + '</button>'
+        : '';
+      var actions = stop + (j.force ? '<button type="button" class="btn btn-sm" data-run="' + esc(j.force) + '" data-name="' + esc(j.jobname) + '">Run now</button>' : '') +
         '<button type="button" class="btn btn-sm btn-ghost" data-toggle="' + esc(j.jobname) + '" data-mode="' + (paused ? 'resume' : 'pause') + '">' + (paused ? 'Resume' : 'Pause') + '</button>';
       return '<tr><td><b>' + esc(j.jobname) + '</b></td>' +
         '<td><span class="status ' + statusClass(j.status, j.jobname) + '">' + esc(j.status || 'Unknown') + '</span></td>' +
@@ -83,7 +87,17 @@
   $id('jobs-table').addEventListener('click', function (e) {
     var run = e.target.closest('[data-run]');
     var tog = e.target.closest('[data-toggle]');
-    if (run) {
+    var stop = e.target.closest('[data-stop]');
+    if (stop) {
+      var name = stop.getAttribute('data-stop');
+      stop.disabled = true;
+      stop.textContent = 'Stopping…';
+      fetch('job_stop', { method: 'POST', body: new URLSearchParams({ job: name }), credentials: 'same-origin', cache: 'no-store' })
+        .then(function (r) { if (!r.ok) throw new Error(r.status); return r.json(); })
+        .then(function (r) { I().toast(r.ok ? r.message : r.error, !!r.ok); })
+        .catch(function () { I().toast('Couldn\'t stop ' + name + '. Check the log.', false); })
+        .then(refresh);
+    } else if (run) {
       run.disabled = true;
       get('schedulerForceCheck?jobid=' + encodeURIComponent(run.getAttribute('data-run')))
         .then(function () { I().toast(run.getAttribute('data-name') + ' started'); })

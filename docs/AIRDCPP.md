@@ -42,3 +42,15 @@ Pick this when the two programs see the folder under different paths: AirDC++ on
 For example, with AirDC++ on Windows saving to `D:\Downloads` and that folder mounted in Issuarr's container at `/downloads/airdcpp`, a file AirDC++ reports as `D:\Downloads\Comics\Batman 001.cbz` is opened at `/downloads/airdcpp/Comics/Batman 001.cbz`.
 
 In both modes, the user Issuarr runs as (`PUID`/`PGID` in Docker) must be able to read and rename the files.
+
+## Grabbing other issues from the same folder
+
+Hubs rarely answer searches for whole folders, so Issuarr finds issues one file at a time. Turn on **Grab other wanted issues from the same folder** to make the most of a good find. After an issue downloads, Issuarr opens the folder that file came from on the user who shares it (a direct connection to that user, not another hub search). It then queues the series' other **Wanted** issues it finds there.
+
+- It takes one file per issue, the biggest copy, and skips files under 1 MB, TPBs, annuals and other series.
+- When a file name has a year, it must fall between the year the series began and a year after the issue's cover date, so another run of the series in the same folder is left alone.
+- AirDC++ fetches each file by its content hash, so any user sharing the same file can send it.
+- Queued issues are marked **Snatched**. Each finished file goes through post-processing like any other grab. If AirDC++ gives up on a file, or nothing moves for 30 minutes, that issue goes back to **Wanted**.
+- With **AirDC++ uses its own download folder**, Issuarr needs **AirDC++ download folder, as AirDC++ sees it**, or asks AirDC++ for it, to know where to save these files.
+
+It's off by default.

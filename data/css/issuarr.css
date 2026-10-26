@@ -248,6 +248,8 @@ input[type="date"], input[type="url"]:not([data-ui]), select, textarea:not([data
   border-radius: 6px; box-shadow: none !important; font-family: var(--font-body);
 }
 input[type="checkbox"], input[type="radio"] { accent-color: var(--text); }
+/* Saved passwords and tokens: plain text boxes drawn as dots, so browsers don't treat Settings as a sign-in form. */
+input.secret { -webkit-text-security: disc; }
 
 table, table.display { background: var(--surface) !important; color: var(--text) !important; border-color: var(--line) !important; font-variant-numeric: tabular-nums; }
 table th, table.display thead th {
@@ -296,13 +298,28 @@ fieldset { border: 1px solid var(--line) !important; border-radius: var(--radius
 legend { padding: 0 6px; font-family: var(--font-display); font-weight: 700; font-size: 17px; color: var(--text) !important; }
 label, small { color: var(--muted); }
 
-.ajaxMsg, #ajaxMsg, #ajaxMsg.success {
-  background: var(--text) !important; background-image: none !important; color: var(--ink) !important; filter: none !important; opacity: 1 !important;
-  right: 16px; bottom: 16px; width: auto; max-width: min(400px, calc(100vw - 32px)); min-height: 0; padding: 12px 16px !important;
-  border: 0 !important; border-radius: var(--radius); box-shadow: 0 12px 32px rgba(0, 0, 0, .35); text-align: left;
+/* Older pages write messages into #ajaxMsg; issuarr.js turns them into toasts, so the box itself stays hidden. */
+#ajaxMsg { display: none !important; }
+.toasts {
+  position: fixed; right: 16px; bottom: 16px; z-index: 1100; display: flex; flex-direction: column; align-items: flex-end; gap: 8px;
+  width: min(420px, calc(100vw - 32px)); pointer-events: none;
 }
-#ajaxMsg .msg { padding: 0; font-family: var(--font-body); font-size: 14px; font-weight: 600; text-align: left; }
-#ajaxMsg.error { background: var(--failed) !important; background-image: none !important; color: #FFFFFF !important; }
+.toast {
+  pointer-events: auto; display: flex; align-items: flex-start; gap: 10px; width: 100%; padding: 12px 10px 12px 16px;
+  background: var(--text); color: var(--ink); border-radius: var(--radius); box-shadow: 0 12px 32px rgba(0, 0, 0, .35);
+  font-size: 14px; font-weight: 600; line-height: 1.4; animation: toast-in .18s ease-out;
+}
+.toast.is-error { background: var(--failed); color: #FFFFFF; }
+.toast.is-info { background: var(--raised); color: var(--text); border: 1px solid var(--line); }
+.toast.is-out { opacity: 0; transform: translateY(6px); transition: opacity .18s, transform .18s; }
+.toast-msg { flex: 1; min-width: 0; overflow-wrap: anywhere; }
+.toast-msg .msg, .toast-msg center { padding: 0; text-align: left; }
+.toast-msg a { color: inherit; text-decoration: underline; }
+.toast-x { flex: none; display: grid; place-items: center; width: 24px; height: 24px; margin: -2px 0; padding: 0; border: 0; border-radius: 6px; background: transparent; color: inherit; opacity: .7; cursor: pointer; }
+.toast-x:hover, .toast-x:focus-visible { opacity: 1; background: color-mix(in srgb, currentColor 14%, transparent); }
+.toast-x svg { width: 14px; height: 14px; }
+@keyframes toast-in { from { opacity: 0; transform: translateY(6px); } }
+@media (max-width: 600px) { .toasts { right: 8px; left: 8px; bottom: 8px; width: auto; } }
 /* The old stylesheet glows every empty required field red. */
 input:invalid, textarea:invalid { box-shadow: none !important; }
 #updatebar { background: var(--raised) !important; color: var(--text) !important; border-bottom: 1px solid var(--line) !important; }
@@ -430,6 +447,10 @@ table.dt td.actions .btn { min-width: 92px; }
 .menu.menu-fixed > .menu-list { position: fixed; right: auto; bottom: auto; max-height: calc(100vh - 12px); overflow-y: auto; }
 .menu-list .btn { justify-content: flex-start; width: 100%; }
 .menu-list hr { border: 0; border-top: 1px solid var(--line); margin: 4px 2px; }
+.ctx-menu { position: fixed; top: 0; left: 0; right: auto; z-index: 60; min-width: 230px; max-width: calc(100vw - 12px); max-height: calc(100vh - 12px); overflow-y: auto; }
+.ctx-menu[hidden] { display: none; }
+.ctx-title { margin: 2px 10px 6px; font-size: 13px; font-weight: 600; color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.cover-card a { -webkit-touch-callout: none; }
 
 .bulk-bar {
   position: sticky; top: var(--carbon-head, 0px); z-index: 20; display: flex; flex-wrap: wrap; align-items: center; gap: 10px;
@@ -482,6 +503,13 @@ input.inline-num { width: 76px; min-height: 34px; padding: 0 8px; box-sizing: bo
 .cover-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(156px, 1fr)); gap: 26px 20px; }
 .cover-grid[hidden] { display: none; }
 .cover-card { position: relative; display: flex; flex-direction: column; gap: 10px; min-width: 0; }
+.library.has-az { padding-right: 26px; }
+.az-rail { position: fixed; right: 4px; top: 50%; transform: translateY(-50%); z-index: 20; display: flex; flex-direction: column; padding: 4px 0; border-radius: 999px; background: color-mix(in srgb, var(--surface) 85%, transparent); touch-action: none; }
+.az-rail[hidden] { display: none; }
+.library .cover-card, #lib-table tbody tr { scroll-margin-top: calc(var(--carbon-head, 0px) + 16px); }
+.az-rail button { width: 22px; height: min(22px, calc((100vh - 120px) / 27)); padding: 0; border: 0; background: none; color: var(--muted); font: 600 11px/1 var(--font-mono); cursor: pointer; border-radius: 6px; }
+.az-rail button:hover:not(:disabled), .az-rail button:focus-visible { color: var(--text); background: var(--raised); }
+.az-rail button:disabled { opacity: .3; cursor: default; }
 .cover {
   position: relative; display: block; aspect-ratio: 2 / 3; overflow: hidden; border-radius: var(--radius-sm);
   background: var(--raised); border: 1px solid var(--line-soft); box-sizing: border-box;
@@ -653,9 +681,7 @@ table.dt tr.is-picked td { background: color-mix(in srgb, var(--text) 8%, var(--
 .issue-acts > .btn-sm { min-width: 96px; }
 .issue-acts .row-menu { margin-left: 0; }
 .issue-acts .row-menu > summary.btn { min-width: 0 !important; padding: 0 10px; }
-.issue-markbar { margin-bottom: 10px; padding: 10px 14px !important; font-weight: 600; }
-.issue-markbar select { min-height: 34px; margin: 0 8px; padding: 0 8px; font: 600 14px var(--font-body); }
-.issue-markbar-more { display: inline-block; margin-left: 6px; }
+.issue-markbar { margin-bottom: 10px; padding: 10px 12px 10px 16px !important; }
 #tabs-issues table.display th, #tabs-issues table.display td { text-align: left !important; }
 #tabs-issues table.display th:last-child, #tabs-issues table.display td:last-child { text-align: right !important; }
 #tabs-issues table.display th, #tabs-issues table.display td { border-left: 0 !important; border-right: 0 !important; }
@@ -847,7 +873,7 @@ a.release-title:hover { text-decoration: underline; text-underline-offset: 3px; 
 .imp-opts { display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 16px; margin: 0; font-size: 13.5px; color: var(--text-2); }
 .imp-opts a { color: var(--text); text-decoration: underline; text-underline-offset: 3px; }
 .imp-name { font-weight: 600; }
-.imp-cvid { margin-left: 6px; font-size: 12px; }
+.imp-cvid { font-size: 13px; }
 .imp-file-list { margin: 0; padding: 0; list-style: none; font-size: 12.5px; }
 .imp-file-list li { padding: 4px 0; border-bottom: 1px solid var(--line-soft); overflow-wrap: anywhere; }
 .tools #tabs > .ui-tabs-panel { border: 0 !important; background: transparent !important; }
@@ -890,6 +916,19 @@ table.display_log tr.gradeZ td, table.display_log tr.gradeW td { background: var
 
 /* ---------- Ctrl K jump menu ---------- */
 
+.ask { width: min(480px, 100%); }
+.ask .add-head p { white-space: pre-line; }
+.ask-foot { display: flex; justify-content: flex-end; gap: 8px; padding: 12px 18px; border-top: 1px solid var(--line); }
+/* Settings sections with unsaved changes. */
+.nav-child.has-unsaved::after { content: ""; flex: none; width: 7px; height: 7px; margin-left: auto; border-radius: 50%; background: var(--snatched); }
+.offline-bar {
+  position: fixed; top: 12px; left: 50%; transform: translateX(-50%); z-index: 1100; display: flex; align-items: center; gap: 10px;
+  max-width: calc(100vw - 32px); padding: 10px 16px; border-radius: 999px; background: var(--snatched); color: #16171B;
+  font-size: 14px; font-weight: 600; box-shadow: 0 12px 32px rgba(0, 0, 0, .35);
+}
+.offline-bar[hidden] { display: none; }
+.offline-dot { flex: none; width: 8px; height: 8px; border-radius: 50%; background: currentColor; animation: offline-pulse 1.2s ease-in-out infinite; }
+@keyframes offline-pulse { 50% { opacity: .25; } }
 .jump-backdrop {
   position: fixed; inset: 0; z-index: 1000; display: flex; align-items: flex-start; justify-content: center;
   padding: 12vh 16px 16px; background: rgba(0, 0, 0, .55);
@@ -910,6 +949,26 @@ table.display_log tr.gradeZ td, table.display_log tr.gradeW td { background: var
 .add-head { padding: 18px 18px 14px; }
 .add-head h2 { margin: 0 0 4px; font-size: 20px; }
 .add-head p { margin: 0; color: var(--muted); font-size: 13.5px; }
+.help { max-height: calc(88vh - 24px); display: flex; flex-direction: column; }
+.help-body { overflow-y: auto; padding: 0 18px 8px; font-size: 14px; line-height: 1.5; }
+.help-body ul { margin: 0 0 14px; padding-left: 18px; display: flex; flex-direction: column; gap: 6px; }
+.help-body h3 { margin: 6px 0 8px; font-size: 13px; text-transform: uppercase; letter-spacing: .04em; color: var(--muted); }
+.help-body a { color: var(--text); text-decoration: underline; text-underline-offset: 3px; }
+.help-dot { display: inline-block; width: 10px; height: 10px; margin: 0 5px 0 2px; border-radius: 3px; background: var(--c); vertical-align: -1px; }
+.help-keys { display: grid; grid-template-columns: max-content 1fr; gap: 6px 14px; margin: 0 0 8px; align-items: center; }
+.help-keys dt, .help-keys dd { margin: 0; }
+.help-foot { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 16px; padding: 12px 18px; border-top: 1px solid var(--line); font-size: 13.5px; }
+.help-foot a { color: var(--muted); }
+.help-foot a:hover { color: var(--text); }
+.help-foot .btn { margin-left: auto; }
+.whats-new { width: min(720px, 100%); display: flex; flex-direction: column; max-height: calc(88vh - 24px); }
+.whats-new-body { overflow-y: auto; padding: 4px 18px 12px; border-top: 1px solid var(--line); }
+.whats-new-body h3 { margin: 14px 0 4px; font-size: 15px; }
+.whats-new-body h4 { margin: 10px 0 2px; font-size: 13px; font-weight: 600; color: var(--muted); }
+.whats-new-body ul { margin: 0; padding-left: 20px; }
+.whats-new-body li { margin: 6px 0; line-height: 1.5; }
+.whats-new-ids { font-family: var(--font-mono); font-size: 12px; }
+.whats-new-foot { display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; padding: 12px 18px; border-top: 1px solid var(--line); }
 .add-series .jump-field { border-bottom: 0; border-top: 1px solid var(--line); padding-right: 10px; }
 .add-series .jump-field .btn { flex: none; }
 .jump-foot { display: flex; flex-wrap: wrap; gap: 6px 16px; padding: 10px 18px; border-top: 1px solid var(--line); font-size: 12.5px; color: var(--muted); }
@@ -1047,15 +1106,16 @@ textarea.css-editor.is-bad { border-color: var(--failed); }
 .set-noresults { margin: 8px 0 0; color: var(--muted); }
 .settings .set-panel:not(#tabs-7) { max-width: 980px; }
 /* Wide screens: groups side by side, each column kept narrow enough that a switch sits near its label.
-   A grid rather than CSS columns, so turning a setting on doesn't push groups into the other column. */
-.settings #tabs { container-type: inline-size; }
-@container (min-width: 1480px) {
-  .settings .set-panel:not(#tabs-7) { max-width: none; display: grid; grid-template-columns: repeat(2, minmax(0, 820px)); column-gap: 72px; align-items: start; }
-  .settings .set-panel:not(#tabs-7) > :not(.set-group), .settings .set-panel:not(#tabs-7)::before { grid-column: 1 / -1; }
-}
-@container (min-width: 2400px) {
-  .settings .set-panel:not(#tabs-7) { grid-template-columns: repeat(3, minmax(0, 760px)); }
-}
+   The page script deals the groups into .set-col columns that stack on their own, so a short group
+   (a section that's turned off) doesn't leave a gap the height of the group beside it.
+   A group always stays in the same column, so turning a setting on doesn't move groups around. */
+.settings .set-panel.set-multi:not(#tabs-7) { max-width: none; }
+.set-cols { display: grid; grid-template-columns: repeat(2, minmax(0, 820px)); column-gap: 72px; align-items: start; }
+.set-cols.set-cols-3 { grid-template-columns: repeat(3, minmax(0, 760px)); }
+.set-col { min-width: 0; }
+/* Search results from every section: one plain column, so matches don't sit alone in a far column. */
+body.set-searching .settings .set-panel.set-multi:not(#tabs-7) { max-width: 980px; }
+body.set-searching .set-cols { display: block; }
 .set-order-gap { flex: 1 1 100%; color: var(--text-2); font-size: 13px; }
 .settings label, .settings .set-label { float: none !important; width: auto !important; margin: 0 !important; font-size: 14px !important; line-height: 1.45; }
 .set-group { margin: 0 0 36px; }
@@ -1073,6 +1133,8 @@ textarea.css-editor.is-bad { border-color: var(--failed); }
 }
 .set-ctl > input.set-num, .set-ctl > select.set-num { flex: 0 0 120px; font-family: var(--font-mono); }
 .set-ctl > input.mono { font-family: var(--font-mono); font-size: 13px; }
+.set-checks { gap: 6px 16px; }
+.set-checks > label { display: inline-flex; align-items: center; gap: 6px; font-weight: normal; }
 .set-ctl-wide { flex: 0 1 440px; }
 .set-ctl-wide .selectize-control { width: 100%; }
 .set-unit { color: var(--muted); font-size: 13.5px; }
@@ -1252,7 +1314,7 @@ body.set-searching .set-notify:not(:has(.set-hit)) { display: none; }
 .q-src b { display: block; color: var(--text); font-weight: 600; font-size: 13.5px; }
 
 /* ---------- Flow line: Wanted, Searching, Downloading, Filing, Added today ----------
-   On Wanted and Downloads > Queue. Each stop takes the color of the issue status it holds
+   On Downloads > Queue. Each stop takes the color of the issue status it holds
    (Wanted, then Snatched, then Have); custom CSS can recolor one with --flow-<stop>, set on
    :root (the stage tokens live there so the Running now box matches). */
 
@@ -1286,6 +1348,10 @@ body.set-searching .set-notify:not(:has(.set-hit)) { display: none; }
 @keyframes flow-run { from { background-position: 0 0; } to { background-position: 16px 0; } }
 @keyframes flow-run-down { from { background-position: 0 0; } to { background-position: 0 16px; } }
 
+/* A stop whose "now" links elsewhere (the series being searched) lays out like the stop's link does. */
+.flow-stop.has-now-link { display: flex; flex-direction: column; gap: 1px; padding-right: 18px; }
+.flow-stop.has-now-link > a:first-child { padding-right: 0; }
+a.flow-now:hover { color: var(--text); text-decoration: underline; text-underline-offset: 3px; }
 .flow-stop > a { display: flex; flex-direction: column; gap: 1px; min-width: 0; padding-right: 18px; color: var(--text); border-radius: var(--radius-sm); }
 .flow-stop > a:hover { text-decoration: none; }
 .flow-name { font-size: 13px; font-weight: 600; color: var(--muted); }
@@ -1354,6 +1420,13 @@ a.w-where { text-decoration: underline 1px var(--line); text-underline-offset: 3
 a.w-where:hover { color: var(--text); text-decoration-color: currentColor; }
 .w-where.is-search.is-live { color: var(--wanted); }
 .w-where.is-download { color: var(--snatched); }
+#w-group[aria-pressed="true"] { background: var(--raised); border-color: var(--muted); }
+.w-group td { background: var(--surface); }
+.w-fold { display: inline-flex; align-items: center; gap: 8px; padding: 2px 4px; margin-left: -4px; border: 0; background: none; color: var(--text); font: inherit; cursor: pointer; border-radius: 6px; }
+.w-fold svg { transition: transform .15s ease; flex: none; }
+.w-fold[aria-expanded="true"] svg { transform: rotate(90deg); }
+.w-fold b { font-weight: 650; }
+.w-group ~ tr:not(.w-group) td:nth-child(2) { padding-left: 34px; }
 
 /* ---- Downloads > Needs attention ----
    One file per row. The file name's reading sits over the closest series, column by column:
@@ -1366,7 +1439,11 @@ a.w-where:hover { color: var(--text); text-decoration-color: currentColor; }
 .nav-child .nav-badge { margin-left: auto; padding-left: 8px; }
 /* Downloads and searches running now. Sits before the Needs attention count; on the Queue child when the menu is open. */
 .nav-badge.is-live { margin-left: auto; color: var(--wanted); }
-.nav-child .nav-badge.is-live + .nav-badge { margin-left: 0; }
+.nav-badge.is-live + .nav-badge { margin-left: 0; }
+/* The search queue count stays on Downloads while the menu is open: no child page lists it. */
+.nav-item.is-open > .nav-link .nav-badge.is-live.is-search { display: inline; }
+/* Wanted's total: how many issues the Wanted page lists. */
+.nav-badge.is-total { margin-left: auto; color: var(--muted); }
 .nav-item.is-active > .nav-link .nav-badge.is-live { color: var(--ink); }
 .nav-item.is-open > .nav-link .nav-badge.is-live { display: none; }
 .link-btn { background: none; border: 0; padding: 0; font: inherit; color: var(--text); text-decoration: underline;
@@ -1480,3 +1557,116 @@ a.w-where:hover { color: var(--text); text-decoration-color: currentColor; }
   .match-do select { max-width: none; flex: 1 1 auto; }
   .match-covers.is-large .match-cover { width: calc(50vw - 30px); }
 }
+
+/* Discover (discover.html, js/discover.js) */
+.dc-hide { display: inline-flex; align-items: center; gap: 6px; font-size: 13.5px; color: var(--muted); }
+.dc-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(168px, 1fr)); gap: 18px 16px; }
+.dc-card { display: flex; flex-direction: column; gap: 8px; min-width: 0; }
+.dc-card.is-owned .dc-cover { opacity: .55; }
+.dc-cover { position: relative; aspect-ratio: 2 / 3; max-width: 100%; border-radius: var(--radius-sm); overflow: hidden; background: var(--raised); border: 1px solid var(--line); }
+.dc-cover img { display: block; width: 100%; height: 100%; object-fit: cover; }
+.dc-issue { position: absolute; left: 8px; bottom: 8px; padding: 2px 7px; border-radius: 5px; background: var(--ink); color: var(--text); font-family: var(--font-mono); font-size: 12px; font-weight: 500; }
+.dc-body { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+.dc-title { margin: 0; font-size: 14.5px; font-weight: 600; line-height: 1.3; overflow-wrap: anywhere; }
+.dc-meta { margin: 0; font-size: 12.5px; color: var(--muted); }
+.dc-acts { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 12px; margin-top: 6px; }
+.dc-cv { font-size: 12.5px; color: var(--muted); }
+@media (max-width: 600px) {
+  .dc-grid { grid-template-columns: repeat(auto-fill, minmax(130px, 1fr)); }
+}
+
+/* Tools > Library check */
+.lc-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; border-top: 1px solid var(--line); }
+.lc-file { display: flex; flex-wrap: wrap; justify-content: space-between; align-items: center; gap: 8px 16px; padding: 10px 0; border-bottom: 1px solid var(--line); }
+.lc-main { display: flex; flex-direction: column; gap: 2px; min-width: 0; overflow-wrap: anywhere; }
+.lc-acts { display: flex; gap: 8px; flex-wrap: wrap; }
+/* Tools > Duplicates */
+.dp-list { display: flex; flex-direction: column; gap: 14px; }
+.dp-group { border: 1px solid var(--line); border-radius: var(--radius); padding: 12px 14px; background: var(--surface); }
+.dp-group h3 { margin: 0 0 8px; font-size: 1rem; }
+.dp-group ul { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 8px; }
+.dp-file { display: flex; gap: 12px; align-items: flex-start; }
+.dp-file.is-drop .dp-name .mono { text-decoration: line-through; color: var(--muted); }
+.dp-name { display: flex; flex-direction: column; gap: 2px; min-width: 0; overflow-wrap: anywhere; }
+/* Settings > Prowlarr: the indexers to add */
+.prowlarr-list { list-style: none; margin: 0 0 12px; padding: 0; display: flex; flex-direction: column; gap: 6px; }
+/* CBL import: pick a list from CBL-ReadingLists */
+.cbl-catalog-list { list-style: none; margin: 8px 0 0; padding: 0; max-height: 360px; overflow-y: auto; border: 1px solid var(--line); border-radius: var(--radius); }
+.cbl-catalog-list li { border-bottom: 1px solid var(--line); }
+.cbl-catalog-list li:last-child { border-bottom: 0; }
+.cbl-catalog-list li.muted { padding: 8px 12px; }
+.cbl-catalog-pick { display: flex; flex-direction: column; align-items: flex-start; gap: 2px; width: 100%; padding: 8px 12px; background: none; border: 0; color: inherit; font: inherit; text-align: left; cursor: pointer; }
+.cbl-catalog-pick:hover, .cbl-catalog-pick:focus-visible { background: var(--raised); }
+
+/* ---------- Issue details panel (series page) ---------- */
+.ip { width: min(760px, 100%); display: flex; flex-direction: column; max-height: calc(88vh - 24px); }
+.ip-head { display: flex; align-items: flex-start; gap: 12px; padding: 16px 16px 12px 18px; border-bottom: 1px solid var(--line); }
+.ip-heading { flex: 1; min-width: 0; }
+.ip-heading h2 { margin: 0 0 4px; font-size: 20px; overflow-wrap: anywhere; }
+.ip-heading p { margin: 0; display: flex; flex-wrap: wrap; align-items: center; gap: 4px 12px; font-size: 13.5px; }
+.ip-date { color: var(--muted); font-family: var(--font-mono); font-size: 12.5px; }
+.ip-nav { display: flex; align-items: center; gap: 6px; flex: none; }
+.ip-nav .btn { min-width: 36px; justify-content: center; }
+.ip-pos { color: var(--muted); font-size: 13px; margin-right: 4px; white-space: nowrap; }
+.ip-body { display: flex; gap: 18px; padding: 16px 18px 18px; overflow-y: auto; }
+.ip-cover { flex: none; width: 200px; }
+.ip-cover img, .ip-noimg { display: block; width: 100%; border-radius: var(--radius-sm); }
+.ip-noimg { aspect-ratio: 2 / 3; background: var(--raised); border: 1px solid var(--line); }
+.ip-info { flex: 1; min-width: 0; font-size: 14px; line-height: 1.5; }
+.ip-info p { margin: 0 0 12px; }
+.ip-title2 { font-weight: 600; font-size: 15px; }
+.ip-muted, .ip-foot { color: var(--muted); }
+.ip-foot { font-size: 13px; }
+.ip-file { font-family: var(--font-mono); font-size: 12.5px; overflow-wrap: anywhere; }
+.ip-credits { display: grid; grid-template-columns: max-content 1fr; gap: 4px 14px; margin: 0 0 12px; }
+.ip-credits dt { color: var(--muted); }
+.ip-credits dd { margin: 0; }
+.ip-summary { white-space: pre-line; }
+a.issue-name { color: inherit; text-decoration: none; }
+a.issue-name:hover { text-decoration: underline; text-underline-offset: 3px; }
+@media (max-width: 600px) {
+  .ip-head { flex-wrap: wrap; }
+  .ip-nav { width: 100%; }
+  .ip-nav .ip-pos { margin-right: auto; }
+  .ip-body { flex-direction: column; }
+  .ip-cover { width: 140px; }
+}
+
+/* ---- Import results > Choose match (js/importchoice.js) ---- */
+.choose-dialog { width: min(920px, calc(100vw - 32px)); }
+.choose-top { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; }
+.choose-files { display: flex; gap: 14px; align-items: flex-start; padding-bottom: 12px; }
+.choose-files .match-cover { width: 120px; }
+.choose-files .match-covers.is-large .match-cover { width: 260px; }
+.choose-name { margin: 0; font-weight: 600; }
+.choose-folder { overflow-wrap: anywhere; }
+.choose-filelist { margin: 4px 0 0; padding: 0; list-style: none; max-height: 132px; overflow: auto; font-size: 12px; }
+.choose-filelist .link-btn { color: var(--muted); text-decoration: none; text-align: left; overflow-wrap: anywhere; }
+.choose-filelist .link-btn.is-current, .choose-filelist .link-btn:hover { color: var(--text); }
+.choose-search { margin: 0 0 4px; flex-wrap: nowrap; }
+.choose-search .match-search { margin: 0; }
+.choose-row .match-cover { width: 96px; }
+.choose-about { margin: 2px 0 0; font-size: 12.5px; color: var(--text-2); line-height: 1.45; }
+.choose-warn { color: var(--snatched); }
+.choose-actions { gap: 8px; }
+
+/* ---------- Waiting on a ComicVine search ---------- */
+.search-wait {
+  position: fixed; inset: 0; z-index: 1100; display: flex; flex-direction: column; align-items: center; justify-content: center;
+  gap: 6px; padding: 16px; text-align: center; background: color-mix(in srgb, var(--ink) 90%, transparent); backdrop-filter: blur(2px);
+}
+.search-wait[hidden] { display: none; }
+.search-wait-spin, .sr-wait-spin {
+  width: 56px; height: 56px; margin-bottom: 14px; border-radius: 50%;
+  border: 5px solid var(--line); border-top-color: var(--have); animation: search-wait-spin .9s linear infinite;
+}
+.search-wait-title { margin: 0; font-family: var(--font-display); font-size: 20px; font-weight: 600; color: var(--text); overflow-wrap: anywhere; }
+.search-wait-sub { margin: 0; color: var(--muted); }
+.sr-list .sr-wait { display: flex; flex-direction: column; align-items: center; padding: 56px 16px; color: var(--muted); }
+.sr-wait-spin { width: 40px; height: 40px; border-width: 4px; }
+.sr-error { color: var(--failed-text); }
+@keyframes search-wait-spin { to { transform: rotate(360deg); } }
+@media (prefers-reduced-motion: reduce) { .search-wait-spin, .sr-wait-spin { animation-duration: 2.4s; } }
+
+/* Library > Unmatched folder page */
+.unmatched .um-file { overflow-wrap: anywhere; }

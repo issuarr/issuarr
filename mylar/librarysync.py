@@ -26,6 +26,32 @@ import traceback
 import mylar
 from mylar import db, logger, helpers, importer, importstatus, updater, filechecker
 
+def work_folders():
+    """Folders Issuarr or the user keeps files in on purpose, which a scan must never read as
+    library: the duplicates dump, and the review and trash folders of Needs attention."""
+    folders = []
+    try:
+        from mylar import archives, attention
+        candidates = [mylar.CONFIG.DUPLICATE_DUMP, archives.review_dir(), attention.trash_dir()]
+    except Exception as e:
+        logger.fdebug('[IMPORT] Could not work out the work folders: %s' % e)
+        candidates = [mylar.CONFIG.DUPLICATE_DUMP]
+    for c in candidates:
+        if c and c != 'None':
+            folders.append(os.path.normpath(c))
+    return folders
+
+
+def skip_work_folders(root, dirs, work=None):
+    """Drop the folders a scan must not enter from the os.walk list `dirs` of `root`, in place:
+    any whose name starts with _ or . (work folders, hidden folders), and the work_folders().
+    Returns the names dropped."""
+    work = work_folders() if work is None else work
+    skipped = [d for d in dirs if d.startswith(('_', '.')) or os.path.normpath(os.path.join(root, d)) in work]
+    dirs[:] = [d for d in dirs if d not in skipped]
+    return skipped
+
+
 # You can scan a single directory and append it to the current library by specifying append=True
 def libraryScan(dir=None, append=False, ComicID=None, ComicName=None, cron=None, queue=None):
 
@@ -55,8 +81,19 @@ def libraryScan(dir=None, append=False, ComicID=None, ComicName=None, cron=None,
     mylar.IMPORT_STATUS = 'Now attempting to parse files for additional information'
     importstatus.phase('scanning', 'Scanning %s' % dir)
     myDB = db.DBConnection()
+    # with "only new or changed files", files the library already has and that haven't
+    # changed since are left out of the scan
+    changed_only = mylar.CONFIG.IMP_CHANGED_ONLY
+    if changed_only:
+        in_library = library_files(myDB)
+        last_seen = seen_files(myDB)
+    seen_now = []
+    unchanged_count = 0
     #mylar.IMPORT_PARSED_COUNT #used to count what #/totalfiles the filename parser is currently on
+    work = work_folders()
     for r, d, f in os.walk(dir):
+        for skipped in skip_work_folders(r, d, work):
+            logger.info('[IMPORT] Not scanning %s: it is a work folder.' % os.path.join(r, skipped))
         if importstatus.stop_requested():
             logger.info('[IMPORT] Library scan stopped by request while scanning files.')
             return "Cancelled"
@@ -65,6 +102,16 @@ def libraryScan(dir=None, append=False, ComicID=None, ComicName=None, cron=None,
             importstatus.update(files_found=mylar.IMPORT_FILES)
             if any(files.lower().endswith('.' + x.lower()) for x in extensions):
                 comicpath = os.path.join(r, files)
+                try:
+                    st = os.stat(comicpath)
+                except OSError:
+                    pass
+                else:
+                    seen_now.append((os.path.normpath(comicpath), st.st_size, st.st_mtime))
+                    if changed_only and unchanged(comicpath, st.st_size, st.st_mtime, in_library, last_seen):
+                        unchanged_count += 1
+                        importstatus.update(files_unchanged=unchanged_count)
+                        continue
                 if mylar.CONFIG.IMP_PATHS is True:
                     if myDB.select("SELECT * FROM comics JOIN issues WHERE issues.Status='Downloaded' AND ComicLocation=? AND issues.Location=?", [r, files]):
                         logger.info('Skipped known issue path: %s' % comicpath)
@@ -161,6 +208,12 @@ def libraryScan(dir=None, append=False, ComicID=None, ComicName=None, cron=None,
             if 'cvinfo' in files:
                 cv_location.append(r)
                 logger.fdebug('CVINFO found: ' + os.path.join(r))
+
+    # remember each file's size and modified time, so the next scan can tell what changed
+    if seen_now:
+        myDB.action('INSERT OR REPLACE INTO library_files (Path, Size, Mtime) VALUES (?, ?, ?)', seen_now, executemany=True)
+    if unchanged_count:
+        logger.info('[IMPORT] Left out %s files that are already in the library and haven\'t changed.' % unchanged_count)
 
     mylar.IMPORT_TOTALFILES = comiccnt
     logger.info('I have successfully discovered & parsed a total of ' + str(comiccnt) + ' files....analyzing now')
@@ -310,7 +363,8 @@ def libraryScan(dir=None, append=False, ComicID=None, ComicName=None, cron=None,
 
                     if issueinfo is None or issueinfo['metadata'] is None:
                         logger.fdebug('[IMPORT-CBZ] No valid metadata contained within filename. Dropping down to parsing the filename itself.')
-                        pass
+                        # without this the file was dropped: only issueinfo None goes on to the filename route
+                        issueinfo = None
                     else:
                         issuenotes_id = None
                         logger.info('[IMPORT-CBZ] Successfully retrieved some tags. Lets see what I can figure out.')
@@ -539,12 +593,16 @@ def libraryScan(dir=None, append=False, ComicID=None, ComicName=None, cron=None,
     vals = []
     importstatus.update(files_analyzed=cnt)
     if len(reverse_issueids) > 0:
-        mylar.IMPORT_STATUS = 'Now Reverse looking up ' + str(len(reverse_issueids)) + ' IssueIDs to get the ComicIDs'
-        importstatus.phase('cv_lookup', 'Reverse looking up %s IssueIDs on ComicVine' % len(reverse_issueids))
-        importstatus.update(issueids_total=len(reverse_issueids), issueids_resolved=0)
-        vals = mylar.cv.getComic(None, 'import', comicidlist=reverse_issueids)
-        if not vals:
-            vals = []
+        # issues already in the database don't need ComicVine to say which series they belong to
+        vals = known_issueids(myDB, reverse_issueids)
+        known = set(str(x['IssueID']) for x in vals)
+        lookup = [x for x in dict.fromkeys(str(x) for x in reverse_issueids) if x not in known]
+        logger.info('[IMPORT] %s of %s tagged IssueIDs are already in the database - looking up the other %s on ComicVine.' % (len(known), len(set(str(x) for x in reverse_issueids)), len(lookup)))
+        importstatus.update(issueids_total=len(lookup), issueids_resolved=0)
+        if lookup:
+            mylar.IMPORT_STATUS = 'Now Reverse looking up ' + str(len(lookup)) + ' IssueIDs to get the ComicIDs'
+            importstatus.phase('cv_lookup', 'Reverse looking up %s IssueIDs on ComicVine' % len(lookup))
+            vals += mylar.cv.getComic(None, 'import', comicidlist=lookup) or []
         #logger.fdebug('vals returned:' + str(vals))
         if importstatus.stop_requested():
             logger.info('[IMPORT] Library scan stopped by request during the ComicVine lookup.')
@@ -578,7 +636,7 @@ def libraryScan(dir=None, append=False, ComicID=None, ComicName=None, cron=None,
                     "comfilename": ii['comfilename'],
                     "comlocation": ii['comlocation']
                                           })
-        importstatus.update(issueids_resolved=len(resolved))
+        importstatus.update(issueids_resolved=len([x for x in resolved if x not in known]))
 
     if len(watch_kchoice) > 0:
         watchchoice['watchlist'] = watch_kchoice
@@ -682,6 +740,62 @@ def libraryScan(dir=None, append=False, ComicID=None, ComicName=None, cron=None,
             'utter_failure_list':  utter_failure_list}
 
 
+def forget_earlier_scans(myDB, path):
+    """Drop what earlier scans listed for this file, so scanning a folder again replaces
+    its import results instead of adding every file a second time."""
+    myDB.action('DELETE FROM importresults WHERE ComicLocation=?', [path])
+
+
+def library_files(myDB):
+    """Every file the library has an issue for, by full path, with the size Issuarr
+    recorded for it."""
+    known = {}
+    for table in ('issues', 'annuals'):
+        for r in myDB.select("SELECT c.ComicLocation, i.Location, i.ComicSize FROM %s i JOIN comics c ON c.ComicID = i.ComicID WHERE i.Location IS NOT NULL AND i.Location != '' AND i.Status IN ('Downloaded', 'Archived')" % table):
+            if r['ComicLocation']:
+                known[os.path.normpath(os.path.join(r['ComicLocation'], r['Location']))] = r['ComicSize']
+    return known
+
+
+def seen_files(myDB):
+    """The size and modified time of each file when a scan last saw it."""
+    return dict((r['Path'], (r['Size'], r['Mtime'])) for r in myDB.select('SELECT Path, Size, Mtime FROM library_files'))
+
+
+def unchanged(path, size, mtime, known, seen):
+    """True when the library has an issue for this file and it hasn't changed: the same
+    size as the issue records and, when an earlier scan saw it, the same modified time.
+    A file pasted over another under the same name counts as changed."""
+    path = os.path.normpath(path)
+    try:
+        if int(known[path]) != size:
+            return False
+    except (KeyError, TypeError, ValueError):
+        return False
+    last = seen.get(path)
+    return last is None or (last[0] == size and last[1] == mtime)
+
+
+def known_issueids(myDB, issueids):
+    """The series of each IssueID the database already has, in the same shape as
+    cv.getComic(rtype='import') returns. Annuals report their own ComicVine series,
+    as ComicVine would."""
+    found = {}
+    ids = list(dict.fromkeys(str(x) for x in issueids))
+    for i in range(0, len(ids), 500):
+        chunk = ids[i:i + 500]
+        marks = ','.join('?' * len(chunk))
+        for r in myDB.select('SELECT i.IssueID, i.ComicID, c.ComicName, i.IssueName, i.Issue_Number FROM issues i JOIN comics c ON c.ComicID = i.ComicID WHERE i.IssueID IN (%s)' % marks, chunk):
+            found[str(r['IssueID'])] = r
+        for r in myDB.select("SELECT IssueID, COALESCE(NULLIF(ReleaseComicID, ''), ComicID) AS ComicID, COALESCE(NULLIF(ReleaseComicName, ''), ComicName) AS ComicName, IssueName, Issue_Number FROM annuals WHERE IssueID IN (%s) AND (Deleted IS NULL OR Deleted = 0)" % marks, chunk):
+            found.setdefault(str(r['IssueID']), r)
+    return [{'ComicID':      str(r['ComicID']),
+             'IssueID':      str(r['IssueID']),
+             'ComicName':    r['ComicName'],
+             'Issue_Name':   r['IssueName'],
+             'Issue_Number': r['Issue_Number']} for r in found.values() if r['ComicID']]
+
+
 def scanLibrary(scan=None, queue=None):
     mylar.IMPORT_FILES = 0
     mylar.IMPORT_PARSED_COUNT = 0
@@ -737,6 +851,7 @@ def scanLibrary(scan=None, queue=None):
 
                     nspace_dynamicname = re.sub(r'[\|\s]', '', ghi['dynamicname'].lower()).strip()                   
                     #these all have related ComicID/IssueID's...just add them as is.
+                    forget_earlier_scans(myDB, ghi['comlocation'])
                     controlValue = {"impID":        ghi['impid']}
                     newValue = {"Status":           "Not Imported",
                                 "ComicName":        i['ComicName'], #helpers.conversion(i['ComicName']),
@@ -758,6 +873,7 @@ def scanLibrary(scan=None, queue=None):
 
                     nspace_dynamicname = re.sub(r'[\|\s]', '', ss['dynamicname'].lower()).strip()                   
 
+                    forget_earlier_scans(myDB, ss['comlocation'])
                     controlValue = {"impID":        ss['impid']}
                     newValue = {"ComicYear":        ss['comicyear'],
                                 "Status":           "Not Imported",

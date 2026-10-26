@@ -56,8 +56,9 @@
             _imprint = comic['PublisherImprint'] if comic['PublisherImprint'] not in (None, 'None', '') else None
             _age = comic['AgeRating'] if comic['AgeRating'] not in (None, 'None', '') else None
             # (field, text): the field lets the Details tab update the line after an edit
+            _want_from = comic.get('WantFrom') if hasattr(comic, 'get') else None
             _meta = [('publisher', comic['ComicPublisher']), ('imprint', _imprint), ('published', comic['ComicPublished']),
-                     ('edition', display_type), ('age_rating', _age)]
+                     ('edition', display_type), ('age_rating', _age), ('want_from', ('Wanting from #%s' % _want_from) if _want_from else None)]
             _version = comic['ComicVersion'] if comic['ComicVersion'] not in (None, 'None', '', 'v1') else None
             _bar_title = '%s of %s on disk%s' % (_have, _total, (', %s wanted' % _wanted) if _wanted else '')
             # The server sends blank.gif as a GIF data URI when there is no cover; draw the tinted title card instead.
@@ -98,6 +99,7 @@
                     % endfor
                 </p>
                 <p class="notice" id="series_status" style="display:none"></p>
+                <p class="notice" id="series_suspects" data-comicid="${comic['ComicID'] | h}" data-name="${comic['ComicName'] or '' | h}" data-year="${comic['ComicYear'] or '' | h}" hidden></p>
                 <span id="loading_spinner" hidden></span>
                 <div class="series-collection" id="series-collection">
                     <%
@@ -130,6 +132,8 @@
                         </summary>
                         <div class="menu-list">
                             <button type="button" class="btn btn-ghost" title="Choose which issue each file in the series folder is" onclick="IssuarrMatch.open('${comic['ComicID'] | h}');">Match files…</button>
+                            <button type="button" class="btn btn-ghost" id="want-from-btn" data-comicid="${comic['ComicID'] | h}" data-current="${(comic.get('WantFrom') if hasattr(comic, 'get') else '') or '' | h}" data-latest="${(comic.get('LatestIssue') if hasattr(comic, 'get') else '') or '' | h}" title="Want only issues from a number onward, for a run you're picking up late">Want from issue…</button>
+                            <button type="button" class="btn btn-ghost" title="Read every file of this series through, to find damaged files or files that aren't comics" onclick="checkSeriesFiles('${comic['ComicID'] | h}');">Check files</button>
                             <button type="button" class="btn btn-ghost" title="These files belong to a different ComicVine series: find it, move the files to it and match them" onclick="IssuarrMatch.wrongSeries('${comic['ComicID'] | h}', document.getElementById('tab_comicname').value, document.getElementById('tab_comicyear').value);">Wrong series…</button>
                             % if mylar.CONFIG.RENAME_FILES:
                             <a class="btn btn-ghost" href="previewRename?comicid=${comic['ComicID'] | u}" title="See the new file names, then rename">Rename files…</a>
@@ -329,11 +333,11 @@
                     <label class="set-label" for="ss-continuing"><b>Always treat as continuing</b><span>Keep checking for new issues even when ComicVine says the series has ended.</span></label>
                     <input type="checkbox" class="switch" name="force_continuing" id="ss-continuing" value="1" ${comicConfig['force_continuing']} />
                 </div>
-                %if all([mylar.CONFIG.ENABLE_32P is True, mylar.CONFIG.ENABLE_TORRENT_SEARCH is True, mylar.CONFIG.MODE_32P == 1]):
                 <div class="set-row set-tog">
-                    <label class="set-label" for="ss-packs"><b>Allow pack downloads</b><span>Several issues in one file. Single issues are still searched first.</span></label>
+                    <label class="set-label" for="ss-packs"><b>Allow pack downloads</b><span>Let search grab a GetComics post that holds several issues of this series in one download. Turn off to grab issues one at a time.</span></label>
                     <input type="checkbox" class="switch" name="allow_packs" id="ss-packs" value="1" ${comicConfig['allow_packs']} />
                 </div>
+                %if all([mylar.CONFIG.ENABLE_32P is True, mylar.CONFIG.ENABLE_TORRENT_SEARCH is True, mylar.CONFIG.MODE_32P == 1]):
                 <div class="set-row">
                     <label class="set-label" for="ss-32p"><b>32P series ID</b></label>
                     <div class="set-ctl"><input type="text" name="torrentid_32p" id="ss-32p" value="${_blank(comicConfig['torrentid_32p']) | h}" /></div>
@@ -407,23 +411,19 @@
 
      <div class="table_wrapper" id="issue_wrapper">
        <form action="mark_the_issues" method="get" id="markissues" name="markissues">
-        <div style="display:none;" id="markissue" class="issue-markbar">Mark the selected issues as
-                <select name="action" id="mark_issues" onChange="mark_the_issues('issues')" data-success="selected issues marked">
-                        <option disabled="disabled" selected="selected">Choose...</option>
-                        <option value="Wanted">Wanted</option>
-                        <option value="Skipped">Skipped</option>
-                        <option value="Archived">Archived</option>
-                        <option value="Ignored">Ignored</option>
-                        %if mylar.CONFIG.FAILED_DOWNLOAD_HANDLING:
-                            <option value="Failed">Failed</option>
-                        %endif
-                </select>
-                <input type="hidden" value="Go">
+        <div class="bulk-bar issue-markbar" id="markissue" hidden>
+                <span class="bulk-count" id="markissue-count"></span>
+                <button type="button" class="btn btn-sm" data-ui onclick="mark_the_issues('issues', 'Wanted')">Mark wanted</button>
+                <button type="button" class="btn btn-sm" data-ui onclick="mark_the_issues('issues', 'Skipped')">Skip</button>
+                <button type="button" class="btn btn-sm" data-ui onclick="mark_the_issues('issues', 'Archived')">Mark archived</button>
+                <button type="button" class="btn btn-sm" data-ui onclick="mark_the_issues('issues', 'Ignored')">Ignore</button>
+                %if mylar.CONFIG.FAILED_DOWNLOAD_HANDLING:
+                    <button type="button" class="btn btn-sm" data-ui onclick="mark_the_issues('issues', 'Failed')">Mark failed</button>
+                %endif
                 %if any([mylar.CONFIG.ENABLE_META, mylar.CONFIG.CBR2CBZ_ONLY]):
-                    <div class="issue-markbar-more">
-                        <a id="metatag_issues" href="#" class="btn btn-sm" title="Write ComicInfo metadata into the selected issues" onclick="metatag_the_issues(${comic['ComicID']}, 'issues'); return false;">Write metadata</a>
-                    </div>     
-                %endif          
+                    <button type="button" class="btn btn-sm" data-ui title="Write ComicInfo metadata into the selected issues" onclick="metatag_the_issues(${comic['ComicID']}, 'issues');">Write metadata</button>
+                %endif
+                <button type="button" class="btn btn-sm btn-ghost" data-ui onclick="clear_checks('issues');">Clear selection</button>
         </div>
 
           <table class="display select" id="issue_table">
@@ -438,14 +438,6 @@
                         </tr>
                 </thead>
                 <tbody>
-                <div id="issue-box" class="issue-popup">
-                 <a href="#" class="close"><img src="images/close_pop.png" class="btn_close" title="Close Window" alt="Close" class="highqual" /></a>
-                 <div id="descript"><span></span></div>
-                 <div id="responsethis">
-                  <span><img src="images/loader_black.gif" alt="loading" style="float:left; margin-right: 5px;"/>LOADING....</span>
-                 </div>
-               </div>
-
                 </tbody>
          </table>
        </form>
@@ -454,24 +446,19 @@
     <div class="table_wrapper" id="annual_wrapper">
        <h2 class="annuals-title">Annuals</h2>
        <form action="mark_the_issues" method="get" id="markannuals" name="markannuals">
-        <div style="display:none;" id="markannual" class="issue-markbar">Mark the selected annuals as
-                <select name="action" id="mark_annuals" onChange="mark_the_issues('annuals')" data-success="selected annuals marked">
-                        <option disabled="disabled" selected="selected">Choose...</option>
-                        <option value="Wanted">Wanted</option>
-                        <option value="Skipped">Skipped</option>
-                        <option value="Archived">Archived</option>
-                        <option value="Ignored">Ignored</option>
-                        %if mylar.CONFIG.FAILED_DOWNLOAD_HANDLING:
-                            <option value="Failed">Failed</option>
-                        %endif
-                </select>
-                selected annuals
-                <input type="hidden" value="Go">
-                %if any([mylar.CONFIG.ENABLE_META, mylar.CONFIG.CBR2CBZ_ONLY]):
-                    <div class="issue-markbar-more">
-                        <a id="metatag_issues" href="#" class="btn btn-sm" title="Write ComicInfo metadata into the selected issues" onclick="metatag_the_issues(${comic['ComicID']}, 'annuals'); return false;">Write metadata</a>
-                    </div>   
+        <div class="bulk-bar issue-markbar" id="markannual" hidden>
+                <span class="bulk-count" id="markannual-count"></span>
+                <button type="button" class="btn btn-sm" data-ui onclick="mark_the_issues('annuals', 'Wanted')">Mark wanted</button>
+                <button type="button" class="btn btn-sm" data-ui onclick="mark_the_issues('annuals', 'Skipped')">Skip</button>
+                <button type="button" class="btn btn-sm" data-ui onclick="mark_the_issues('annuals', 'Archived')">Mark archived</button>
+                <button type="button" class="btn btn-sm" data-ui onclick="mark_the_issues('annuals', 'Ignored')">Ignore</button>
+                %if mylar.CONFIG.FAILED_DOWNLOAD_HANDLING:
+                    <button type="button" class="btn btn-sm" data-ui onclick="mark_the_issues('annuals', 'Failed')">Mark failed</button>
                 %endif
+                %if any([mylar.CONFIG.ENABLE_META, mylar.CONFIG.CBR2CBZ_ONLY]):
+                    <button type="button" class="btn btn-sm" data-ui title="Write ComicInfo metadata into the selected annuals" onclick="metatag_the_issues(${comic['ComicID']}, 'annuals');">Write metadata</button>
+                %endif
+                <button type="button" class="btn btn-sm btn-ghost" data-ui onclick="clear_checks('annuals');">Clear selection</button>
         </div>
             <table class="display select" id="annual_table">
                 <thead>
@@ -506,6 +493,7 @@
          %endif
      </div>
      <section class="related-tpbs" id="related-tpbs" data-comicid="${comic['ComicID'] | h}" aria-label="Related issues and TPBs" hidden></section>
+     <section class="related-tpbs" id="other-files" data-comicid="${comic['ComicID'] | h}" aria-label="Other files in this folder" hidden></section>
   </div>
  </div>
 </%def>
@@ -522,8 +510,16 @@
         <script src="js/libs/full_numbers_no_ellipses.js"></script>
         <script src="js/libs/dataTables.rowGroup.min.js"></script>
         <script src="js/matching.js?v=${mylar.CURRENT_VERSION}"></script>
+        <script>
+        // Import results' "Wrong series…" opens the series with #wrong-series
+        if (location.hash === '#wrong-series') {
+            $(function () { IssuarrMatch.wrongSeries('${comic['ComicID'] | h}', document.getElementById('tab_comicname').value, document.getElementById('tab_comicyear').value); });
+        }
+        </script>
         <script src="js/series-details.js?v=${mylar.CURRENT_VERSION}"></script>
         <script src="js/related-tpbs.js?v=${mylar.CURRENT_VERSION}"></script>
+        <script src="js/other-files.js?v=${mylar.CURRENT_VERSION}"></script>
+        <script src="js/issue-panel.js?v=${mylar.CURRENT_VERSION}"></script>
         <style>
         .ui-autocomplete-loading {
           background: white url('images/loader_black.gif') right center no-repeat;
@@ -571,45 +567,13 @@
                 first = main('manqueueit', 'Search now', 'Search for this issue now');
             }
             if (!p) more.push(item('matchfile', 'Match a file…', 'Choose which file in the series folder is this issue'));
-            more.push('<a id="' + p + 'listbox" name="' + p + 'listbox" href="#issue-box" class="btn btn-ghost issue-window" title="Details read from ComicVine or the file">Issue details</a>');
+            more.push('<a id="' + p + 'listbox" name="' + p + 'listbox" href="#" class="btn btn-ghost" title="Details read from ComicVine or the file">Issue details</a>');
             return '<span class="issue-acts">' + first + '<details class="menu row-menu"><summary class="btn btn-sm btn-ghost" aria-label="More for #' + escHtml(full[0]) + '">⋯</summary>' +
                    '<div class="menu-list">' + more.join('') + '</div></details></span>';
         }
         </script>
         <script>
         $(document).ready(function() {
-        $('a.issue-window').click(function() {
-
-                    //Getting the variable's value from a link
-            var issueBox = $(this).attr('href');
-
-            //Fade in the Popup
-            $(issueBox).fadeIn(300);
-
-            //Set the center alignment padding + border see css style
-            var popMargTop = ($(issueBox).height() + 24) / 2;
-            var popMargLeft = ($(issueBox).width() + 24) / 2;
-
-            $(issueBox).css({
-                'margin-top' : -popMargTop,
-                'margin-left' : -popMargLeft
-            });
-
-            // Add the mask to body
-            $('body').append('<div id="mask"></div>');
-            $('#mask').fadeIn(300);
-
-            return false;
-        });
-
-        // When clicking on the button close or the mask layer the popup closed
-        $('a.close, #mask').on('click', function() {
-          $('#mask , .issue-popup').fadeOut(300 , function() {
-            $('#mask').remove();
-        });
-        return false;
-        });
-
         $('table.display').on('click', '.date_edit', function() {
             $('.date_edit').editable('issue_edit', {
                 width: ($("span.#date_edit").width() + 80) + "px",
@@ -658,9 +622,7 @@
                 //issue = dataline[0];
                 //date = dataline[2];
                 //title = dataline[1];
-                runMetaIssue(issueid);
-                document.getElementById("issue-box").style.display = "block";
-                $("#issue-box").draggable();
+                IssuarrIssue.open(this.closest('table'), this.closest('tr'));
             } else if (action == 'matchfile'){
                 IssuarrMatch.open(comicid, issueid);
             } else if (action == 'metatag' || action == 'ametatag'){
@@ -724,12 +686,10 @@
             });
         }
 
-        function mark_the_issues(tabletype){
+        function mark_the_issues(tabletype, action){
             if (tabletype == 'issues'){
-                var action=$("#mark_issues option:selected").val();
                 var checks = document.getElementsByName("issueid[]");
             } else {
-                var action=$("#mark_annuals option:selected").val();
                 var checks = document.getElementsByName("aissueid[]");
             }
             var checkboxesChecked = [];
@@ -1016,6 +976,36 @@
               });
         }
 
+        function checkSeriesFiles(comicid){
+            function post(url, params) {
+                return fetch(url, { method: 'POST', credentials: 'same-origin',
+                                    headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+                                    body: new URLSearchParams(params).toString() }).then(function (r) { return r.json(); });
+            }
+            function poll() {
+                fetch('library_check_status?comicid=' + encodeURIComponent(comicid), { credentials: 'same-origin', cache: 'no-store' })
+                    .then(function (r) { return r.json(); })
+                    .then(function (d) {
+                        if (d.state === 'running') { setTimeout(poll, 2000); return; }
+                        if (d.error) { Issuarr.toast('The check stopped: ' + d.error, false); return; }
+                        var n = d.files.length;
+                        if (!n) Issuarr.toast('Checked ' + d.done + (d.done === 1 ? ' file' : ' files') + ': none are damaged.', true);
+                        else {
+                            Issuarr.toast(n + (n === 1 ? ' file needs' : ' files need') + ' a look. Opening Library check.', false);
+                            setTimeout(function () { window.location.href = 'libraryCheck'; }, 1500);
+                        }
+                    })
+                    .catch(function () { Issuarr.toast('Couldn\'t get the check\'s result. See Tools › Library check.', false); });
+            }
+            post('library_check_scan', { comicid: comicid })
+                .then(function (r) {
+                    if (!r.ok) { Issuarr.toast('A library check is already running. Try again when it finishes.', false); return; }
+                    Issuarr.toast('Checking the files of this series.', true);
+                    setTimeout(poll, 1000);
+                })
+                .catch(function () { Issuarr.toast('Couldn\'t start the check. See the log.', false); });
+        }
+
         function group_metatag(comicid){
               $('#ajaxMsg').html("<div class='msg'><span class='ui-icon ui-icon-check'></span>Now metatagging complete series...</div>");
               $('#ajaxMsg').addClass('success').fadeIn().delay(3000).fadeOut();
@@ -1097,105 +1087,6 @@
               });
         }
 
-        function runMetaIssue(issueid) {
-              $.ajax({
-                 type: "GET",
-                 url: "IssueInfo",
-                 data: { issueid: issueid },
-                 success: function(response) {
-                   obj = JSON.parse(response);
-                   if (obj['status'] == 'success'){
-                       obj_meta = obj['metadata'];
-                       line = '<table width="100%" style="border-collapse: collapse;"><tr style="position:relative;width:100%;"><td>';
-                       line += '<img style="float:left;padding-right:10px;padding-top:5px;padding-bottom:5px;" src="data:image/jpeg;base64,'+obj['IssueImage']+'" height="400" width="263">';
-                       line += '<span style="font-size:12px;">';
-                       if (obj_meta['issue_number']){
-                           line += '<h1><center><b>'+obj_meta['series']+'</br>#'+obj_meta['issue_number']+'</b></center></h1>';
-                       } else {
-                           line += '<h1><center><b>'+obj_meta['series']+'</b></center></h1>';
-                       }
-                       if (obj_meta['issue_title']){
-                           line += '</br><center>'+obj_meta['issue_title']+'</center>';
-                       }    
-                       if (obj_meta['issuedate']){
-                           line +='</br><p class="alignright">'+obj_meta['issuedate']+'</p>';
-                       }
-                       if (obj_meta['writers']){
-                           line +='</br>Writers:'+obj_meta['writers'];
-                       }
-                       if (obj_meta['inkers']){
-                           line +='</br>Inkers:'+obj_meta['inkers'];
-                       }
-                       if (obj_meta['pencillers']){
-                           line +='</br>Pencillers:'+obj_meta['pencillers'];
-                       }
-                       if (obj_meta['colorists']){
-                           line +='</br>Colorists:'+obj_meta['colorists'];
-                       }
-                       if (obj_meta['letterers']){
-                           line +='</br>Letterers:'+obj_meta['letterers'];
-                       }
-                       if (obj_meta['editors']){
-                           line +='</br>Editors:'+obj_meta['editors'];
-                       }
-                       if (obj_meta['cover_artists']){
-                           line +='</br>Cover Artists:'+obj_meta['cover_artists'];
-                       }
-                       if (obj_meta['pagecount']){
-                           line += '</br></br><p class="alignleft">...'+obj_meta['pagecount']+' pages</p>';
-                       }
-                       line += '</span>';
-                       line += '</td></tr></table>';
-                       desc_line = '<table width="100%">';
-                       if (obj_meta['summary']){
-                           desc_line += '<tr style="border-top: thin solid black;"><td style="font-size:11px;"><center>Summary: '+obj_meta['summary']+'</br></center></td></tr>';
-                       } else {
-                           desc_line += '<tr style="border-top: thin solid black;"><td style="font-size:11px;"><center>No summary available</br></center></td></tr>';
-                       }
-                       if (obj_meta['filename']){
-                           iss_filename = obj_meta['filename'];
-                       } else {
-                           iss_filename = 'No local filename present';
-                       }
-                       desc_line += '<tr style="border-top: thin solid black;border-bottom: thin solid black;font-size:11px;"><td><center>'+iss_filename+'</center></td></tr>';
-                       if (obj_meta['metadata_type'] || obj_meta['metadata_source']){
-                           desc_line += '<tr style="background-color:#4D4C4C;border-top: thin solid black;border-bottom: thin solid black;font-size:11px;">'
-                           if (obj_meta['metadata_type']){
-                               desc_line += '<td style="text-align:left;margin-left:5px;float:left;" title="metadata extracted from '+obj_meta['metadata_type']+'">'+obj_meta['metadata_type']+'</td>';
-                           }
-                           if (obj_meta['metadata_source']){
-                               desc_line += '<td style="text-align:right;margin-right:5px;float:right;" title="metadata source"><center>'+obj_meta['metadata_source']+'</center></td>';
-                           }
-                           desc_line += '</tr>';
-                       }
-                       desc_line += '</table>'; 
-                   } else {
-                        ErrorPNG = 'interfaces/default/images/symbol_exclamation.png';
-                        line = '<table width="300"><tr><td>';
-                        line += '<img style="float: left; padding-right: 10px" src=' + ErrorPNG + ' height="128" width="128">';
-                        desc_line = '<h1><center><b>ERROR</b></center></h1></br>';
-                        if (obj['filename']){
-                            desc_line += '<center>Unable to retrieve metadata from within cbz file</center></br>';
-                            desc_line += '<center>Maybe you should try and tag the file again?</center></br>';
-                        } else {
-                            desc_line += '<center>Unable to retrieve issue data from ComicVine</center></br>';
-                        }
-                        if (obj_meta['filename']){
-                            desc_line += '<tr><td><center>'+filename+'</center>';
-                        } else {
-                            desc_line += '<tr><td><center>[IssueID:'+issueid+'] '+obj_meta['series']+' #'+obj_meta['issue_number']+'</center>';
-                        }
-                        desc_line += '</td></tr></table>';
-                   }
-                   $('#descript').html(line);
-                   $('#responsethis').html(desc_line);
-                 },
-                 error: function(data)
-                     {
-                       alert('ERROR'+data.responseText);
-                     },
-              });
-        }
         function collectgroup(){
             $.ajax({
                 type: "GET",
@@ -1419,18 +1310,19 @@
                 var checks = document.getElementsByName("aissueid[]");
                 cc = document.getElementById("markannual");
             }
-            var checkfound = false;
+            var picked = 0;
             for (var i=0; i<checks.length; i++) {
-                if (checks[i].checked) {
-                    checkfound = true;
-                    break;
-                }
+                if (checks[i].checked) picked++;
             }
-            if (checkfound == true){
-                cc.style.display = "block";
-            } else {
-                cc.style.display = "none";
-            }
+            cc.hidden = picked == 0;
+            document.getElementById(cc.id + "-count").textContent = picked + (tabletype == 'issues' ? (picked == 1 ? ' issue' : ' issues') : (picked == 1 ? ' annual' : ' annuals')) + ' selected';
+        }
+
+        function clear_checks(tabletype){
+            var checks = document.getElementsByName(tabletype == 'issues' ? "issueid[]" : "aissueid[]");
+            for (var i=0; i<checks.length; i++) checks[i].checked = false;
+            document.getElementById(tabletype == 'issues' ? "issues-select-all" : "annuals-select-all").checked = false;
+            count_checks(tabletype);
         }
 
         function title_loading() {
@@ -1599,10 +1491,7 @@
                         pageScrollPos = $('#issue_table div.datatables_scrollBody').scrollTop();
                         // make sure the filter counts are up-to-date
                         update_filters();
-                        // reset the mark_issues dropdown so it won't keep the last selection
-                        dropdown = document.getElementById("mark_issues");
-                        dropdown.selectedIndex = 0;
-                        document.getElementById("markissue").style.display = "none";
+                        document.getElementById("markissue").hidden = true;
                         document.getElementById("issues-select-all").checked = false;
                     },
                     "sDom": '<"dt-top"fl>rt<"dt-bottom"ip>',
@@ -1642,16 +1531,9 @@
                            "targets": [2],
                            "visible": true,
                            "render": function (data,type,full){
-                               if (full[1]){
-                                   if (full[1].length > 65) {
-                                       response = '<span title="' + full[1] + '">' + full[1].substring(0,62) + '...</span>';
-                                   } else {
-                                       response = full[1];
-                                   }
-                               } else {
-                                   response = full[1];
-                               }
-                               return response;
+                               if (!full[1]) return '';
+                               var long = full[1].length > 65;
+                               return '<a href="#" id="listbox" class="issue-name" title="' + (long ? escHtml(full[1]) + ' · ' : '') + 'Issue details">' + escHtml(long ? full[1].substring(0,62) + '...' : full[1]) + '</a>';
                            }
                        },
                        {
@@ -1719,7 +1601,7 @@
                     ],
                     "paginationType": "simple_numbers",
                     "aaSorting": [[1, 'desc']],
-                    "displayLength": 25,
+                    "displayLength": 50,
                     "lengthMenu": [[10, 15, 25, 50, 100, 200, -1], [10, 15, 25, 50, 100, 200, 'All' ]],
                     "language": {
                          "search": "",
@@ -1784,10 +1666,7 @@
                 $('#annual_table').dataTable( {
                     "preDrawCallback": function (settings){
                         pageScrollPos = $('#annual_table div.datatables_scrollBody').scrollTop();
-                        // reset the mark_annuals dropdown so it won't keep the last selection
-                        dropdown = document.getElementById("mark_annuals");
-                        dropdown.selectedIndex = 0;
-                        document.getElementById("markannual").style.display = "none";
+                        document.getElementById("markannual").hidden = true;
                         document.getElementById("annuals-select-all").checked = false;
                     },
                     "sDom": 'rt<"dt-bottom"i>',
@@ -1828,16 +1707,9 @@
                            "targets": [3],
                            "visible": true,
                            "render": function (data,type,full){
-                               if (full[1]){
-                                   if (full[1].length > 65) {
-                                       response = full[1].substring(0,62) + '...';
-                                   } else {
-                                       response = full[1];
-                                   }
-                               } else {
-                                   response = full[1];
-                               }
-                               return response;
+                               if (!full[1]) return '';
+                               var long = full[1].length > 65;
+                               return '<a href="#" id="alistbox" class="issue-name" title="' + (long ? escHtml(full[1]) + ' · ' : '') + 'Issue details">' + escHtml(long ? full[1].substring(0,62) + '...' : full[1]) + '</a>';
                            }
                        },
                        {

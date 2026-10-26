@@ -379,6 +379,78 @@ def clear_pack(folder):
     return trashed
 
 
+def _filed(issueid):
+    from mylar import db
+    if not issueid:
+        return False
+    myDB = db.DBConnection()
+    for table in ('issues', 'annuals'):
+        row = myDB.selectone('SELECT Status FROM %s WHERE IssueID=?' % table, [str(issueid)]).fetchone()
+        if row is not None:
+            return row['Status'] in ('Downloaded', 'Archived')
+    return False
+
+
+def jd2_leftovers(files):
+    """What a JD2 download's files left on disk, given the paths its links save to: each file or its
+    .part, and what JD2 unpacked from an archive (next to it, or in a folder named after it). Only
+    paths below JD2's download folder, which can be shared with other clients, so nothing else
+    there is ever picked up."""
+    from mylar.downloaders import jdownloader2
+    root = jdownloader2.local_folder()
+    if not root or not files:
+        return []
+    root = os.path.realpath(root).rstrip(os.sep) + os.sep
+    found = []
+
+    def add(p):
+        p = os.path.realpath(p)
+        if p.startswith(root) and os.path.isfile(p) and p not in found:
+            found.append(p)
+
+    for path in files:
+        for p in (path, path + '.part'):
+            add(p)
+        if path.lower().endswith(ARCHIVE_EXT) and os.path.isfile(path):
+            try:
+                arc = _open(path)
+            except Exception:
+                arc = None
+            if arc is None:
+                continue
+            with arc:
+                names = [i.filename for i in arc.infolist() if not _is_dir(i)]
+            for n in names:
+                add(os.path.join(os.path.dirname(path), n))
+                add(os.path.join(os.path.splitext(path)[0], os.path.basename(n)))
+    return found
+
+
+def clear_jd2(download_info):
+    """A JD2 download has been filed: JD2 was sent every mirror of the post, so the copies the other
+    mirrors downloaded, their part files and the archive JD2 unpacked are still in its folder. Move
+    those to the Needs attention trash (emptied after ATTENTION_TRASH_DAYS) and drop the emptied
+    folders. Nothing is cleared when filing didn't take, or when files are copied, not moved."""
+    from mylar import attention
+    if not isinstance(download_info, dict) or download_info.get('provider') != 'JD2' or not _moving():
+        return 0
+    if not _filed(download_info.get('issueid')):
+        return 0
+    trashed = 0
+    for path in jd2_leftovers(download_info.get('files')):
+        if path.lower().endswith(COMIC_EXT) and (path in PENDING or _hold(path)):
+            continue
+        try:
+            attention._trash_file(path)
+            trashed += 1
+        except Exception as e:
+            logger.warn('[JD2] Unable to move %s to the trash: %s' % (path, e))
+    if trashed:
+        logger.info('[JD2] Moved %s file(s) the other mirrors left in JD2\'s folder to the trash.' % trashed)
+        tally('trashed')
+    return trashed
+
+
 def _in_monitor(path):
     mon = mylar.CONFIG.CHECK_FOLDER
     return bool(mon) and os.path.normpath(path).startswith(os.path.normpath(mon) + os.sep)

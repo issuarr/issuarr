@@ -32,10 +32,23 @@ def held(item):
     return True
 
 
+def paused_exit(queue):
+    """Whether the shutdown marker is waiting, behind items a paused queue won't take."""
+    with queue.mutex:
+        return 'exit' in queue.queue
+
+
 def search_queue(queue):
     while True:
         if mylar.SEARCHLOCK is True:
             time.sleep(5)
+
+        elif mylar.SEARCH_PAUSED:
+            # paused from Wanted: nothing new starts until it's resumed, but shutdown still works
+            if paused_exit(queue):
+                logger.info('[SEARCH-QUEUE] Cleaning up workers for shutdown')
+                break
+            time.sleep(2)
 
         elif mylar.SEARCHLOCK is False and queue.qsize() >= 1:
             item = queue.get(True)
@@ -91,12 +104,14 @@ def search_queue(queue):
                             manual = item['manual']
                         except Exception:
                             manual = False
+                        mylar.SEARCH_ABORT = None
                         mylar.SEARCH_CURRENT = item
                         started = time.time()
                         try:
                             mylar.search.searchforissue(item['issueid'], manual=manual)
                         finally:
                             mylar.SEARCH_CURRENT = None
+                            mylar.SEARCH_ABORT = None
                             activity.searched(item, started)
                     time.sleep(5)
 

@@ -629,6 +629,88 @@ def remove_apikey(payd, key):
 
     return payd
 
+def folder_in_use(folder, comicid):
+    """Why a series' folder must stay when the series is removed with its files: another series
+    uses it or a folder inside it, or it holds comic files that aren't this series' own. None
+    when deleting it only deletes this series' files. Call it before the series' rows go."""
+    if not folder or not os.path.isdir(folder):
+        return None
+    folder = os.path.normpath(folder)
+    myDB = db.DBConnection()
+    for r in myDB.select('SELECT ComicName, ComicYear, ComicLocation FROM comics WHERE ComicID!=? AND ComicLocation IS NOT NULL', [comicid]):
+        loc = os.path.normpath(r['ComicLocation'])
+        if loc == folder or loc.startswith(folder.rstrip(os.sep) + os.sep):
+            return '%s (%s) uses it too' % (r['ComicName'], r['ComicYear'])
+    own = set()
+    for table in ('issues', 'annuals'):
+        own.update(r['Location'] for r in myDB.select("SELECT Location FROM %s WHERE ComicID=? AND Location IS NOT NULL AND Location != ''" % table, [comicid]))
+    ext = ('.cbz', '.cbr', '.cb7', '.cbt', '.pdf')
+    other = 0
+    for here, dirs, names in os.walk(folder):
+        other += sum(1 for n in names if n.lower().endswith(ext) and n not in own)
+    if other:
+        return '%s comic file%s in it %s no issue of this series' % (other, '' if other == 1 else 's', 'is' if other == 1 else 'are')
+    return None
+
+
+def remove_series(ComicID, delete_dir=False):
+    """Take a series off the watchlist: its issues, annuals, pull list wants and queued searches.
+    Its folder is only removed with delete_dir. True when the series was there to remove."""
+    from mylar import search
+    myDB = db.DBConnection()
+    deleted = False
+    comic = myDB.selectone('SELECT * from comics WHERE ComicID=?', [ComicID]).fetchone()
+    try:
+        if comic['ComicName'] is None:
+            ComicName = 'None'
+        else:
+            ComicName = comic['ComicName']
+    except Exception as e:
+        logger.warn('Unable to reference ID in database - was ComicID: %s already deleted? Error returned: %s' % (ComicID, e))
+    else:
+        seriesdir = comic['ComicLocation']
+        seriesyear = comic['ComicYear']
+        seriesvol = comic['ComicVersion']
+        keep = folder_in_use(seriesdir, ComicID) if delete_dir else None
+        logger.info("Deleting all traces of Comic: " + ComicName)
+        myDB.action('DELETE from comics WHERE ComicID=?', [ComicID])
+        myDB.action('DELETE from issues WHERE ComicID=?', [ComicID])
+
+        if mylar.CONFIG.ANNUALS_ON:
+            myDB.action('DELETE from annuals WHERE ComicID=?', [ComicID])
+        myDB.action('DELETE from upcoming WHERE ComicID=?', [ComicID])
+        myDB.action('DELETE from readlist WHERE ComicID=?', [ComicID])
+        myDB.action("UPDATE weekly SET Status='Skipped' WHERE ComicID=? AND Status='Wanted'", [ComicID])
+        dropped = search.drop_series(ComicID)
+        if dropped:
+            logger.info('Removed %s queued searches for %s.' % (dropped, ComicName))
+        if delete_dir: #mylar.CONFIG.DELETE_REMOVE_DIR:
+            logger.fdebug('Remove directory on series removal enabled.')
+            if keep:
+                logger.warn('Kept the folder %s: %s.' % (seriesdir, keep))
+            elif seriesdir is not None:
+                if os.path.exists(seriesdir):
+                    logger.fdebug('Attempting to remove the directory and contents of : ' + seriesdir)
+                    try:
+                        shutil.rmtree(seriesdir)
+                    except:
+                        logger.warn('Unable to remove directory after removing series from Mylar.')
+                    else:
+                        logger.info('Successfully removed directory: %s' % (seriesdir))
+                else:
+                    logger.warn('Unable to remove directory as it does not exist in : ' + seriesdir)
+            else:
+                logger.warn('Unable to remove directory as it does not exist.')
+        if seriesvol is None:
+            dspline = '%s (%s)' % (ComicName, seriesyear)
+        else:
+            dspline = '%s %s (%s)' % (ComicName, seriesvol, seriesyear)
+        logger.info('Successful deletion of %s from your watchlist' % (dspline))
+        ComicSort(sequence='update')
+        deleted = True
+    return deleted
+
+
 def ComicSort(comicorder=None, sequence=None, imported=None):
     if sequence:
         # if it's on startup, load the sql into a tuple for use to avoid record-locking
@@ -2999,10 +3081,18 @@ def get_the_hash(filepath):
     logger.info('Hash of file : ' + thehash)
     return {'hash':     thehash}
 
+def _block_key(site):
+    """One name for a provider, however it's spelled where it's blocked or checked:
+    'newznab: Geek', 'Geek (newznab)', 'Geek [nzbhydra] (newznab) [RSS]' and 'Geek' are all 'geek'."""
+    s = re.sub(r'^\s*(newznab|torznab)\s*:\s*', '', str(site or ''), flags=re.I)
+    s = re.sub(r'\[(rss|nzbhydra|localhost)\]|\((newznab|torznab)\)', '', s, flags=re.I)
+    return re.sub(r'\s+', ' ', s).strip().lower()
+
 def block_provider_check(site, simple=True, force=False):
     timenow = int(time.time())
-    for prov in mylar.PROVIDER_BLOCKLIST:
-        if prov['site'] == site:
+    key = _block_key(site)
+    for prov in list(mylar.PROVIDER_BLOCKLIST):
+        if _block_key(prov['site']) == key:
             if force is True:
                 mylar.PROVIDER_BLOCKLIST.remove(prov)
                 if simple is True:
@@ -3030,8 +3120,8 @@ def disable_provider(site, reason=None, delay=0):
             delay = 3600
     mins = int(delay / 60) + (delay % 60 > 0)
     logger.info('Temporarily blocking provider %s for %s minutes...'% (site, mins))
-    for entry in mylar.PROVIDER_BLOCKLIST:
-        if entry['site'] == site:
+    for entry in list(mylar.PROVIDER_BLOCKLIST):
+        if _block_key(entry['site']) == _block_key(site):
             mylar.PROVIDER_BLOCKLIST.remove(entry)
     newentry = {'site': site, 'resume': int(time.time()) + delay, 'reason': reason}
     mylar.PROVIDER_BLOCKLIST.append(newentry)
@@ -3044,8 +3134,19 @@ def date_conversion(originaldate):
     hours = (absdiff.days * 24 * 60 * 60 + absdiff.seconds) / 3600.0
     return hours
 
+def job_stopping(key):
+    """True once Stop was pressed on Tasks for this running job ('search', 'rss' or 'monitor')."""
+    return key in mylar.JOB_STOP
+
+
 def job_management(write=False, job=None, last_run_completed=None, current_run=None, status=None, failure=False, startup=False):
     jobresults = []
+    if write and job is not None:
+        from mylar import alerts
+        if current_run is not None and status == 'Running':
+            alerts.task(job, True)
+        elif last_run_completed is not None:
+            alerts.task(job, False)
 
     myDB = db.DBConnection()
     if startup is True:
@@ -3488,11 +3589,6 @@ def getImage(comicid, url, issueid=None, thumbnail_path=None, apicall=False, ove
 
     #if cover has '+' in url it's malformed, we need to replace '+' with '%20' to retrieve properly.
 
-    #new CV API restriction - one api request / second.(probably unecessary here, but it doesn't hurt)
-    if mylar.CONFIG.CVAPI_RATE is None or mylar.CONFIG.CVAPI_RATE < 2:
-        time.sleep(2)
-    else:
-        time.sleep(mylar.CONFIG.CVAPI_RATE)
 
     if apicall is False:
         logger.info('Attempting to retrieve the comic image for series')

@@ -28,7 +28,7 @@ import simplejson
 import json
 import requests
 import smtplib
-from datetime import datetime
+from datetime import datetime, timezone
 from email.mime.multipart import MIMEMultipart
 from email.mime.text import MIMEText
 from email.utils import formatdate, make_msgid
@@ -291,7 +291,7 @@ class PUSHBULLET:
     def get_devices(self):
         return self.notify(method="GET")
 
-    def notify(self, snline=None, prline=None, prline2=None, snatched=None, sent_to=None, prov=None, module=None, method=None):
+    def notify(self, snline=None, prline=None, prline2=None, snatched=None, sent_to=None, prov=None, module=None, method=None, title=None):
         if module is None:
             module = ''
         module += '[NOTIFIER]'
@@ -305,7 +305,7 @@ class PUSHBULLET:
                 event = snline
                 message = "Issuarr has snatched: " + snatched + " from " + prov + " and " + sent_to
             else:
-                event = prline + ' complete!'
+                event = title or prline + ' complete!'
                 message = prline2
             data = {'type': 'note',
                     'title': event,
@@ -506,7 +506,7 @@ class MATTERMOST:
         else:
             pass
 
-        if not self.test_hook:
+        if not self.test_hook and (metadata or {}).get('series'):
             attachments = [
                 {
                     "title":f"{metadata['series']} ({metadata['year']}) - Issue {metadata['issue']}",
@@ -566,7 +566,7 @@ class DISCORD:
             self.webhook_url = test_webhook_url
             self.test = True
 
-    def notify(self, text, attachment_text, snatched_nzb=None, prov=None, sent_to=None, module=None, imageFile=None):
+    def notify(self, text, attachment_text, snatched_nzb=None, prov=None, sent_to=None, module=None, imageFile=None, metadata=None, event=None):
         if module is None:
             module = ''
         module += '[NOTIFIER]'
@@ -581,6 +581,10 @@ class DISCORD:
         }
         if self.test:
             payload["content"] = attachment_text
+        elif event in ALERT_COLOURS:
+            payload["content"] = attachment_text
+            payload["embeds"] = [{"author": {"name": text}, "description": attachment_text,
+                                  "color": ALERT_COLOURS[event], "timestamp": timestamp}]
         else:
             if 'snatched' in attachment_text.lower():
                 snatched_text = '%s: %s' % (attachment_text, snatched_nzb)
@@ -660,68 +664,40 @@ class DISCORD:
                             "timestamp": timestamp
                         }
                     ]
-            # If snatched or error is not in the message, it's a download and post-process
+            # If snatched or error is not in the message, it's a filed issue or files added by hand
             else:
-                logger.info('attachment_text:%s' % (attachment_text,))
-                # extract series and issue number
-                series_num = attachment_text[41:]
-                series_num_split = series_num.split()
-                issue = series_num_split[len(series_num_split) - 1]
-                series_num_split.pop()
-                series = ' '.join(map(str, series_num_split))
-
-                # If there's an image file, put it in
-                if imageFile is not None:
-                    payload["content"] = attachment_text
-                    payload["embeds"] = [
-                            {
-                                "author": {
-                                    "name": "Downloaded by Issuarr"
-                                },
-                                "description": "Issue downloaded!",
-                                "color": 32768,
-                                "fields": [
-                                    {
-                                        "name": "Series",
-                                        "value": series,
-                                        "inline": "true"
-                                    },
-                                    {
-                                        "name": "Issue",
-                                        "value": issue,
-                                        "inline": "true"
-                                    },
-                                ],
-                                "image": {
-                                    "url": "attachment://image.jpg",
-                                },
-                                "timestamp": timestamp
-                            }
-                        ]
+                if metadata and metadata.get('series'):
+                    series = metadata['series'] if not metadata.get('year') else '%s (%s)' % (metadata['series'], metadata['year'])
+                    issue = metadata.get('issue') or chr(173)
                 else:
-                    payload["content"] = attachment_text
-                    payload["embeds"] = [
+                    series_num_split = attachment_text.split(': ', 1)[-1].split()
+                    issue = series_num_split.pop() if series_num_split else chr(173)
+                    series = ' '.join(series_num_split) or chr(173)
+                added = event == 'added'
+                embed = {
+                        "author": {
+                            "name": "Added to Issuarr" if added else "Downloaded by Issuarr"
+                        },
+                        "description": "Files added!" if added else "Issue downloaded!",
+                        "color": 10181046 if added else 32768,
+                        "fields": [
                             {
-                                "author": {
-                                    "name": "Downloaded by Issuarr"
-                                },
-                                "description": "Issue downloaded!",
-                                "color": 32768,
-                                "fields": [
-                                    {
-                                        "name": "Series",
-                                        "value": series,
-                                        "inline": "true"
-                                    },
-                                    {
-                                        "name": "Issue",
-                                        "value": issue,
-                                        "inline": "true"
-                                    },
-                                ],
-                                "timestamp": timestamp
-                            }
-                        ]
+                                "name": "Series",
+                                "value": series,
+                                "inline": "true"
+                            },
+                            {
+                                "name": "Issues" if added else "Issue",
+                                "value": issue,
+                                "inline": "true"
+                            },
+                        ],
+                        "timestamp": timestamp
+                    }
+                if imageFile is not None:
+                    embed["image"] = {"url": "attachment://image.jpg"}
+                payload["content"] = attachment_text
+                payload["embeds"] = [embed]
 
         if imageFile is not None:
             files = {
@@ -806,3 +782,179 @@ class GOTIFY:
 
     def test_notify(self):
         return self.notify('Test Message', 'Release the Ninjas!')
+
+def _snatch_text(attachment_text, snatched_nzb=None, prov=None, sent_to=None):
+    # 'Issue snatched!' -> 'Issue snatched!: Name (2020) #1 from Provider and Client', as Gotify and Discord word it
+    if 'snatched' not in attachment_text.lower() or not snatched_nzb:
+        return attachment_text
+    text = '%s: %s' % (attachment_text, snatched_nzb)
+    if all([sent_to is not None, prov is not None]):
+        text += ' from %s and %s' % (prov, sent_to)
+    elif prov is not None:
+        text += ' from %s' % prov
+    return text
+
+
+def _cv_issue_url(metadata):
+    issueid = (metadata or {}).get('issueid')
+    return 'https://comicvine.gamespot.com/issue/4000-%s/' % issueid if issueid else None
+
+
+class NTFY:
+    """ntfy (https://ntfy.sh or a self-hosted server). Publishes to one topic, with the issue cover
+    attached when there is one."""
+
+    def __init__(self, test_server_url=None, test_topic=None, test_token=None):
+        if test_topic is not None:
+            self.server_url, self.topic, self.token = test_server_url, test_topic, test_token
+        else:
+            self.server_url, self.topic, self.token = mylar.CONFIG.NTFY_SERVER_URL, mylar.CONFIG.NTFY_TOPIC, mylar.CONFIG.NTFY_TOKEN
+        self.server_url = (self.server_url or 'https://ntfy.sh').strip().rstrip('/')
+        self.topic = (self.topic or '').strip().strip('/')
+        self.token = (self.token or '').strip()
+
+    def notify(self, text, attachment_text, snatched_nzb=None, prov=None, sent_to=None, module=None, imageFile=None, metadata=None):
+        module = (module or '') + '[NOTIFIER]'
+        if not self.topic:
+            logger.warn(module + ' ntfy has no topic set - not sending.')
+            return False
+        params = {'title': text, 'message': _snatch_text(attachment_text, snatched_nzb, prov, sent_to), 'tags': 'books'}
+        click = _cv_issue_url(metadata)
+        if click:
+            params['click'] = click
+        headers = {}
+        if self.token:
+            headers['Authorization'] = 'Bearer %s' % self.token
+        url = '%s/%s' % (self.server_url, urllib.parse.quote(self.topic))
+        try:
+            if imageFile:
+                # the cover goes up as the body; the text rides in the query string, which takes UTF-8
+                params['filename'] = 'cover.jpg'
+                response = requests.put(url, params=params, data=base64.b64decode(imageFile), headers=headers, timeout=30)
+            else:
+                response = requests.post(url, params=params, headers=headers, timeout=30)
+        except Exception as e:
+            logger.warn(module + ' ntfy notify failed: %s' % e)
+            return False
+        if response.status_code != 200:
+            logger.warn(module + ' Could not send notification to ntfy. Response: [%s] %s' % (response.status_code, response.text[:200]))
+            return False
+        logger.info(module + ' ntfy notification sent.')
+        return True
+
+    def test_notify(self):
+        return self.notify('Test Message', 'Release the Ninjas!')
+
+
+class WEBHOOK:
+    """POSTs a JSON body to any URL (Home Assistant, n8n, Node-RED, your own script). The fields
+    are listed in docs/NOTIFICATIONS.md; keep them stable, scripts depend on them."""
+
+    def __init__(self, test_url=None):
+        self.url = (test_url if test_url is not None else mylar.CONFIG.WEBHOOK_URL or '').strip()
+
+    def notify(self, text, attachment_text, snatched_nzb=None, prov=None, sent_to=None, module=None, imageFile=None, metadata=None, event=None):
+        module = (module or '') + '[NOTIFIER]'
+        if not self.url:
+            logger.warn(module + ' Webhook has no URL set - not sending.')
+            return False
+        metadata = metadata or {}
+        if event is None:
+            event = 'snatched' if 'snatched' in attachment_text.lower() and snatched_nzb else 'test'
+        payload = {
+            'app': 'issuarr',
+            'event': event,
+            'title': text,
+            'message': _snatch_text(attachment_text, snatched_nzb, prov, sent_to),
+            'series': metadata.get('series'),
+            'issue': metadata.get('issue'),
+            'year': metadata.get('year'),
+            'issue_id': metadata.get('issueid'),
+            'comicvine_url': _cv_issue_url(metadata),
+            'release': snatched_nzb,
+            'provider': prov,
+            'client': sent_to,
+            'time': datetime.now(timezone.utc).strftime('%Y-%m-%dT%H:%M:%SZ'),
+        }
+        try:
+            response = requests.post(self.url, json=payload, timeout=30)
+        except Exception as e:
+            logger.warn(module + ' Webhook notify failed: %s' % e)
+            return False
+        if not 200 <= response.status_code < 300:
+            logger.warn(module + ' Webhook answered [%s] %s' % (response.status_code, response.text[:200]))
+            return False
+        logger.info(module + ' Webhook notification sent.')
+        return True
+
+    def test_notify(self):
+        return self.notify('Test Message', 'Release the Ninjas!', event='test')
+
+
+# Discord embed colours for the notifications about Issuarr itself (mylar/alerts.py)
+ALERT_COLOURS = {'task_started': 3447003, 'task_finished': 3447003, 'attention': 16753920,
+                 'match_needed': 16753920, 'action_required': 15548997, 'disk_low': 15548997}
+
+
+def send_all(headline, prline, message, event='downloaded', metadata=None, imageFile=None, module=None):
+    """Send one message to every service that is on. event is 'downloaded' (an issue was filed),
+    'added' (files turned up outside a download: matched by hand, imported or found by a recheck),
+    or one of ALERT_COLOURS (see mylar/alerts.py)."""
+    metadata = metadata or {}
+    try:
+        if mylar.CONFIG.PROWL_ENABLED:
+            PROWL().notify(prline, headline, module=module)
+
+        if mylar.CONFIG.PUSHOVER_ENABLED:
+            PUSHOVER().notify(prline, message, module=module, imageFile=imageFile)
+
+        if mylar.CONFIG.BOXCAR_ENABLED:
+            BOXCAR().notify(prline=prline, prline2=message, module=module)
+
+        if mylar.CONFIG.PUSHBULLET_ENABLED:
+            PUSHBULLET().notify(prline=prline, prline2=message, module=module, title=headline if event in ALERT_COLOURS else None)
+
+        if mylar.CONFIG.TELEGRAM_ENABLED:
+            TELEGRAM().notify(message, imageFile)
+
+        if mylar.CONFIG.SLACK_ENABLED:
+            SLACK().notify(headline, message, module=module)
+
+        if mylar.CONFIG.MATTERMOST_ENABLED:
+            MATTERMOST().notify(headline, message, metadata=metadata, imageFile=imageFile, module=module)
+
+        if mylar.CONFIG.DISCORD_ENABLED:
+            DISCORD().notify(headline, message, module=module, imageFile=imageFile, metadata=metadata, event=event)
+
+        if mylar.CONFIG.EMAIL_ENABLED and (mylar.CONFIG.EMAIL_ONPOST or event in ALERT_COLOURS):
+            logger.info("Sending email notification")
+            EMAIL().notify(message, "Issuarr notification - %s" % ('Added' if event == 'added' else 'Processed' if event == 'downloaded' else headline), module=module)
+
+        if mylar.CONFIG.GOTIFY_ENABLED:
+            GOTIFY().notify(headline, message, module=module, imageFile=imageFile, metadata=metadata)
+
+        if mylar.CONFIG.NTFY_ENABLED:
+            NTFY().notify(headline, message, module=module, imageFile=imageFile, metadata=metadata)
+
+        if mylar.CONFIG.WEBHOOK_ENABLED:
+            WEBHOOK().notify(headline, message, module=module, metadata=metadata, event=event)
+    except Exception as e:
+        logger.warn('[NOTIFICATION] Unable to send notification: %s' % e)
+
+
+def added_line(series, year, numbers, most=10):
+    """'Saga (2018) #54, #55 and 3 more': the series and the issue numbers that were added."""
+    issues = ', '.join('#%s' % n for n in numbers[:most])
+    if len(numbers) > most:
+        issues += ' and %s more' % (len(numbers) - most)
+    return ('%s (%s) %s' % (series, year, issues) if year else '%s %s' % (series, issues)), issues
+
+
+def files_added(series, year, numbers, issueid=None, module=None):
+    """Files turned up for issues of a series outside a download. Sent only when the
+    'Files added by hand' notification is on."""
+    if not mylar.CONFIG.NOTIFY_ON_ADDED or not numbers:
+        return
+    prline, issues = added_line(series, year, numbers)
+    send_all('Files added', prline, 'Added to Issuarr: ' + prline, event='added',
+             metadata={'series': series, 'issue': issues, 'year': year, 'issueid': issueid}, module=module)

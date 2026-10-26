@@ -15,7 +15,7 @@ import xml.etree.ElementTree as ET
 import pytest
 
 import mylar
-from mylar import cmtagmylar, comicinfo
+from mylar import cmtagmylar, comicinfo, cv
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 needs_ct = pytest.mark.skipif(importlib.util.find_spec('comictaggerlib') is None, reason='ComicTagger is not installed')
@@ -63,7 +63,8 @@ def config(tmp_path, monkeypatch):
     monkeypatch.setattr(mylar, 'PROG_DIR', ROOT, raising=False)
     monkeypatch.setattr(mylar, 'LOG_LEVEL', 0, raising=False)
     monkeypatch.setattr(cmtagmylar, 'series_publisher', lambda issueid: (None, None))
-    monkeypatch.setattr(cmtagmylar, '_fetches', cmtagmylar.deque())
+    monkeypatch.setattr(cv, '_booked', {})
+    monkeypatch.setattr(cv, '_slots', [])
     return c
 
 

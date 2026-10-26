@@ -481,10 +481,14 @@ class Api(object):
                 self.data = self._failureResponse('ComicID %s not found in watchlist.' % self.id)
                 return
             logger.fdebug('Deletion request received for %s (%s) [%s]' % (delchk['ComicName'], delchk['ComicYear'], self.id))
+            keep = helpers.folder_in_use(delchk['ComicLocation'], self.id) if directory_del is True else None
             myDB.action("DELETE from comics WHERE ComicID=?", [self.id])
             myDB.action("DELETE from issues WHERE ComicID=?", [self.id])
             myDB.action("DELETE from upcoming WHERE ComicID=?", [self.id])
-            if directory_del is True:
+            search.drop_series(self.id)
+            if keep:
+                logger.warn('[API-delComic] Kept the folder %s: %s.' % (delchk['ComicLocation'], keep))
+            elif directory_del is True:
                 if os.path.exists(delchk['ComicLocation']):
                     shutil.rmtree(delchk['ComicLocation'])
                     logger.fdebug('[API-delComic] Comic Location (%s) successfully deleted' % delchk['ComicLocation'])

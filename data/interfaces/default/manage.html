@@ -37,6 +37,10 @@
                                 <span><b>Read the metadata inside the files</b><small>Uses ComicInfo and similar data in each archive to identify the series and issue.</small></span>
                             </label>
                             <label class="switch-row">
+                                <input type="checkbox" name="imp_changed_only" value="1" ${scan_info['imp_changed_only']} />
+                                <span><b>Only new or changed files</b><small>Leaves out files your library already has, unless they've changed since (a different size, or replaced under the same name). Turn off to scan everything again.</small></span>
+                            </label>
+                            <label class="switch-row">
                                 <input type="checkbox" name="imp_move" id="imps" value="1" ${scan_info['imp_move']} />
                                 <span><b>Move the files into your library</b><small>When off, files stay where they are and their issues are marked Archived.</small></span>
                             </label>

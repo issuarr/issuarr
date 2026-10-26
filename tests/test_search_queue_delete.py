@@ -23,3 +23,21 @@ def test_deleting_a_series_takes_its_issues_out_of_the_search_queue(monkeypatch)
         q.get_nowait()
         q.task_done()
     q.join()  # the dropped items don't leave the queue waiting forever
+
+
+@pytest.mark.unit
+def test_deleting_the_series_being_searched_stops_its_search(monkeypatch):
+    monkeypatch.setattr(mylar, 'SEARCH_QUEUE', queue.Queue(), raising=False)
+    monkeypatch.setattr(mylar, 'SEARCH_CURRENT', {'comicid': '21', 'issueid': '5', 'comicname': 'Uncanny X-Men',
+                                                  'issuenumber': '5'}, raising=False)
+    monkeypatch.setattr(mylar, 'SEARCH_ABORT', None, raising=False)
+    monkeypatch.setattr(mylar, 'LOG_LEVEL', 0, raising=False)
+    search.drop_series('777')  # another series: the search goes on
+    search.check_aborted('21')
+    search.drop_series(21)
+    with pytest.raises(search.SearchAborted):
+        search.check_aborted('21')
+    with pytest.raises(search.SearchAborted):
+        search.search_the_matrix({'ComicID': 21})  # before the next provider is asked
+    search.check_aborted('777')
+    search.check_aborted(None)

@@ -1,7 +1,13 @@
 <%
 	import mylar
-	from mylar import ui, attention
+	from mylar import ui, attention, whatsnew, navcounts
 	_attention = attention.count()
+	_wanted = navcounts.wanted()
+	_choices = navcounts.import_choices()
+	try:
+	    _whats_new = len(whatsnew.pending())
+	except Exception:
+	    _whats_new = 0
 	_theme = ui.theme()
 	_nocss = ui.nocss_requested()
 	_css_url = None if _nocss else ui.safe_stylesheet_url(mylar.CONFIG.CUSTOM_CSS_URL)
@@ -14,7 +20,7 @@
 	# names (and page#section) that count as that link.
 	_nav = [
 	    ('Collection', [
-	        dict(label='Library', href='home', match='home comicdetails issuedetails addcomic', children=[
+	        dict(label='Library', href='home', match='home comicdetails issuedetails addcomic unmatchedfolder', children=[
 	            ('Series', 'home', 'home comicdetails issuedetails addcomic managecomics'),
 	            ('Manage issues', 'manageIssues', 'manageissues'),
 	            ('Trades', 'ledger#trades', 'ledger#trades'),
@@ -28,24 +34,27 @@
 	    ]),
 	    ('Find', [
 	        dict(label='Add series', href='#', match='searchit', action='add'),
-	        dict(label='Wanted', href='wanted', match='wanted', disabled=bool(mylar.WANTED_TAB_OFF)),
+	        dict(label='Discover', href='discover', match='discover'),
+	        dict(label='Wanted', href='wanted', match='wanted', disabled=bool(mylar.WANTED_TAB_OFF), total=_wanted, total_title='%s issues on the Wanted list' % _wanted),
 	        dict(label='Calendar', href='pullist', match='pullist upcoming', badge=('New' if mylar.PULLNEW != 'no' else None), children=[
 	            ('This week', 'pullist', 'pullist'),
 	            ('Upcoming', 'upcoming', 'upcoming'),
 	        ]),
 	    ]),
 	    ('Operations', [
-	        dict(label='Downloads', href='queueManage', match='queuemanage', count=_attention, children=[
+	        dict(label='Downloads', href='queueManage', match='queuemanage', count=_attention, count_title='%s files waiting in Needs attention' % _attention, children=[
 	            ('Queue', 'queueManage', 'queuemanage'),
-	            ('Needs attention', 'needsAttention', 'needsattention', _attention),
+	            ('Needs attention', 'needsAttention', 'needsattention', _attention, '%s files waiting for you to file, rename or remove' % _attention),
 	            ('History', 'history', 'history'),
 	            ('Failed', 'manageFailed', 'managefailed'),
 	        ]),
-	        dict(label='Tools', href='manage#tabs-1', children=[
+	        dict(label='Tools', href='manage#tabs-1', count=_choices, count_title='%s series on Import results need you to choose their ComicVine match' % _choices, children=[
 	            ('Import & scan', 'manage#tabs-1', 'manage manage#tabs-1'),
-	            ('Import results', 'importResults', 'importresults'),
+	            ('Import results', 'importResults#needs-a-choice' if _choices else 'importResults', 'importresults', _choices, '%s series need you to choose their ComicVine match' % _choices),
 	            ('Post-processing', 'manage#tabs-2', 'manage#tabs-2'),
 	            ('WebP conversion', 'webpConvert', 'webpconvert'),
+            ('Library check', 'libraryCheck', 'librarycheck'),
+            ('Duplicates', 'duplicates', 'duplicates'),
 	            ('Export', 'manage#tabs-3', 'manage#tabs-3'),
 	        ]),
 	        dict(label='Tasks', href='tasks', children=[
@@ -56,11 +65,11 @@
 	    ('', [
 	        dict(label='Settings', href='config#tabs-2', children=[
 	            ('General', 'config#tabs-2', 'config config#tabs-2'),
-	            ('Appearance', 'config#tabs-7', 'config#tabs-7'),
 	            ('Download clients', 'config#tabs-3', 'config#tabs-3'),
 	            ('Search providers', 'config#tabs-4', 'config#tabs-4'),
 	            ('Files & post-processing', 'config#tabs-5', 'config#tabs-5'),
 	            ('Notifications & advanced', 'config#tabs-6', 'config#tabs-6'),
+	            ('Appearance', 'config#tabs-7', 'config#tabs-7'),
 	        ]),
 	        dict(label='About', href='about', match='about'),
 	    ]),
@@ -89,7 +98,7 @@
 	<script src="js/libs/modernizr-2.8.3.min.js"></script>
 	<script src="js/libs/jquery-1.7.2.min.js"></script>
 </head>
-<body>
+<body${' data-whats-new' if _whats_new else ''}>
 	<a class="skip-link" href="#main">Skip to content</a>
 	<div id="ajaxMsg" class="ajaxMsg"></div>
 	<div id="updatediv"></div>
@@ -98,6 +107,7 @@
 			<a href="home" class="brand"><img class="brand-mark" src="images/issuarr-mark.png" alt="" width="28" height="28" /><span class="brand-name">Issuarr</span></a>
 			<div style="display: flex; gap: 4px">
 				<button type="button" class="icon-btn" data-ui data-action="jump" aria-label="Jump to"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg></button>
+				<button type="button" class="icon-btn" data-ui data-action="help" aria-label="Help for this page"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M9.6 9.2a2.5 2.5 0 0 1 4.8 1c0 1.7-2.4 2.2-2.4 3.6"/><path d="M12 17.3h.01"/></svg></button>
 				<button type="button" class="icon-btn" data-ui id="nav-toggle" aria-label="Menu" aria-expanded="false" aria-controls="sidebar"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M4 7h16M4 12h16M4 17h16"/></svg></button>
 			</div>
 		</div>
@@ -106,7 +116,10 @@
 		<nav class="sidebar" id="sidebar" aria-label="Main">
 			<div class="sb-head">
 				<a href="home" class="brand"><img class="brand-mark" src="images/issuarr-mark.png" alt="" width="28" height="28" /><span class="brand-name">Issuarr</span></a>
-				<button type="button" class="icon-btn" data-ui id="notifs" onclick="manageNotifications()" aria-label="Notifications" title="Notifications (Alt+N)"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M6 8a6 6 0 0 1 12 0c0 7 3 9 3 9H3s3-2 3-9"/><path d="M10.3 21a1.94 1.94 0 0 0 3.4 0"/></svg></button>
+				<div style="display: flex; gap: 2px">
+					<button type="button" class="icon-btn" data-ui data-action="help" aria-label="Help for this page" title="Help for this page (?)"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M9.6 9.2a2.5 2.5 0 0 1 4.8 1c0 1.7-2.4 2.2-2.4 3.6"/><path d="M12 17.3h.01"/></svg></button>
+					<button type="button" class="icon-btn" data-ui id="notifs" onclick="manageNotifications()" aria-label="Notifications" title="Notifications (Alt+N)"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M6 8a6 6 0 0 1 12 0c0 7 3 9 3 9H3s3-2 3-9"/><path d="M10.3 21a1.94 1.94 0 0 0 3.4 0"/></svg></button>
+				</div>
 			</div>
 			<button type="button" class="jump-btn" data-ui data-action="jump" aria-haspopup="dialog">Jump to…<kbd>Ctrl K</kbd></button>
 
@@ -117,11 +130,11 @@
 				%endif
 				%for _it in _items:
 				<div class="nav-item">
-					<a class="nav-link${' is-disabled' if _it.get('disabled') else ''}" href="${'#' if _it.get('disabled') else _it['href']}" data-label="${_it['label'] | h}"${(' data-match="%s"' % _it['match']) if _it.get('match') else ''}${(' data-action="%s"' % _it['action']) if _it.get('action') else ''}${' aria-disabled="true" title="Unavailable while the pull list is being rebuilt"' if _it.get('disabled') else ''}>${_it['label'] | h}${('<span class="nav-badge is-new">%s</span>' % _it['badge']) if _it.get('badge') else ''}${('<span class="nav-badge is-attention" title="%s files waiting in Needs attention">%s</span>' % (_it['count'], _it['count'])) if _it.get('count') else ''}</a>
+					<a class="nav-link${' is-disabled' if _it.get('disabled') else ''}" href="${'#' if _it.get('disabled') else _it['href']}" data-label="${_it['label'] | h}"${(' data-match="%s"' % _it['match']) if _it.get('match') else ''}${(' data-action="%s"' % _it['action']) if _it.get('action') else ''}${' aria-disabled="true" title="Unavailable while the pull list is being rebuilt"' if _it.get('disabled') else ''}>${_it['label'] | h}${('<span class="nav-badge is-new">%s</span>' % _it['badge']) if _it.get('badge') else ''}${('<span class="nav-badge is-total" title="%s">%s</span>' % (_it['total_title'], '{:,}'.format(_it['total']))) if _it.get('total') else ''}${('<span class="nav-badge is-attention" title="%s">%s</span>' % (_it['count_title'], _it['count'])) if _it.get('count') else ''}</a>
 					%if _it.get('children'):
 					<div class="nav-children">
 						%for _c in _it['children']:
-						<a class="nav-child" href="${_c[1]}" data-label="${_c[0] | h}" data-match="${_c[2]}">${_c[0] | h}${('<span class="nav-badge is-attention" title="%s files waiting for you to file, rename or remove">%s</span>' % (_c[3], _c[3])) if len(_c) > 3 and _c[3] else ''}</a>
+						<a class="nav-child" href="${_c[1]}" data-label="${_c[0] | h}" data-match="${_c[2]}">${_c[0] | h}${('<span class="nav-badge is-attention" title="%s">%s</span>' % (_c[4], _c[3])) if len(_c) > 3 and _c[3] else ''}</a>
 						%endfor
 					</div>
 					%endif
@@ -226,8 +239,8 @@
 				</details>
 				<p class="network-status info-box" hidden></p>
 				<div class="sb-power">
-					<a href="restart" onclick="return confirm('Restart Issuarr now?');">Restart</a>
-					<a href="shutdown" onclick="return confirm('Shut down Issuarr? It stays off until you start it again.');">Shut down</a>
+					<a href="restart" data-confirm="Restart Issuarr now?" data-confirm-ok="Restart">Restart</a>
+					<a href="shutdown" data-confirm="Shut down Issuarr? It stays off until you start it again." data-confirm-ok="Shut down" data-confirm-danger>Shut down</a>
 					%if mylar.CONFIG.AUTHENTICATION > 0:
 					<a href="auth/logout">Log out</a>
 					%endif
@@ -278,16 +291,30 @@
 		</div>
 	</div>
 
+	<div class="jump-backdrop" id="whats-new" hidden>
+		<div class="jump whats-new" role="dialog" aria-modal="true" aria-labelledby="whats-new-title">
+			<div class="add-head">
+				<h2 id="whats-new-title">What's new in Issuarr</h2>
+				<p>Changes since this install last showed you this. Each one links to the commit that made it.</p>
+			</div>
+			<div class="whats-new-body" id="whats-new-body" tabindex="0"></div>
+			<div class="whats-new-foot">
+				<a id="whats-new-more" href="https://github.com/issuarr/issuarr/blob/main/CHANGELOG.md" target="_blank" rel="noopener">Full changelog on GitHub</a>
+				<button type="button" class="btn btn-primary" id="whats-new-close">Got it</button>
+			</div>
+		</div>
+	</div>
+
 	<div class="jump-backdrop" id="add-series" hidden>
 		<form class="jump add-series" role="dialog" aria-modal="true" aria-labelledby="add-series-title" action="searchit" method="get">
 			<div class="add-head">
 				<h2 id="add-series-title">Add a series</h2>
-				<p>Searches ComicVine. To find something already in your library, use the Library filter or <kbd>Ctrl K</kbd>.</p>
+				<p>Searches ComicVine, or paste a ComicVine series or issue link. To find something already in your library, use the Library filter or <kbd>Ctrl K</kbd>.</p>
 			</div>
 			<div class="jump-field">
 				<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg>
-				<label for="add-series-input" class="sr-only">Series name</label>
-				<input id="add-series-input" class="jump-input" data-ui type="text" name="name" required autocomplete="off" spellcheck="false" placeholder="Series name, for example Saga">
+				<label for="add-series-input" class="sr-only">Series name or ComicVine link</label>
+				<input id="add-series-input" class="jump-input" data-ui type="text" name="name" required autocomplete="off" spellcheck="false" placeholder="Series name or ComicVine link, for example Saga">
 				<button type="submit" class="btn btn-primary">Search ComicVine</button>
 			</div>
 		</form>
@@ -308,6 +335,7 @@
 	<script src="js/pixeldrain-usage.js?v=${mylar.CURRENT_VERSION}"></script>
 	<script src="js/client-status.js?v=${mylar.CURRENT_VERSION}"></script>
 	<script src="js/issuarr.js?v=${mylar.CURRENT_VERSION}"></script>
+	<script src="js/help.js?v=${mylar.CURRENT_VERSION}"></script>
         <script>
         //var reconnectFrequencySeconds = 1;
         //var evtSource;

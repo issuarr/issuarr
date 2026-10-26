@@ -195,6 +195,7 @@ _CONFIG_DEFINITIONS = OrderedDict({
     'COMIC_DIR': (str, 'Import', None),
     'IMP_MOVE': (bool, 'Import', False),
     'IMP_PATHS': (bool, 'Import', False),
+    'IMP_CHANGED_ONLY': (bool, 'Import', True),
     'IMP_RENAME': (bool, 'Import', False),
     'IMP_METADATA': (bool, 'Import', False),  # should default to False - this is enabled for testing only.
     'IMP_SERIESFOLDERS': (bool, 'Import', True),
@@ -203,6 +204,17 @@ _CONFIG_DEFINITIONS = OrderedDict({
     'DDUMP': (bool, 'Duplicates', False),
     'DUPLICATE_DUMP': (str, 'Duplicates', None),
     'DUPLICATE_DATED_FOLDERS': (bool, 'Duplicates', False),
+
+    'NOTIFY_ON_DOWNLOAD': (bool, 'Notifications', True),
+    'NOTIFY_ON_ADDED': (bool, 'Notifications', False),
+    'NOTIFY_ON_TASK_START': (bool, 'Notifications', False),
+    'NOTIFY_ON_TASK_DONE': (bool, 'Notifications', False),
+    'NOTIFY_TASKS': (str, 'Notifications', 'Auto-Search,Weekly Pullist,DB Updater'),
+    'NOTIFY_ON_ATTENTION': (bool, 'Notifications', True),
+    'NOTIFY_ON_MATCH_NEEDED': (bool, 'Notifications', True),
+    'NOTIFY_ON_ACTION': (bool, 'Notifications', True),
+    'NOTIFY_ON_DISK_LOW': (bool, 'Notifications', True),
+    'NOTIFY_DISK_MIN_GB': (int, 'Notifications', 10),
 
     'PROWL_ENABLED': (bool, 'Prowl', False),
     'PROWL_PRIORITY': (int, 'Prowl', 0),
@@ -261,6 +273,16 @@ _CONFIG_DEFINITIONS = OrderedDict({
     'GOTIFY_SERVER_URL': (str, 'GOTIFY', None),
     'GOTIFY_TOKEN': (str, 'GOTIFY', None),
     'GOTIFY_ONSNATCH': (bool, 'GOTIFY', False),
+
+    'NTFY_ENABLED': (bool, 'NTFY', False),
+    'NTFY_SERVER_URL': (str, 'NTFY', 'https://ntfy.sh'),
+    'NTFY_TOPIC': (str, 'NTFY', None),
+    'NTFY_TOKEN': (str, 'NTFY', None),
+    'NTFY_ONSNATCH': (bool, 'NTFY', False),
+
+    'WEBHOOK_ENABLED': (bool, 'WEBHOOK', False),
+    'WEBHOOK_URL': (str, 'WEBHOOK', None),
+    'WEBHOOK_ONSNATCH': (bool, 'WEBHOOK', False),
 
     'POST_PROCESSING': (bool, 'PostProcess', True),
     'FILE_OPTS': (str, 'PostProcess', 'move'),
@@ -334,6 +356,11 @@ _CONFIG_DEFINITIONS = OrderedDict({
 
     'NEWZNAB': (bool, 'Newznab', False),
     'EXTRA_NEWZNABS': (str, 'Newznab', ""),
+
+    'PROWLARR_URL': (str, 'Prowlarr', None),
+    'PROWLARR_APIKEY': (str, 'Prowlarr', None),
+    'PROWLARR_SYNC': (bool, 'Prowlarr', False),
+    'PROWLARR_KNOWN': (str, 'Prowlarr', ''),     # Prowlarr indexer ids already offered, so removed ones stay removed
 
     'ENABLE_TORZNAB': (bool, 'Torznab', False),
     'EXTRA_TORZNABS': (str, 'Torznab', ""),
@@ -409,6 +436,7 @@ _CONFIG_DEFINITIONS = OrderedDict({
     'HTTPS_PROXY': (str, 'DDL', None),
     'JD2_ENABLE': (bool, 'DDL', False),
     'JD2_DEST_DIR': (str, 'DDL', None),
+    'JD2_LOCAL_DIR': (str, 'DDL', None),
     'JD2_URL': (str, 'DDL', None),
 
     'ENABLE_AIRDCPP': (bool, 'DCPP', False),
@@ -419,6 +447,7 @@ _CONFIG_DEFINITIONS = OrderedDict({
     'AIRDCPP_FOLDER_MODE': (str, 'DCPP', 'issuarr'),
     'AIRDCPP_REMOTE_DIR': (str, 'DCPP', ""),
     'AIRDCPP_HUBS': (str, 'DCPP', ""),
+    'AIRDCPP_FOLDER_PACKS': (bool, 'DCPP', False),
     'AIRDCPP_VERSION': (str, 'DCPP', ""),
     'AIRDCPP_ANNOUNCE_HUB': (str, 'DCPP', ""),
     'AIRDCPP_ANNOUNCE_BOTS': (str, 'DCPP', ""),
@@ -1279,6 +1308,10 @@ class Config(object):
         #force off public torrents usage as currently broken.
         self.ENABLE_PUBLIC = False
 
+        # torrent search has no switch of its own any more: it's on when a torrent indexer is
+        self.ENABLE_TORRENT_SEARCH = bool(self.ENABLE_TORZNAB or self.ENABLE_32P)
+        config.set('Torrents', 'enable_torrent_search', str(self.ENABLE_TORRENT_SEARCH))
+
         if self.GIT_TOKEN:
             self.GIT_TOKEN = (self.GIT_TOKEN, 'x-oauth-basic')
             #logger.info('git_token set to %s' % (self.GIT_TOKEN,))
@@ -1964,7 +1997,7 @@ class Config(object):
                     PPR.append(en_name)
                     PR_NUM +=1
 
-        if self.ENABLE_TORZNAB and self.ENABLE_TORRENT_SEARCH:
+        if self.ENABLE_TORZNAB:
             for ets in self.EXTRA_TORZNABS:
                 if str(ets[5]) == '1' and has_host(ets[1]): # if torznabs are enabled
                     if ets[0] == "":

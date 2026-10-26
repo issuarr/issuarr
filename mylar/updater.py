@@ -24,7 +24,7 @@ import sys
 import calendar
 
 import mylar
-from mylar import db, logger, helpers, filechecker, matching, editions
+from mylar import db, logger, helpers, filechecker, matching, editions, want_from, notifiers
 
 def addvialist(queue):
     while True:
@@ -114,7 +114,9 @@ def dbUpdate(ComicIDList=None, calledfrom=None, sched=False):
     if sched is True:
        logger.fdebug('Refresh sequence set to fire every %s minutes for %s day(s)' % (mylar.DBUPDATE_INTERVAL, mylar.CONFIG.REFRESH_CACHE))
 
+    cached = 0
     for comic in sorted(comiclist, key=lambda x: x if isinstance(operator.itemgetter('LastUpdated'), str) else "", reverse=True):
+        comic = dict(comic)   # a database row can't take the corrected year below
         dspyear = comic['ComicYear']
         csyear = None
         fixed_type = None
@@ -143,6 +145,7 @@ def dbUpdate(ComicIDList=None, calledfrom=None, sched=False):
                 if hours < cache_hours:
                     #logger.fdebug('%s [%s] Was refreshed less than %s hours ago. Skipping Refresh at this time.' % (ComicName, ComicID, cache_hours))
                     cnt +=1
+                    cached += 1
                     continue
             logger.info('[%s/%s] Refreshing :%s (%s) [%s]' % (cnt, len(comiclist), ComicName, dspyear, ComicID))
         else:
@@ -169,7 +172,7 @@ def dbUpdate(ComicIDList=None, calledfrom=None, sched=False):
             if ComicID[:1] == "G":
                 mylar.importer.GCDimport(ComicID)
             else:
-                cchk = importer.addComictoDB(ComicID, mismatch)
+                cchk = mylar.importer.addComictoDB(ComicID, mismatch)
         else:
             if mylar.CONFIG.CV_ONETIMER == 1:
                 #if sched is True:
@@ -323,6 +326,7 @@ def dbUpdate(ComicIDList=None, calledfrom=None, sched=False):
                                                     newVAL = {"Status": "Wanted"}
                                                 else:
                                                     newVAL = {"Status":  "Skipped"}
+                                                newVAL['Status'] = want_from.adjust(ComicID, issuenew['Issue_Number'], newVAL['Status'])
 
                                     if newVAL is not None:
                                         if issue['IssueDate_Edit'] is not None:
@@ -395,6 +399,7 @@ def dbUpdate(ComicIDList=None, calledfrom=None, sched=False):
                                 else:
                                     logger.info('setting to Skipped')
                                     newstatus = "Skipped"
+                                newstatus = want_from.adjust(ComicID, iss['Issue_Number'], newstatus)
                         logger.fdebug('[#%s]status is : %s' % (iss['Issue_Number'], newstatus))
 
                         newiss.append({"IssueID":      iss['IssueID'],
@@ -485,6 +490,8 @@ def dbUpdate(ComicIDList=None, calledfrom=None, sched=False):
 
     #helpers.job_management(write=True, job='DB Updater', last_run_completed=helpers.utctimestamp(), status='Waiting')
     #mylar.UPDATER_STATUS = 'Waiting'
+    if cached:
+        logger.info('Left %s series alone that were refreshed in the last %s day(s).' % (cached, mylar.CONFIG.REFRESH_CACHE))
     logger.fdebug('Update complete')
 
 def latest_update(ComicID, LatestIssue, LatestDate, ReleaseComicID=None):
@@ -1125,6 +1132,24 @@ def numberless_issue(booktype, reissues, annualcomicid=None):
         return reissues[0]['Issue_Number'] or '1'
     return None
 
+# A Skipped issue has no file, so it loses the name and size of the one that was there.
+NOTHAVE_SQL = ("UPDATE %s SET Location=CASE WHEN ?1='Skipped' THEN NULL ELSE Location END, "
+               "ComicSize=CASE WHEN ?1='Skipped' THEN NULL ELSE ComicSize END, Status=?1 WHERE IssueID=?2")
+
+
+def newly_owned(myDB, d_issues, d_annuals):
+    """Issue numbers a recheck is about to mark Downloaded that weren't owned or on their way before:
+    files added to the series folder outside a download."""
+    numbers = []
+    for table, rows in (('issues', d_issues), ('annuals', d_annuals)):
+        ids = [str(r[3]) for r in rows]
+        for chunk in helpers.chunker(ids, 200):
+            found = myDB.select('SELECT Issue_Number, Status, Int_IssueNumber FROM %s WHERE IssueID IN (%s)' % (table, ','.join('?' * len(chunk))), chunk)
+            numbers += [(r['Int_IssueNumber'] or 0, r['Issue_Number']) for r in found or []
+                        if r['Status'] not in ('Downloaded', 'Archived', 'Snatched')]
+    return [n for _, n in sorted(numbers, key=lambda x: x[0])]
+
+
 def forceRescan(ComicID, archive=None, module=None, recheck=False):
     if module is None:
         module = ''
@@ -1321,6 +1346,8 @@ def forceRescan(ComicID, archive=None, module=None, recheck=False):
     leftovers = []
 
     reissues = myDB.select('SELECT * FROM issues WHERE ComicID=?', [ComicID])
+    # another series keeping its files in this folder: a file can then belong to either, and its year says which
+    shared_folder = myDB.selectone('SELECT ComicID FROM comics WHERE ComicLocation=? AND ComicID!=?', [rescan['ComicLocation'], ComicID]).fetchone() is not None
 
     a_start = datetime.datetime.now()
     while (fn < fccnt):
@@ -1424,6 +1451,11 @@ def forceRescan(ComicID, archive=None, module=None, recheck=False):
                         n+=1
                         continue
 
+                    if shared_folder and matching.year_off(tmpfc['ComicFilename'], issyear):
+                        logger.fdebug('%s %s is from a different year than issue #%s (%s) and the folder is shared with another series - not matching it.' % (module, tmpfc['ComicFilename'], reiss['Issue_Number'], issyear))
+                        n+=1
+                        continue
+
                     #this will detect duplicate filenames within the same directory.
                     for di in issuedupechk:
                         if di['fcdigit'] == fcdigit and di['issueid'] == reiss['IssueID']:
@@ -1432,7 +1464,16 @@ def forceRescan(ComicID, archive=None, module=None, recheck=False):
                             # mylar.CONFIG.DUPECONSTRAINT = 'filesize' / 'filetype-cbr' / 'filetype-cbz'
                             logger.fdebug('[DUPECHECK] Based on duplication preferences I will retain based on : ' + mylar.CONFIG.DUPECONSTRAINT)
                             removedupe = False
-                            if 'cbr' in mylar.CONFIG.DUPECONSTRAINT or 'cbz' in mylar.CONFIG.DUPECONSTRAINT:
+                            # a file from the issue's own year beats one from a far-off year (another volume's)
+                            year_pref = matching.year_preference(tmpfc['ComicFilename'], di['filename'], issyear)
+                            if year_pref == 'existing':
+                                logger.fdebug('[DUPECHECK-YEAR] [#' + reiss['Issue_Number'] + '] Retaining ' + di['filename'] + ': its year fits the issue, ' + tmpfc['ComicFilename'] + ' does not.')
+                                issuedupe = "yes"
+                                break
+                            elif year_pref == 'new':
+                                logger.fdebug('[DUPECHECK-YEAR] [#' + reiss['Issue_Number'] + '] Retaining ' + tmpfc['ComicFilename'] + ': its year fits the issue, ' + di['filename'] + ' does not.')
+                                removedupe = True
+                            if year_pref is None and ('cbr' in mylar.CONFIG.DUPECONSTRAINT or 'cbz' in mylar.CONFIG.DUPECONSTRAINT):
                                 if 'cbr' in mylar.CONFIG.DUPECONSTRAINT:
                                     #this has to be configured in config - either retain cbr or cbz.
                                     if tmpfc['ComicFilename'].endswith('.cbz'):
@@ -1455,7 +1496,7 @@ def forceRescan(ComicID, archive=None, module=None, recheck=False):
                                         logger.fdebug('[DUPECHECK-CBZ PRIORITY] [#' + reiss['Issue_Number'] + '] Retaining newly scanned in filename : ' + tmpfc['ComicFilename'])
                                         removedupe = True
 
-                            if mylar.CONFIG.DUPECONSTRAINT == 'filesize':
+                            if year_pref is None and mylar.CONFIG.DUPECONSTRAINT == 'filesize':
                                 if tmpfc['ComicSize'] <= di['filesize']:
                                     logger.fdebug('[DUPECHECK-FILESIZE PRIORITY] [#' + reiss['Issue_Number'] + '] Retaining currently scanned in filename : ' + di['filename'])
                                     issuedupe = "yes"
@@ -1732,6 +1773,7 @@ def forceRescan(ComicID, archive=None, module=None, recheck=False):
             d_issues.append((issStatus, tagged['size'], tagged['name'], tagged['issueid']))
             issID_to_ignore.append(tagged['issueid'])
 
+    added = [] if archive or recheck else newly_owned(myDB, d_issues, d_annuals)   # recheck: post-processing already says so
     b_start = datetime.datetime.now()
     try:
         myDB.action("UPDATE issues SET Status=?, ComicSize=?, Location=? WHERE IssueID=?", d_issues, executemany=True)
@@ -1740,6 +1782,8 @@ def forceRescan(ComicID, archive=None, module=None, recheck=False):
     except Exception as e:
         logger.warn('Error updating: %s' % e)
     logger.fdebug('[haves] issue_status_writing took %s' % (datetime.datetime.now() - b_start))
+    if added:
+        notifiers.files_added(rescan['ComicName'], rescan['ComicYear'], added, issueid=None, module=module)
 
     #if this far, forced_file is true and the file didn't parse properly due to w/e reason, we need to force the filename to link to the given issueid.
     reforce = myDB.select('SELECT * FROM issues WHERE ComicID=? AND forced_file = 1', [ComicID])
@@ -1770,6 +1814,7 @@ def forceRescan(ComicID, archive=None, module=None, recheck=False):
     #here we need to change the status of the ones we DIDN'T FIND above since the loop only hits on FOUND issues.
     update_iss = []
     update_ann = []
+    missingissues = 0
     #break this up in sequnces of 200 so it doesn't break the sql statement.
     cnt = 0
     u_start = datetime.datetime.now()
@@ -1796,8 +1841,10 @@ def forceRescan(ComicID, archive=None, module=None, recheck=False):
                     #        issStatus = "Skipped"
                     #elif old_status == "Archived":
                     #    issStatus = "Archived"
+                    # its file is gone, so it's missing now: Skipped counts it as missing without searching for it
                     if old_status == "Downloaded":
-                        issStatus = "Archived"
+                        issStatus = "Skipped"
+                        missingissues += 1
                     else:
                         continue
                 #elif old_status == "Wanted":
@@ -1832,7 +1879,8 @@ def forceRescan(ComicID, archive=None, module=None, recheck=False):
                     #    else:
                     #        issStatus = "Skipped"
                     if old_status == "Downloaded":
-                        issStatus = "Archived"
+                        issStatus = "Skipped"
+                        missingissues += 1
                     else:
                         continue
                 update_ann.append((issStatus, chk['IssueID']))
@@ -1844,9 +1892,9 @@ def forceRescan(ComicID, archive=None, module=None, recheck=False):
         r_start = datetime.datetime.now()
         try:
             if len(update_iss) > 0:
-                myDB.action("UPDATE issues SET Status=? WHERE IssueID=?", update_iss, executemany=True)
+                myDB.action(NOTHAVE_SQL % 'issues', update_iss, executemany=True)
             if len(update_ann) > 0:
-                myDB.action("UPDATE annuals SET Status=? WHERE IssueID=?", update_ann, executemany=True)
+                myDB.action(NOTHAVE_SQL % 'annuals', update_ann, executemany=True)
         except Exception as e:
             logger.warn('Error updating: %s' % e)
         logger.fdebug('[nothaves] issue_status_writing took %s' % (datetime.datetime.now() - r_start))
@@ -1938,51 +1986,33 @@ def forceRescan(ComicID, archive=None, module=None, recheck=False):
             downchk += myDB.select(annuals_sql, genlist)
         cnt += 1
 
-    if downchk is None:
-        pass
-    else:
-        archivedissues = 0 #set this to 0 so it tallies correctly.
-        dvalues = []
-
+    # Downloaded issues whose file is gone are missing now: mark them Skipped so they count as missing but aren't searched.
+    if downchk is not None:
         for down in downchk:
             if down['type'] == 1:
                 dtable = 'annuals'
             else:
                 dtable = 'issues'
 
-            if down['Location'] is None:
-                logger.fdebug(
-                    '%s Location does not exist which means file was not downloaded'
-                    ' successfully, or was moved.' % (module)
-                )
-                controlValue = {"IssueID":  down['IssueID']}
-                newValue = {"Status":    "Archived"}
-                myDB.upsert(dtable, newValue, controlValue)
-                archivedissues+=1
-            else:
-                tmp_location = [x['ComicLocation'] for x in fc['comiclist'] if x['ComicFilename'] == down['Location']]
-                if not tmp_location:
-                    logger.info(
-                        '[%s] Changing status of #%s from Downloaded to Archived -'
-                        ' cannot locate file %s' %
-                        (down['Issue_Number'], down['IssueID'], down['Location'])
-                    )
-                    try:
-                        controlValue = {"IssueID": down['IssueID']}
-                        newValue = {"Status": "Archived"}
-                        logger.info('[%s] %s : %s' % (dtable, newValue, controlValue))
-                        myDB.upsert(dtable, newValue, controlValue)
-                    except Exception as e:
-                        logger.error('error: %s' % e)
-                    archivedissues+=1
-
-        if archivedissues > 0:
-            logger.fdebug(
-                '%s I have changed the status of %s issues to a status of Archived,'
-                ' as I now cannot locate them in the series directory.'
-                % (module, len(dvalues))
+            if down['Location'] is not None and any(x['ComicFilename'] == down['Location'] for x in fc['comiclist']):
+                continue
+            logger.info(
+                '[%s] Changing status of #%s from Downloaded to Skipped - cannot locate file %s' %
+                (down['Issue_Number'], down['IssueID'], down['Location'])
             )
-        havefiles = havefiles + archivedissues  #arcfiles already tallied in havefiles in above segment
+            try:
+                myDB.upsert(dtable, {"Status": "Skipped", "Location": None, "ComicSize": None}, {"IssueID": down['IssueID']})
+            except Exception as e:
+                logger.error('error: %s' % e)
+                continue
+            missingissues+=1
+
+        if missingissues > 0:
+            logger.fdebug(
+                '%s I have changed the status of %s issues to Skipped,'
+                ' as I now cannot locate them in the series directory.'
+                % (module, missingissues)
+            )
 
     #combined total for dispay total purposes only.
     combined_total = iscnt + anncnt
@@ -2004,13 +2034,13 @@ def forceRescan(ComicID, archive=None, module=None, recheck=False):
         havefiles = havefiles - arcfiles
 
     thetotals = totals(ComicID, havefiles, combined_total, module, recheck=recheck)
-    totalarc = arcfiles + archivedissues
+    totalarc = arcfiles
 
     #enforce permissions
     if mylar.CONFIG.ENFORCE_PERMS:
         logger.fdebug(module + ' Ensuring permissions/ownership enforced for series: ' + rescan['ComicName'])
         filechecker.setperms(rescan['ComicLocation'])
-    logger.info(module + ' I have physically found ' + str(foundcount) + ' issues, ignored ' + str(ignorecount) + ' issues, snatched ' + str(snatchedcount) + ' issues, and accounted for ' + str(totalarc) + ' in an Archived state [ Total Issue Count: ' + str(havefiles) + ' / ' + str(combined_total) + ' ]')
+    logger.info(module + ' I have physically found ' + str(foundcount) + ' issues, ignored ' + str(ignorecount) + ' issues, snatched ' + str(snatchedcount) + ' issues, marked ' + str(missingissues) + ' missing issues Skipped, and accounted for ' + str(totalarc) + ' in an Archived state [ Total Issue Count: ' + str(havefiles) + ' / ' + str(combined_total) + ' ]')
 
 def totals(ComicID, havefiles=None, totalfiles=None, module=None, issueid=None, file=None, recheck=False):
     if module is None:

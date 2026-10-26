@@ -1,13 +1,13 @@
-/* The flow line on Wanted and Downloads > Queue: an issue's way from Wanted into the library.
+/* The flow line on Downloads > Queue: an issue's way from Wanted into the library.
    Wanted -> Searching -> Downloading -> Filing -> Added today, each with what it's doing now,
    plus what happened lately. Polls activity_flow and hands the data to the page as an
-   "issuarr:flow" event, so its rows can say where each issue is. */
+   "issuarr:flow" event, so its rows can say where each issue is. Wanted has no flow line,
+   only the event for its rows. */
 (function () {
   'use strict';
 
   var root = document.getElementById('flow');
-  if (!root) return;
-  var here = root.getAttribute('data-here') || '';
+  var here = root ? root.getAttribute('data-here') || '' : '';
   var last = null;
   var logOpen = false;
 
@@ -49,10 +49,15 @@
                state: w.count ? 'on' : 'idle' });
 
     var searching = (s.current ? 1 : 0) + s.waiting;
-    var sNow, sState = 'idle', sMeta = '';
+    var sNow, sState = 'idle', sMeta = '', sLink = null;
     if (s.current) {
       sNow = issue(s.current); sState = 'live';
-      sMeta = s.waiting ? fmt(s.waiting) + ' waiting' : 'Nothing else waiting';
+      if (s.current.comicid) sLink = 'comicDetails?ComicID=' + encodeURIComponent(s.current.comicid);
+      sMeta = s.paused ? 'Paused after this one' + (s.waiting ? ', ' + fmt(s.waiting) + ' waiting' : '')
+                       : s.waiting ? fmt(s.waiting) + ' waiting' : 'Nothing else waiting';
+    } else if (s.paused) {
+      sNow = 'Paused'; sState = 'held';
+      sMeta = s.waiting ? fmt(s.waiting) + ' waiting' : 'Resume it on Wanted';
     } else if (s.blocked === 'filing') {
       sNow = 'Waiting for filing'; sState = 'held';
       sMeta = 'Its series is being filed, searching after';
@@ -66,7 +71,8 @@
       sNow = 'Idle';
       sMeta = s.next_run ? 'Next search ' + until(s.next_run, now) : '';
     }
-    out.push({ key: 'search', name: 'Searching', href: 'wanted', count: searching, now: sNow, meta: sMeta, state: sState });
+    out.push({ key: 'search', name: 'Searching', href: 'wanted', count: searching, now: sNow, meta: sMeta, state: sState,
+               nowHref: sLink });
 
     var running = dl.now.length, waiting = dl.queued + dl.client;
     var dNow, dState = 'idle', dMeta = '', bar = null;
@@ -75,7 +81,11 @@
       dNow = top.title; dState = 'live';
       if (top.percent != null) bar = top.percent;
       dMeta = (top.via === 'JDownloader 2' ? 'At JDownloader 2' : top.percent != null ? top.percent + '%' : 'Starting') +
-              (running > 1 ? ', ' + (running - 1) + ' more running' : '') + (waiting ? ', ' + fmt(waiting) + ' waiting' : '');
+              (running > 1 ? ', ' + (running - 1) + ' more running' : '') + (waiting ? ', ' + fmt(waiting) + ' waiting' : '') +
+              (dl.paused ? ', paused after these' : '');
+    } else if (dl.paused) {
+      dNow = 'Paused'; dState = 'held';
+      dMeta = (dl.queued ? fmt(dl.queued) + ' queued, ' : '') + 'nothing new starts';
     } else if (dl.stalled) {
       dNow = 'Stalled'; dState = 'stuck';
       dMeta = fmt(dl.queued) + ' queued, nothing moving';
@@ -107,14 +117,19 @@
     var next = all[i + 1];
     var feeding = next && (next.state === 'live');
     var label = st.name + ': ' + st.count + '. ' + st.now + (st.meta ? '. ' + st.meta : '');
-    return '<li class="flow-stop is-' + st.key + ' is-' + st.state + (feeding ? ' is-feeding" style="--feed: var(--flow-' + next.key + ')' : '') + '">' +
-      '<a href="' + st.href + '"' + (mine ? ' aria-current="page"' : '') + ' aria-label="' + esc(label) + '">' +
-      '<span class="flow-name">' + esc(st.name) + '</span>' +
-      '<span class="flow-count">' + fmt(st.count) + '</span>' +
-      '<span class="flow-now" title="' + esc(st.now) + '">' + esc(st.now) + '</span>' +
-      (st.bar != null ? '<span class="flow-bar" aria-hidden="true"><span style="width:' + Math.max(2, Math.min(100, st.bar)) + '%"></span></span>' : '') +
-      '<span class="flow-meta">' + esc(st.meta || '') + '</span>' +
-      '</a></li>';
+    var open = '<li class="flow-stop is-' + st.key + ' is-' + st.state + (st.nowHref ? ' has-now-link' : '') +
+      (feeding ? ' is-feeding" style="--feed: var(--flow-' + next.key + ')' : '') + '">';
+    var head = '<span class="flow-name">' + esc(st.name) + '</span><span class="flow-count">' + fmt(st.count) + '</span>';
+    var tail = (st.bar != null ? '<span class="flow-bar" aria-hidden="true"><span style="width:' + Math.max(2, Math.min(100, st.bar)) + '%"></span></span>' : '') +
+      '<span class="flow-meta">' + esc(st.meta || '') + '</span>';
+    // What it's doing now can link somewhere of its own (the series being searched): links can't nest,
+    // so the stop's own link then holds only its name and count.
+    if (st.nowHref) {
+      return open + '<a href="' + st.href + '"' + (mine ? ' aria-current="page"' : '') + ' aria-label="' + esc(st.name + ': ' + st.count) + '">' + head + '</a>' +
+        '<a class="flow-now" href="' + st.nowHref + '" title="Open ' + esc(st.now) + '">' + esc(st.now) + '</a>' + tail + '</li>';
+    }
+    return open + '<a href="' + st.href + '"' + (mine ? ' aria-current="page"' : '') + ' aria-label="' + esc(label) + '">' + head +
+      '<span class="flow-now" title="' + esc(st.now) + '">' + esc(st.now) + '</span>' + tail + '</a></li>';
   }
 
   /* ---- what happened lately ---- */
@@ -144,6 +159,7 @@
   // Rebuilt only when something changed, so a focused link or an open list isn't lost every poll.
   var shown = '';
   function render(d) {
+    if (!root) return;
     var html = '<ol class="flow-line" aria-label="From wanted to your library">' + stops(d).map(stopHtml).join('') + '</ol>' + logHtml(d);
     if (html === shown) return;
     var focused = document.activeElement && root.contains(document.activeElement) ? document.activeElement.getAttribute('href') : null;
@@ -154,7 +170,7 @@
     }
   }
 
-  root.addEventListener('toggle', function (e) {
+  if (root) root.addEventListener('toggle', function (e) {
     if (!e.target.matches('.flow-log')) return;
     logOpen = e.target.open;
     var more = e.target.querySelector('.flow-more');
@@ -176,7 +192,7 @@
         document.dispatchEvent(new CustomEvent('issuarr:flow', { detail: { now: d, before: before } }));
       })
       .catch(function () {
-        if (!last) root.innerHTML = '<p class="flow-quiet">Couldn\'t get what Issuarr is doing. Check the log.</p>';
+        if (!last && root) root.innerHTML = '<p class="flow-quiet">Couldn\'t get what Issuarr is doing. Check the log.</p>';
       })
       .then(function () { timer = setTimeout(poll, document.hidden ? 30000 : 5000); });
   }

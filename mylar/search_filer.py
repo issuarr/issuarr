@@ -27,6 +27,19 @@ from mylar import logger, editions, filechecker, helpers, search
 COMPLETE = re.compile(r'\s*[-:]?\s*(?:the\s+)?complete(?:\s+(?:collection|series|saga|run))?\s*$', re.I)
 
 
+# Smallest known size a real comic release can have (bytes).
+FAKE_SIZE_FLOOR = 1000000
+
+
+def too_small(size_bytes):
+    """Whether a result's known size is too small for a real comic: a fake or a cover-only post.
+    An unknown or zero size is never held against it."""
+    try:
+        return 0 < int(size_bytes) < FAKE_SIZE_FLOOR
+    except (TypeError, ValueError):
+        return False
+
+
 def without_complete(parsed):
     name = parsed.get('series_name') or ''
     if not COMPLETE.search(name):
@@ -96,6 +109,21 @@ def pack_already_downloaded(post_id):
     if row is None:
         return None
     return 'that pack was already %s (%s)' % ('downloaded' if row['status'] == 'Completed' else 'queued', row['updated_date'])
+
+
+def packs_turned_off(comic_id):
+    """Why not to grab a pack, or None: the series' "Allow pack downloads" switch is off.
+    Series that never set it allow packs."""
+    if not comic_id:
+        return None
+    try:
+        from mylar import db
+        row = db.DBConnection().selectone("SELECT UsePacks FROM comics WHERE ComicID=?", [str(comic_id)]).fetchone()
+    except Exception:
+        return None
+    if row is None or row['UsePacks'] is None or str(row['UsePacks']) != '0':
+        return None
+    return 'packs are turned off for this series'
 
 
 def with_extra_words(parsed, watchcomic, year):
@@ -312,6 +340,10 @@ class search_check(object):
                 if entry['title'][:17] != '0-Day Comics Pack':
                     comsize_m = helpers.human_size(comsize_b)
                     logger.fdebug('size given as: %s' % comsize_m)
+                    # a known size under 1 MB is a fake or a cover-only post, whatever the size settings say
+                    if too_small(comsize_b):
+                        logger.fdebug('%s is only %s - too small to be a comic. Skipping.' % (entry['title'], comsize_m))
+                        return None
                     # ----size constraints.
                     # if it's not within size constaints - dump it now.
                     if mylar.CONFIG.USE_MINSIZE:
@@ -980,7 +1012,8 @@ class search_check(object):
             # a pack of another volume of the series, or one already downloaded, isn't this issue
             issue_year = next((d[:4] for d in (StoreDate, IssueDate) if d and str(d)[:4].isdigit() and not str(d).startswith('0000')), None)
             problem = pack_misfit(entry.get('title') or entry.get('filename') or '', entry.get('year'),
-                                  SeriesYear or ComicYear, issue_year, ComicVersion) or pack_already_downloaded(entry.get('id'))
+                                  SeriesYear or ComicYear, issue_year, ComicVersion) or pack_already_downloaded(entry.get('id')) \
+                or packs_turned_off(ComicID)
             if problem:
                 logger.info('[PACK] Not using %s for %s (%s) #%s: %s' % (entry.get('title'), ComicName, SeriesYear or ComicYear, IssueNumber, problem))
                 return None

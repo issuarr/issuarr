@@ -41,15 +41,17 @@
 
   // Clears finished or failed direct downloads from the list (ddl_clear), not from the library.
   function clearStatus(status, confirmText) {
-    if (!window.confirm(confirmText)) return;
-    post('ddl_clear', { status: status })
-      .then(function (r) { I().toast(r.message || 'Done', r.status !== false); document.dispatchEvent(new CustomEvent('issuarr:flow-poke')); })
-      .catch(function () { I().toast('That didn\'t work. Check the log.', false); })
-      .then(function () { load(true); });
+    I().ask(confirmText, { ok: 'Remove' }, function () {
+      post('ddl_clear', { status: status })
+        .then(function (r) { I().toast(r.message || 'Done', r.status !== false); document.dispatchEvent(new CustomEvent('issuarr:flow-poke')); })
+        .catch(function () { I().toast('That didn\'t work. Check the log.', false); })
+        .then(function () { load(true); });
+    });
   }
 
+  var REQUEUE_OK = { remove: 'Remove', abort: 'Stop download', clear_queue: 'Clear the queue' };
   function requeue(mode, id, confirmText) {
-    if (confirmText && !window.confirm(confirmText)) return;
+    if (confirmText) { I().ask(confirmText, { ok: REQUEUE_OK[mode] || 'OK', danger: true }, function () { requeue(mode, id); }); return; }
     call('ddl_requeue?mode=' + encodeURIComponent(mode) + (id != null ? '&id=' + encodeURIComponent(id) : ''))
       .then(function (r) { I().toast(r.message || 'Done'); document.dispatchEvent(new CustomEvent('issuarr:flow-poke')); })
       .catch(function () { I().toast('That didn\'t work. Check the log.', false); })
@@ -238,6 +240,28 @@
     requeue('clear_queue', null, 'Remove every queued direct download? Their issues go back to Wanted to be searched again. ' +
       'Anything downloading now, finished downloads and grabs at your download client stay.');
   });
+  // Pause holds direct downloads until resumed; Stop all stops the running ones and empties the queue.
+  function queueControl(action) {
+    post('ddl_queue_control', { action: action })
+      .then(function (r) { I().toast(r.message || 'Done', r.status !== false); document.dispatchEvent(new CustomEvent('issuarr:flow-poke')); })
+      .catch(function () { I().toast('That didn\'t work. Check the log.', false); })
+      .then(function () { load(true); });
+  }
+  $id('q-pause').addEventListener('click', function () {
+    queueControl(this.getAttribute('data-paused') === 'true' ? 'resume' : 'pause');
+  });
+  $id('q-stop-all').addEventListener('click', function () {
+    I().ask('Stop all direct downloads? Running ones are stopped and marked Failed, queued ones are removed, and their issues go back to Wanted to be searched again. ' +
+      'Grabs at SABnzbd, NZBGet or your torrent client aren\'t touched.', { ok: 'Stop all', danger: true }, function () {
+      queueControl('stop_all');
+    });
+  });
+  function pauseButton(d) {
+    var b = $id('q-pause'), paused = !!d.download.paused;
+    b.setAttribute('data-paused', paused ? 'true' : 'false');
+    b.textContent = paused ? 'Resume downloads' : 'Pause downloads';
+    b.title = paused ? 'Let direct downloads start again' : 'Hold direct downloads: nothing new starts until you resume them';
+  }
   $id('q-clear-finished').addEventListener('click', function () {
     var n = ddlCount('Completed');
     clearStatus('Completed', 'Remove ' + n + ' finished ' + (n === 1 ? 'download' : 'downloads') + ' from this list? ' +
@@ -265,6 +289,7 @@
     setInterval(load, 5000);
     document.addEventListener('visibilitychange', function () { if (!document.hidden) load(true); });
     document.addEventListener('issuarr:refresh', function () { load(true); });
+    document.addEventListener('issuarr:flow', function (e) { pauseButton(e.detail.now); });
     document.addEventListener('issuarr:flow', function () { if (st.loaded && !st.items.some(function (it) { return inTab(it, st.tab); })) renderRows(); });
   }
   if (window.jQuery) window.jQuery(start); else document.addEventListener('DOMContentLoaded', start);
