@@ -398,9 +398,11 @@ def initialize(config_file):
 
         # startup check(s) here so that the config values are already loaded against.
         if all([mylar.USE_SABNZBD is True, mylar.CONFIG.SAB_HOST is not None]):
-            s_to_the_ab = sabnzbd.SABnzbd(params=None)
-            s_to_the_ab.sab_versioncheck()
-            logger.info('[SAB-VERSION-CHECK] SABnzbd version detected as: %s' % mylar.CONFIG.SAB_VERSION)
+            # in the background, so a SABnzbd address that doesn't answer can't hold up startup
+            def sab_startup_check():
+                sabnzbd.SABnzbd(params=None).sab_versioncheck()
+                logger.info('[SAB-VERSION-CHECK] SABnzbd version detected as: %s' % mylar.CONFIG.SAB_VERSION)
+            threading.Thread(target=sab_startup_check, name='SAB-VERSION-CHECK', daemon=True).start()
 
         # make sure the intLatestIssue field is populated with values...
         # ??helpers.latestissue_update()
