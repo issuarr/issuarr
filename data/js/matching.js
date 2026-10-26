@@ -319,7 +319,7 @@
         }
         var out = wrongOut('<ul class="match-list">' + d.series.map(function (s) {
           var same = String(s.comicid) === String(state.comicid);
-          var meta = [s.publisher, s.issues != null ? s.issues + ' issues' : '', s.type, same ? 'this series' : s.watched ? 'on your watchlist' : '']
+          var meta = [s.alias ? 'also called ' + s.alias : '', s.publisher, s.issues != null ? s.issues + ' issues' : '', s.type, same ? 'this series' : s.watched ? 'on your watchlist' : '']
             .filter(Boolean).map(esc).join(' · ');
           var cover = s.thumb ? '<img src="' + esc(s.thumb) + '" alt="Cover of ' + esc(s.name) + '" loading="lazy" referrerpolicy="no-referrer" />'
                               : '<span class="match-nocover">No cover</span>';

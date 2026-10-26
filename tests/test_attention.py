@@ -25,7 +25,7 @@ def env(monkeypatch, tmp_path):
     monkeypatch.setattr(attention, '_COMICS', [0.0, []])
     monkeypatch.setattr(attention, 'JOBS', {})
     d = db.DBConnection()
-    d.action('CREATE TABLE comics (ComicID TEXT, ComicName TEXT, ComicYear TEXT, ComicVersion TEXT, Total INTEGER, Type TEXT, Corrected_Type TEXT)')
+    d.action('CREATE TABLE comics (ComicID TEXT, ComicName TEXT, ComicYear TEXT, ComicVersion TEXT, Total INTEGER, Type TEXT, Corrected_Type TEXT, AlternateSearch TEXT)')
     d.action('CREATE TABLE issues (IssueID TEXT, ComicID TEXT, Issue_Number TEXT, Status TEXT, IssueDate TEXT, ReleaseDate TEXT)')
     d.action("INSERT INTO comics (ComicID, ComicName, ComicYear, ComicVersion, Total) VALUES ('85120', 'Marvel Universe Guardians of the Galaxy', '2015', NULL, 23), "
              "('94801', 'Great Lakes Avengers', '2016', NULL, 7)")
@@ -268,7 +268,7 @@ def test_quick_bounds_never_drop_a_close_name(monkeypatch):
     names = ['X-Factor', 'All-New X-Factor', 'X-Force', 'Uncanny X-Men', 'X-Men', 'Batman', 'Batman Beyond',
              'Spider-Man', 'Superior Spider-Man', 'Spider-Woman', 'Powers', 'Power Pack', 'Hetalia Axis Powers',
              'Supergirl', 'Supergirl Being Super', 'Ragnarok', 'Jungle Action', 'Great Lakes Avengers']
-    rows = [{'ComicID': str(i), 'ComicName': n, 'norm': attention._norm(n), 'chars': collections.Counter(attention._norm(n))}
+    rows = [{'ComicID': str(i), 'ComicName': n, 'norm': attention._norm(n), 'names': [(attention._norm(n), collections.Counter(attention._norm(n)))]}
             for i, n in enumerate(names)]
     monkeypatch.setattr(attention, '_watchlist', lambda: rows)
     attention._NAMED.clear()
@@ -493,3 +493,67 @@ def test_adding_a_series_queues_it_and_says_when_its_issues_are_there(env, monke
 @pytest.mark.unit
 def test_adding_refuses_something_that_isnt_a_comicvine_id(env):
     assert attention.add_series('nope')['ok'] is False
+
+
+@pytest.mark.unit
+def test_comicvine_search_asks_for_the_best_match_and_ranks_by_alias_and_year(env, monkeypatch):
+    from mylar import mb
+    monkeypatch.setattr(mylar.CONFIG, 'COMICVINE_API', 'key', raising=False)
+    asked = []
+
+    def find(name, mode, issue, **kw):
+        asked.append(dict(kw, name=name))
+        return [{'comicid': 1, 'name': 'X-Men Annual', 'comicyear': '1970', 'aliases': []},
+                {'comicid': 2, 'name': 'X-Men Annual', 'comicyear': '1992', 'aliases': []},
+                {'comicid': 60462, 'name': "X-Men '95", 'comicyear': '1995', 'aliases': ['X-Men Annual 1995', "X-Men Annual '95", 'X-Men 1995']}]
+    monkeypatch.setattr(mb, 'findComic', find)
+    got = attention.find_series('X-Men Annual 1995 (1995)')
+    # the "(1995)" is the year, not part of the name, and only ComicVine's best-match search is asked
+    assert asked == [{'name': 'X-Men Annual 1995', 'page': 1, 'pageSize': 10, 'relevance': True}]
+    assert [(s['comicid'], s['alias']) for s in got['series']][0] == ('60462', 'X-Men Annual 1995')
+
+
+@pytest.mark.unit
+def test_comicvine_search_puts_the_files_year_first_among_same_names(env, monkeypatch):
+    from mylar import mb
+    monkeypatch.setattr(mylar.CONFIG, 'COMICVINE_API', 'key', raising=False)
+    monkeypatch.setattr(mb, 'findComic', lambda name, mode, issue, **kw: [
+        {'comicid': 1, 'name': 'Silver Surfer: Dangerous Artifacts', 'comicyear': '2024'},
+        {'comicid': 2, 'name': 'Silver Surfer: Dangerous Artifacts', 'comicyear': '1996'}])
+    assert [s['comicid'] for s in attention.find_series('Silver Surfer Dangerous Artifacts', year='1996')['series']] == ['2', '1']
+
+
+@pytest.mark.unit
+def test_comicvine_search_falls_back_to_the_name_search(env, monkeypatch):
+    from mylar import mb
+    monkeypatch.setattr(mylar.CONFIG, 'COMICVINE_API', 'key', raising=False)
+    asked = []
+
+    def find(name, mode, issue, **kw):
+        asked.append(kw.get('relevance', False))
+        return False if kw.get('relevance') else [{'comicid': 9, 'name': 'Kissmas', 'comicyear': '2011'}]
+    monkeypatch.setattr(mb, 'findComic', find)
+    assert [s['comicid'] for s in attention.find_series('kissmas')['series']] == ['9']
+    assert asked == [True, False]
+
+
+@pytest.mark.unit
+def test_watchlist_matching_reads_a_series_aliases(env):
+    env.db.action("INSERT INTO comics (ComicID, ComicName, ComicYear, ComicVersion, Total, AlternateSearch) VALUES "
+                  "('60462', 'X-Men ''95', '1995', NULL, 1, 'X-Men Annual 1995##X-Men Annual ''95##X-Men 1995'), "
+                  "('1', 'X-Men Annual', '1970', NULL, 7, 'None')")
+    env.db.action("INSERT INTO issues VALUES ('i95', '60462', '1', 'Wanted', '1995-11-01', NULL), ('i70', '1', '3', 'Wanted', '1972-01-01', NULL)")
+    assert attention.search('X-Men Annual 1995 (1995)')[0]['comicid'] == '60462'
+    # the name reads as X-Men Annual #1995; the series is really called that, and its one issue is the one
+    parsed = attention.parse('X-Men Annual 1995 (1995) (digital) (Minutemen-Bluntman).cbr')
+    assert parsed['search'] == 'X-Men Annual 1995'
+    best = attention.suggest(parsed)[0]
+    assert (best['comicid'], best['issueid']) == ('60462', 'i95')
+
+
+@pytest.mark.unit
+def test_a_one_shot_is_offered_with_its_only_issue(env):
+    env.db.action("INSERT INTO comics (ComicID, ComicName, ComicYear, ComicVersion, Total) VALUES ('5001', 'Silver Surfer: Dangerous Artifacts', '1996', NULL, 1)")
+    env.db.action("INSERT INTO issues VALUES ('da1', '5001', '1', 'Wanted', '1996-06-01', NULL)")
+    best = attention.suggest({'series': 'Silver Surfer Dangerous Artifacts', 'issue': None, 'year': '1996', 'volume': None, 'name': 'Silver Surfer Dangerous Artifacts (1996) (Bchry-DCP).cbz'})[0]
+    assert (best['comicid'], best['issueid'], best['agree']['issue']) == ('5001', 'da1', True)

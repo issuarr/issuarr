@@ -53,9 +53,16 @@ if platform.python_version() == '2.7.6':
     http.client.HTTPConnection._http_vsn = 10
     http.client.HTTPConnection._http_vsn_str = 'HTTP/1.0'
 
-def pullsearch(comicapi, comicquery, offset, search_type, volumeid=None):
+SEARCH_FIELDS = 'id,name,aliases,start_year,site_detail_url,count_of_issues,image,publisher,deck,description,first_issue,last_issue'
 
-    if volumeid is not None:
+
+def pullsearch(comicapi, comicquery, offset, search_type, volumeid=None, relevance=False):
+    # relevance: ComicVine's own search (best match first, also reads aliases) instead of the name filter
+
+    if relevance:
+        words = ' '.join(urllib.parse.unquote(x) for x in comicquery)
+        PULLURL = mylar.CVURL + 'search/?api_key=' + str(comicapi) + '&resources=volume&query=' + urllib.parse.quote(words) + '&field_list=' + SEARCH_FIELDS + '&format=xml&limit=10&page=' + str(offset // 10 + 1)
+    elif volumeid is not None:
         # one series by its ComicVine id (a pasted ComicVine link), answered like a name search
         filterline = 'id:%s' % volumeid
     else:
@@ -67,7 +74,8 @@ def pullsearch(comicapi, comicquery, offset, search_type, volumeid=None):
                filterline+= ',name:%s' % x
            cnt+=1
 
-    PULLURL = mylar.CVURL + str(search_type) + 's?api_key=' + str(comicapi) + '&filter=' + filterline + '&field_list=id,name,start_year,site_detail_url,count_of_issues,image,publisher,deck,description,first_issue,last_issue&format=xml&sort=date_last_updated:desc&offset=' + str(offset) # 2012/22/02 - CVAPI flipped back to offset instead of page
+    if not relevance:
+        PULLURL = mylar.CVURL + str(search_type) + 's?api_key=' + str(comicapi) + '&filter=' + filterline + '&field_list=' + SEARCH_FIELDS + '&format=xml&sort=date_last_updated:desc&offset=' + str(offset) # 2012/22/02 - CVAPI flipped back to offset instead of page
 
     #all these imports are standard on most modern python implementations
     #logger.info('MB.PULLURL:' + PULLURL)
@@ -97,8 +105,26 @@ def pullsearch(comicapi, comicquery, offset, search_type, volumeid=None):
             return
         return dom
 
-def findComic(name, mode, issue, limityear=None, search_type=None, annual_check=False, page=None, pageSize=None, volumeid=None):
+def _child_text(node, tag):
+    for x in node.childNodes:
+        if x.nodeType == x.ELEMENT_NODE and x.nodeName == tag:
+            return ''.join(t.data for t in x.childNodes if t.nodeType in (t.TEXT_NODE, t.CDATA_SECTION_NODE)).strip()
+    return ''
+
+
+def _resource(node):
+    # a search answer says what each result is; ComicVine's TV shows are "series", comic series are "volume"
+    return _child_text(node, 'resource_type') or node.nodeName
+
+
+def _aliases(node):
+    """The other names ComicVine lists for a series, one per line there."""
+    return [a.strip() for a in _child_text(node, 'aliases').splitlines() if a.strip()]
+
+
+def findComic(name, mode, issue, limityear=None, search_type=None, annual_check=False, page=None, pageSize=None, volumeid=None, relevance=False):
     # volumeid: look up that one ComicVine series instead of searching by name
+    # relevance: ComicVine's own series search, best match first (pages of 10)
 
     #with mb_lock:
     comicResults = None
@@ -151,14 +177,14 @@ def findComic(name, mode, issue, limityear=None, search_type=None, annual_check=
         search_type = 'volume'
 
     #let's find out how many results we get from the query...
-    searched = pullsearch(comicapi, comicquery, 0, search_type, volumeid=volumeid)
+    searched = pullsearch(comicapi, comicquery, 0, search_type, volumeid=volumeid, relevance=relevance)
     if searched is None:
         return False
     totalResults = searched.getElementsByTagName('number_of_total_results')[0].firstChild.wholeText
     if volumeid is not None:
         logger.info('[COMICVINE] Looked up series 4050-%s: %s result(s)' % (volumeid, totalResults))
     else:
-        logger.info('[COMICVINE] %s search for "%s" (words sent: %s): %s result(s)' % ('Story arc' if search_type == 'story_arc' else 'Series', searchedfor, ', '.join(comicquery), totalResults))
+        logger.info('[COMICVINE] %s search for "%s" (words sent: %s): %s result(s)' % ('Story arc' if search_type == 'story_arc' else 'Best-match series' if relevance else 'Series', searchedfor, ', '.join(comicquery), totalResults))
     if not totalResults:
         return False
     if int(totalResults) > 1000 and page is None:
@@ -171,7 +197,7 @@ def findComic(name, mode, issue, limityear=None, search_type=None, annual_check=
     if page is not None and page > 0:
         # Limit results to a specific page
         # Search results are limited to 100 per page by default
-        pageSize = max(1, min(100, pageSize or 100))
+        pageSize = max(1, min(10 if relevance else 100, pageSize or 100))
         countResults = (page - 1) * pageSize
         totalResults = min(countResults + pageSize, int(totalResults))
     while (countResults < int(totalResults)):
@@ -179,8 +205,15 @@ def findComic(name, mode, issue, limityear=None, search_type=None, annual_check=
         if countResults > 0:
             offsetcount = countResults
 
-            searched = pullsearch(comicapi, comicquery, offsetcount, search_type, volumeid=volumeid)
-        comicResults = searched.getElementsByTagName(search_type)
+            searched = pullsearch(comicapi, comicquery, offsetcount, search_type, volumeid=volumeid, relevance=relevance)
+        if searched is None:
+            break
+        if relevance:
+            # a search answer holds each series as its own element under <results>
+            found = searched.getElementsByTagName('results')
+            comicResults = [x for x in found[0].childNodes if x.nodeType == x.ELEMENT_NODE and _resource(x) == 'volume'] if found else []
+        else:
+            comicResults = searched.getElementsByTagName(search_type)
         if page is not None and pageSize is not None:
             # Trim here to prevent excess processing of unused results if a page is specified
             # Trimming here if a page is not specified can cause pullsearch to be called significantly more often than necessary
@@ -333,7 +366,7 @@ def findComic(name, mode, issue, limityear=None, search_type=None, annual_check=
                         xml_lastissueid = 'None'
                         xml_firstissueid = 'None'
                         while (cl < cnl):
-                            if result.getElementsByTagName('name')[cl].parentNode.nodeName == 'volume':
+                            if result.getElementsByTagName('name')[cl].parentNode is result:
                                 xmlTag = result.getElementsByTagName('name')[cl].firstChild.wholeText
                                 xmlTag = xmlTag.strip()
                                 #break
@@ -388,7 +421,7 @@ def findComic(name, mode, issue, limityear=None, search_type=None, annual_check=
                             idt = 0
                             xmlid = None
                             while (idt < idl):
-                                if result.getElementsByTagName('id')[idt].parentNode.nodeName == 'volume':
+                                if result.getElementsByTagName('id')[idt].parentNode is result:
                                     xmlid = result.getElementsByTagName('id')[idt].firstChild.wholeText
                                     break
                                 idt+=1
@@ -514,6 +547,7 @@ def findComic(name, mode, issue, limityear=None, search_type=None, annual_check=
                                     'deck':                 xmldeck,
                                     'type':                 xmltype,
                                     'haveit':               haveit,
+                                    'aliases':              _aliases(result),
                                     'lastissueid':          xml_lastissueid,
                                     'firstissueid':         xml_firstissueid,
                                     'volume':               xmlvol,
@@ -526,7 +560,7 @@ def findComic(name, mode, issue, limityear=None, search_type=None, annual_check=
                             pass
                 n+=1
         #search results are limited to 100 and by pagination now...let's account for this.
-        countResults = countResults + 100
+        countResults = countResults + (10 if relevance else 100)
 
     if pageSize is not None:
         return comiclist[:pageSize]
