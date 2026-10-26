@@ -40,6 +40,7 @@ def lib(tmp_path, monkeypatch):
                                                          STORYARC_LOCATION=str(root / 'StoryArcs'), GRABBAG_DIR=str(root / 'Grabbag')),
                         raising=False)
     monkeypatch.setattr(librarysync, 'work_folders', lambda: [str(root / 'Dupes')])
+    monkeypatch.setattr(mylar, 'LOG_LEVEL', 0, raising=False)
     monkeypatch.setattr(attention, 'parse', lambda p: {'series': 'X', 'issue': '1', 'year': None, 'collected': False})
     monkeypatch.setattr(attention, 'suggest', lambda parsed, limit=1: [])
     unmatched.forget()
@@ -122,3 +123,77 @@ def test_only_unmatched_files_can_be_ignored_or_shown(lib, monkeypatch):
     assert unmatched.cover(paths['tied']) is None
     assert unmatched.cover(paths['work']) is None
     assert unmatched.cover(paths['loose']) == 'cover.jpg'
+
+
+@pytest.fixture
+def matchable(lib, monkeypatch):
+    db, paths, root = lib
+    from mylar import matching
+    db.conn.execute('INSERT INTO comics VALUES (?, ?, ?, ?)', ['500', 'Spawn', '1992', str(root / 'Image' / 'Spawn (1992)')])
+    db.conn.execute('INSERT INTO comics VALUES (?, ?, ?, ?)', ['900', 'Dupe Series', '2000', str(root / 'Dupes')])
+    calls = []
+
+    def fake_match(comicid, issueid, name):
+        calls.append((comicid, issueid, name))
+        db.conn.execute('INSERT INTO issues VALUES (?, ?)', [comicid, name])
+        return {'ok': True, 'note': '%s is now #1.' % name}
+
+    monkeypatch.setattr(matching, 'series_dirs', lambda comic: [comic['ComicLocation']])
+    monkeypatch.setattr(matching, 'match', fake_match)
+    monkeypatch.setattr(matching, '_rescan', lambda comicid: db.conn.execute(
+        'INSERT INTO issues VALUES (?, ?)', [comicid, 'Spawn 001.cbr']))
+    real = db.selectone
+
+    def selectone(query, args=()):
+        if query.startswith('SELECT IssueID FROM issues'):
+            return db.conn.execute('SELECT 1')
+        return real(query, args)
+    monkeypatch.setattr(db, 'selectone', selectone)
+    return db, paths, root, calls
+
+
+def test_the_plan_says_what_moves_before_anything_does(matchable):
+    db, paths, root, _ = matchable
+    p = unmatched.plan([paths['loose'], paths['tied']], '500')
+    assert p['move'] == [paths['loose']] and p['stay'] == []
+    assert [b['path'] for b in p['blocked']] == [paths['tied']]
+    assert os.path.exists(paths['loose'])
+
+
+def test_nothing_is_matched_into_a_work_folder(matchable):
+    _, paths, _, _ = matchable
+    p = unmatched.plan([paths['loose']], '900')
+    assert not p['ok'] and 'work folder' in p['note']
+
+
+def test_a_file_already_in_the_series_folder_stays(matchable):
+    _, paths, _, _ = matchable
+    p = unmatched.plan([paths['in_series']], '7084')
+    assert p['stay'] == [paths['in_series']] and p['move'] == []
+
+
+def test_matching_a_file_moves_it_and_matches_it_by_hand(matchable):
+    db, paths, root, calls = matchable
+    db.conn.execute('INSERT INTO importresults VALUES (?, ?, ?, ?, ?, ?)', [paths['loose'], 'No Results', None, 'spawn', None, None])
+    res = unmatched.match_file(paths['loose'], '500', '42')
+    target = str(root / 'Image' / 'Spawn (1992)' / 'Spawn 001.cbr')
+    assert res['ok'] and os.path.exists(target) and not os.path.exists(paths['loose'])
+    assert calls == [('500', '42', 'Spawn 001.cbr')]
+    assert db.conn.execute('SELECT Path FROM library_files WHERE Path=?', [target]).fetchone()
+    assert db.conn.execute('SELECT ComicLocation FROM importresults').fetchone()[0] == target
+
+
+def test_a_name_already_in_the_series_folder_blocks_the_move(matchable):
+    _, paths, root, calls = matchable
+    dest = root / 'Image' / 'Spawn (1992)'
+    dest.mkdir(parents=True)
+    (dest / 'Spawn 001.cbr').write_bytes(b'other')
+    res = unmatched.match_file(paths['loose'], '500', '42')
+    assert not res['ok'] and os.path.exists(paths['loose']) and calls == []
+
+
+def test_matching_a_folder_moves_its_files_and_rechecks_the_series(matchable):
+    _, paths, root, _ = matchable
+    res = unmatched.match_folder(str(root / 'Image' / 'Spawn'), '500')
+    assert res['ok'] and res['moved'] == 2 and res['tied'] == 1 and res['left'] == 1
+    assert sorted(os.listdir(root / 'Image' / 'Spawn (1992)')) == ['Spawn 001.cbr', 'Spawn 002.cbr']
