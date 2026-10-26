@@ -61,7 +61,7 @@ def pullsearch(comicapi, comicquery, offset, search_type, volumeid=None, relevan
 
     if relevance:
         words = ' '.join(urllib.parse.unquote(x) for x in comicquery)
-        PULLURL = mylar.CVURL + 'search/?api_key=' + str(comicapi) + '&resources=volume&query=' + urllib.parse.quote(words) + '&field_list=' + SEARCH_FIELDS + '&format=xml&limit=10&page=' + str(offset // 10 + 1)
+        PULLURL = mylar.CVURL + 'search/?api_key=' + str(comicapi) + '&resources=volume&query=' + urllib.parse.quote(words) + '&field_list=' + SEARCH_FIELDS + '&format=xml&limit=20&page=' + str(offset // 20 + 1)
     elif volumeid is not None:
         # one series by its ComicVine id (a pasted ComicVine link), answered like a name search
         filterline = 'id:%s' % volumeid
@@ -117,6 +117,26 @@ def _resource(node):
     return _child_text(node, 'resource_type') or node.nodeName
 
 
+def _publishers(comicapi, ids):
+    """{volume id: publisher name} for the given series, in one ComicVine call."""
+    ids = [i for i in ids if i]
+    if not ids:
+        return {}
+    try:
+        r = cv.cv_request(mylar.CVURL + 'volumes/?api_key=' + str(comicapi) + '&format=xml&filter=id:' + '|'.join(ids) + '&field_list=id,publisher&limit=100')
+        dom = parseString(r.content)
+    except Exception as e:
+        logger.warn('[COMICVINE] Couldn\'t look up the publishers of the search results: %s' % e)
+        return {}
+    out = {}
+    for v in dom.getElementsByTagName('volume'):
+        pub = [x for x in v.childNodes if x.nodeType == x.ELEMENT_NODE and x.nodeName == 'publisher']
+        name = _child_text(pub[0], 'name') if pub else ''
+        if name:
+            out[_child_text(v, 'id')] = name
+    return out
+
+
 def _aliases(node):
     """The other names ComicVine lists for a series, one per line there."""
     return [a.strip() for a in _child_text(node, 'aliases').splitlines() if a.strip()]
@@ -124,7 +144,7 @@ def _aliases(node):
 
 def findComic(name, mode, issue, limityear=None, search_type=None, annual_check=False, page=None, pageSize=None, volumeid=None, relevance=False):
     # volumeid: look up that one ComicVine series instead of searching by name
-    # relevance: ComicVine's own series search, best match first (pages of 10)
+    # relevance: ComicVine's own series search, best match first (pages of 20)
 
     #with mb_lock:
     comicResults = None
@@ -197,7 +217,7 @@ def findComic(name, mode, issue, limityear=None, search_type=None, annual_check=
     if page is not None and page > 0:
         # Limit results to a specific page
         # Search results are limited to 100 per page by default
-        pageSize = max(1, min(10 if relevance else 100, pageSize or 100))
+        pageSize = max(1, min(20 if relevance else 100, pageSize or 100))
         countResults = (page - 1) * pageSize
         totalResults = min(countResults + pageSize, int(totalResults))
     while (countResults < int(totalResults)):
@@ -212,6 +232,8 @@ def findComic(name, mode, issue, limityear=None, search_type=None, annual_check=
             # a search answer holds each series as its own element under <results>
             found = searched.getElementsByTagName('results')
             comicResults = [x for x in found[0].childNodes if x.nodeType == x.ELEMENT_NODE and _resource(x) == 'volume'] if found else []
+            # ComicVine's search leaves every publisher empty, so they come from one volumes call
+            pubmap = _publishers(comicapi, [_child_text(x, 'id') for x in comicResults])
         else:
             comicResults = searched.getElementsByTagName(search_type)
         if page is not None and pageSize is not None:
@@ -439,6 +461,8 @@ def findComic(name, mode, issue, limityear=None, search_type=None, annual_check=
                                     xmlpub = "Unknown"
                             else:
                                 xmlpub = "Unknown"
+                            if relevance and xmlpub == "Unknown":
+                                xmlpub = pubmap.get(xmlid, xmlpub)
 
                             #ignore specific publishers on a global scale here (not for a series asked for by its link).
                             if volumeid is None and ignored_publisher_check(xmlpub):
@@ -560,7 +584,7 @@ def findComic(name, mode, issue, limityear=None, search_type=None, annual_check=
                             pass
                 n+=1
         #search results are limited to 100 and by pagination now...let's account for this.
-        countResults = countResults + (10 if relevance else 100)
+        countResults = countResults + (20 if relevance else 100)
 
     if pageSize is not None:
         return comiclist[:pageSize]
