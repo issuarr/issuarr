@@ -225,6 +225,22 @@ def _year_hint(text):
     return re.sub(r'\s+', ' ', (text[:m.start()] + text[m.end():])).strip(), m.group(1)
 
 
+def _name_years(norm):
+    """Years a normalised name carries: "x men annual 1995", or "x men 95" for X-Men '95."""
+    words = norm.split()
+    years = {w for w in words if re.match(r'^(19|20)\d\d$', w)}
+    if len(words) > 1 and re.match(r'^\d\d$', words[-1]):
+        years.add(('19' if int(words[-1]) >= 30 else '20') + words[-1])
+    return years
+
+
+def _years_clash(a, b):
+    """Both names carry a year and no year is shared: Annual 1995 is not Annual 1999,
+    however alike the rest of the name is."""
+    ya, yb = _name_years(a), _name_years(b)
+    return bool(ya and yb and not ya & yb)
+
+
 def _names(name, aliases):
     """A series' name and its other names (ComicVine's aliases and the user's alternate names,
     kept '##'-separated in AlternateSearch), each normalised once."""
@@ -297,6 +313,8 @@ def _named(want, comicid=None, floor=0.75):
             continue
         best = 0
         for norm, chars in c['names']:
+            if _years_clash(want, norm):
+                continue
             both = total + len(norm)
             if not both or 2.0 * min(total, len(norm)) / both < max(floor, best):
                 continue
@@ -323,8 +341,11 @@ def suggest(parsed, limit=3, comicid=None):
     titled = _titled(parsed)
     if titled:
         # "X-Men Annual 1995" may be a series' whole name (or alias) rather than issue #1995
+        tnorm = _norm(titled)
+        # a series named for another year isn't this year's annual
+        named = [n for n in named if not all(_years_clash(tnorm, nm) for nm, _ in n[1]['names'])]
         best = {str(c['ComicID']): s for s, c, _ in named}
-        extra = [(s, c, True) for s, c in _named(_norm(titled), comicid) if s > best.get(str(c['ComicID']), 0)]
+        extra = [(s, c, True) for s, c in _named(tnorm, comicid) if s > best.get(str(c['ComicID']), 0)]
         named = sorted([n for n in named if not any(str(n[1]['ComicID']) == str(e[1]['ComicID']) for e in extra)] + extra, key=lambda x: -x[0])
     myDB = db.DBConnection()
     fyear = str(parsed.get('year') or '')
@@ -346,7 +367,7 @@ def suggest(parsed, limit=3, comicid=None):
                 if _num(r['Issue_Number']) == target:
                     issue = dict(r)
                     break
-        elif len(rows) == 1 and not (is_collected and singles):
+        elif len(rows) == 1 and s >= 0.92 and not (is_collected and singles):
             issue = dict(rows[0])   # a one-shot: the name says no number, or the number was part of the name
         iyear = str((issue or {}).get('IssueDate') or (issue or {}).get('ReleaseDate') or '')[:4]
         fvol, svol = _vol(parsed.get('volume')), _vol(c.get('ComicVersion'))
@@ -444,8 +465,8 @@ def search(text, limit=12):
         return []
     hits = []
     for c in _watchlist():
-        s = max(3.0 if n == want else 2.0 if n.startswith(want) else 1.0 if want in n else difflib.SequenceMatcher(None, want, n).ratio()
-                for n, _ in c['names'])
+        s = max(0 if _years_clash(want, n) else 3.0 if n == want else 2.0 if n.startswith(want) else 1.0 if want in n else
+                difflib.SequenceMatcher(None, want, n).ratio() for n, _ in c['names'])
         if s >= 0.5:
             hits.append((s, c))
     hits.sort(key=lambda x: (-x[0], x[1]['ComicName']))
@@ -466,7 +487,7 @@ def _cv_rank(found, want, year=None):
         best, alias = 0.0, None
         for i, n in enumerate([x.get('name')] + list(x.get('aliases') or [])):
             norm = _norm(n)
-            s = 1.0 if norm == want else difflib.SequenceMatcher(None, want, norm).ratio() if want and norm else 0.0
+            s = 1.0 if norm == want else 0.0 if _years_clash(want, norm) else difflib.SequenceMatcher(None, want, norm).ratio() if want and norm else 0.0
             if s > best:
                 best, alias = s, (n if i else None)
         sy = str(x.get('comicyear') or '')

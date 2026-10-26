@@ -557,3 +557,21 @@ def test_a_one_shot_is_offered_with_its_only_issue(env):
     env.db.action("INSERT INTO issues VALUES ('da1', '5001', '1', 'Wanted', '1996-06-01', NULL)")
     best = attention.suggest({'series': 'Silver Surfer Dangerous Artifacts', 'issue': None, 'year': '1996', 'volume': None, 'name': 'Silver Surfer Dangerous Artifacts (1996) (Bchry-DCP).cbz'})[0]
     assert (best['comicid'], best['issueid'], best['agree']['issue']) == ('5001', 'da1', True)
+
+
+@pytest.mark.unit
+def test_an_annual_named_for_one_year_is_not_offered_another_years_one_shot(env):
+    env.db.action("INSERT INTO comics (ComicID, ComicName, ComicYear, ComicVersion, Total, AlternateSearch) VALUES "
+                  "('7199', 'Uncanny X-Men 1999', '1999', NULL, 1, 'Uncanny X-Men Annual 1999'), "
+                  "('7196', 'X-Man ''96', '1996', NULL, 1, 'None')")
+    env.db.action("INSERT INTO issues VALUES ('u99', '7199', '1', 'Wanted', '2000-01-01', NULL), ('x96', '7196', '1', 'Wanted', '1996-10-01', NULL)")
+    for y in ('1995', '1997', '1998'):
+        parsed = attention.parse('Uncanny X-Men Annual %s (Universo Edits-DCP).cbr' % y)
+        assert [m['comicid'] for m in attention.suggest(parsed)] == [], y
+    parsed = attention.parse('Uncanny X-Men Annual 1999 (Universo Edits-DCP).cbr')
+    best = attention.suggest(parsed)[0]
+    assert (best['comicid'], best['issueid']) == ('7199', 'u99')
+    # a name only partly like the file's isn't handed its only issue
+    for m in attention.suggest(attention.parse('Uncanny X-Men Annual 1996 (Universo Edits-DCP).cbr')):
+        assert m['issueid'] is None
+    assert [s['comicid'] for s in attention.search('Uncanny X-Men Annual 1997')] == []
