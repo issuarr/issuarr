@@ -9,6 +9,14 @@ Two switches at the top of the section pick the other messages, for every servic
 - **Notify when an issue is downloaded and filed** (on by default): an issue was downloaded, or a folder was post-processed, and the file was filed in the library.
 - **Notify when files are added by hand** (off by default): a file was matched to an issue on **Needs attention**, a series was imported with its files, or a recheck found files you put in a series folder yourself. A recheck sends one message per series, such as `Added to Issuarr: Saga (2018) #54, #55`.
 
+More switches tell you about Issuarr itself. These are checked every five minutes, and each thing is told once (Email sends them without its filed-issues switch):
+
+- **Notify when files land in Needs attention** (on): one message naming the new files.
+- **Notify when Import results needs you to choose a match** (on): names the new series waiting for a choice.
+- **Notify when a download client can't be reached** (on): one of the clients under **Service status** in the sidebar is down. Sent again only if it comes back and goes down again.
+- **Notify when disk space runs low** (on): the library, download or config folder has less free space than **Warn below** (10 GB). Folders on the same disk are checked once. Sent again only after there is space again.
+- **Notify when a task starts** and **Notify when a task finishes** (off): the scheduled tasks you tick under **Tasks to notify about**. Auto-Search, Weekly Pullist and DB Updater are ticked at first; RSS Feeds and Folder Monitor run every few minutes, so they would send a lot.
+
 ## ntfy
 
 [ntfy](https://ntfy.sh) sends push notifications to the ntfy phone and desktop apps.
@@ -43,7 +51,7 @@ The webhook sends a JSON `POST` to any URL, for Home Assistant, n8n, Node-RED or
 
 | Field | Meaning |
 |---|---|
-| `event` | `snatched` (an issue or pack was sent to a downloader), `downloaded` (an issue was filed), `added` (files were added by hand), `tag_error` (tagging failed) or `test` |
+| `event` | `snatched` (an issue or pack was sent to a downloader), `downloaded` (an issue was filed), `added` (files were added by hand), `task_started`, `task_finished`, `attention` (new files on Needs attention), `match_needed` (Import results needs a choice), `action_required` (a download client can't be reached), `disk_low`, `tag_error` (tagging failed) or `test` |
 | `title`, `message` | The same text the other services show |
 | `series`, `issue`, `year` | The issue, when known. For a pack, `issue` is the range, such as `#1 - 60`. For `added`, it lists the issues, such as `#54, #55` |
 | `issue_id`, `comicvine_url` | The ComicVine issue, for `downloaded`, and for `added` when one file was matched by hand |

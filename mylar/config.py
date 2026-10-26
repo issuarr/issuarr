@@ -207,6 +207,14 @@ _CONFIG_DEFINITIONS = OrderedDict({
 
     'NOTIFY_ON_DOWNLOAD': (bool, 'Notifications', True),
     'NOTIFY_ON_ADDED': (bool, 'Notifications', False),
+    'NOTIFY_ON_TASK_START': (bool, 'Notifications', False),
+    'NOTIFY_ON_TASK_DONE': (bool, 'Notifications', False),
+    'NOTIFY_TASKS': (str, 'Notifications', 'Auto-Search,Weekly Pullist,DB Updater'),
+    'NOTIFY_ON_ATTENTION': (bool, 'Notifications', True),
+    'NOTIFY_ON_MATCH_NEEDED': (bool, 'Notifications', True),
+    'NOTIFY_ON_ACTION': (bool, 'Notifications', True),
+    'NOTIFY_ON_DISK_LOW': (bool, 'Notifications', True),
+    'NOTIFY_DISK_MIN_GB': (int, 'Notifications', 10),
 
     'PROWL_ENABLED': (bool, 'Prowl', False),
     'PROWL_PRIORITY': (int, 'Prowl', 0),

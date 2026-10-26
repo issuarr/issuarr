@@ -56,6 +56,7 @@ import mylar
 from mylar.comicinfo import tag_mode as ct_tag_mode
 from mylar import (
     activity,
+    alerts,
     attention,
     archives,
     webp,
@@ -8232,6 +8233,14 @@ class WebInterface(object):
                     "mattermost_onsnatch": helpers.checked(mylar.CONFIG.MATTERMOST_ONSNATCH),
                     "notify_on_download": helpers.checked(mylar.CONFIG.NOTIFY_ON_DOWNLOAD),
                     "notify_on_added": helpers.checked(mylar.CONFIG.NOTIFY_ON_ADDED),
+                    "notify_on_task_start": helpers.checked(mylar.CONFIG.NOTIFY_ON_TASK_START),
+                    "notify_on_task_done": helpers.checked(mylar.CONFIG.NOTIFY_ON_TASK_DONE),
+                    "notify_tasks": [(t, helpers.checked(t in alerts.chosen_tasks())) for t in alerts.TASKS],
+                    "notify_on_attention": helpers.checked(mylar.CONFIG.NOTIFY_ON_ATTENTION),
+                    "notify_on_match_needed": helpers.checked(mylar.CONFIG.NOTIFY_ON_MATCH_NEEDED),
+                    "notify_on_action": helpers.checked(mylar.CONFIG.NOTIFY_ON_ACTION),
+                    "notify_on_disk_low": helpers.checked(mylar.CONFIG.NOTIFY_ON_DISK_LOW),
+                    "notify_disk_min_gb": mylar.CONFIG.NOTIFY_DISK_MIN_GB,
                     "discord_enabled": helpers.checked(mylar.CONFIG.DISCORD_ENABLED),
                     "discord_webhook_url": mylar.CONFIG.DISCORD_WEBHOOK_URL,
                     "discord_onsnatch": helpers.checked(mylar.CONFIG.DISCORD_ONSNATCH),
@@ -8636,6 +8645,7 @@ class WebInterface(object):
                            'enable_meta', 'cbr2cbz_only', 'ct_tag_cr', 'ct_tag_cbl', 'ct_cbz_overwrite', 'cmtag_start_year_as_volume', 'cmtag_volume', 'setdefaultvolume',
                            'rename_files', 'replace_spaces', 'zero_level', 'sab_remove_completed', 'sab_remove_failed',
                            'lowercase_filenames', 'autowant_upcoming', 'autowant_all', 'comic_cover_local', 'cover_folder_local', 'series_metadata_local', 'alternate_latest_series_covers', 'cvinfo', 'snatchedtorrent_notify', 'notify_on_download', 'notify_on_added',
+                           'notify_on_task_start', 'notify_on_task_done', 'notify_on_attention', 'notify_on_match_needed', 'notify_on_action', 'notify_on_disk_low',
                            'prowl_enabled', 'prowl_onsnatch', 'pushover_enabled', 'pushover_onsnatch', 'pushover_image', 'mattermost_enabled', 'mattermost_onsnatch', 'boxcar_enabled',
                            'boxcar_onsnatch', 'pushbullet_enabled', 'pushbullet_onsnatch', 'telegram_enabled', 'telegram_onsnatch', 'telegram_image', 'discord_enabled', 'discord_onsnatch', 'slack_enabled', 'slack_onsnatch',
                            'email_enabled', 'email_enc', 'email_ongrab', 'email_onpost', 'gotify_enabled', 'gotify_server_url', 'gotify_token', 'gotify_onsnatch', 'ntfy_enabled', 'ntfy_onsnatch', 'webhook_enabled', 'webhook_onsnatch', 'opds_enable', 'opds_authentication', 'opds_metainfo', 'opds_pagesize', 'enable_ddl',
@@ -8646,6 +8656,9 @@ class WebInterface(object):
             if checked_config not in kwargs:
                 kwargs[checked_config] = False
 
+        if 'notify_tasks_shown' in kwargs:
+            kwargs.pop('notify_tasks_shown')
+            kwargs['notify_tasks'] = alerts.tasks_from_form(kwargs.pop('notify_task', []))
         if 'ddl_disabled_sources' in kwargs:
             # the Internet Archive's checkbox in the download sources list is its on/off switch
             try:

@@ -532,6 +532,12 @@ def start():
                           next_run_time=datetime.datetime.utcnow() + datetime.timedelta(minutes=5),
                           trigger=IntervalTrigger(hours=prowlarr.SYNC_HOURS, timezone='UTC'))
 
+            # Notifications about Issuarr itself: Needs attention, matches to choose, clients down, low disk space
+            from mylar import alerts
+            SCHED.add_job(func=alerts.tick, id='alerts', name='Alerts', max_instances=1, coalesce=True,
+                          next_run_time=datetime.datetime.utcnow() + datetime.timedelta(minutes=1),
+                          trigger=IntervalTrigger(hours=0, minutes=alerts.TICK, timezone='UTC'))
+
             #load up the previous runs from the job sql table so we know stuff...
             monitors = helpers.job_management(startup=True)
 

@@ -820,6 +820,22 @@
             <div class="set-group-head"><h2 id="sg-notify">Notifications</h2><p>Turn on a service to set it up.</p></div>
             ${toggle('notify_on_download', 'Notify when an issue is downloaded and filed', config['notify_on_download'])}
             ${toggle('notify_on_added', 'Notify when files are added by hand', config['notify_on_added'], help='Files matched by hand on Needs attention, imported, or found in a series folder by a recheck. A recheck sends one message per series.')}
+            ${toggle('notify_on_attention', 'Notify when files land in Needs attention', config['notify_on_attention'], help='One message for the new files, checked every few minutes.')}
+            ${toggle('notify_on_match_needed', 'Notify when Import results needs you to choose a match', config['notify_on_match_needed'])}
+            ${toggle('notify_on_action', 'Notify when a download client can\'t be reached', config['notify_on_action'], help='The clients listed under Service status in the sidebar. Sent once when one goes down.')}
+            ${toggle('notify_on_disk_low', 'Notify when disk space runs low', config['notify_on_disk_low'], help='Checks the library, download and config folders. Sent once until there is space again.')}
+            ${field('notify_disk_min_gb', 'Warn below', config['notify_disk_min_gb'], attrs='inputmode="numeric" class="set-num"', suffix='<span class="set-unit">GB free</span>')}
+            ${toggle('notify_on_task_start', 'Notify when a task starts', config['notify_on_task_start'])}
+            ${toggle('notify_on_task_done', 'Notify when a task finishes', config['notify_on_task_done'])}
+            <div class="set-row">
+                <span class="set-label"><b>Tasks to notify about</b>${hint('The scheduled tasks on the Tasks page. RSS Feeds and Folder Monitor run every few minutes.')}</span>
+                <input type="hidden" name="notify_tasks_shown" value="1" />
+                <div class="set-ctl set-checks">
+                %for name, checked in config['notify_tasks']:
+                    <label><input type="checkbox" name="notify_task" value="${name}" ${checked} /> ${name}</label>
+                %endfor
+                </div>
+            </div>
 
             <%self:notifier key="discord" label="Discord" logo="discord.png" name="discord_enabled" checked="${config['discord_enabled']}">
                 ${field('discord_webhook_url', 'Webhook URL', config['discord_webhook_url'], id='discord_webhook_url', attrs='class="set-wide"')}

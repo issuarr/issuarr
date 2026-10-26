@@ -291,7 +291,7 @@ class PUSHBULLET:
     def get_devices(self):
         return self.notify(method="GET")
 
-    def notify(self, snline=None, prline=None, prline2=None, snatched=None, sent_to=None, prov=None, module=None, method=None):
+    def notify(self, snline=None, prline=None, prline2=None, snatched=None, sent_to=None, prov=None, module=None, method=None, title=None):
         if module is None:
             module = ''
         module += '[NOTIFIER]'
@@ -305,7 +305,7 @@ class PUSHBULLET:
                 event = snline
                 message = "Issuarr has snatched: " + snatched + " from " + prov + " and " + sent_to
             else:
-                event = prline + ' complete!'
+                event = title or prline + ' complete!'
                 message = prline2
             data = {'type': 'note',
                     'title': event,
@@ -506,7 +506,7 @@ class MATTERMOST:
         else:
             pass
 
-        if not self.test_hook:
+        if not self.test_hook and (metadata or {}).get('series'):
             attachments = [
                 {
                     "title":f"{metadata['series']} ({metadata['year']}) - Issue {metadata['issue']}",
@@ -581,6 +581,10 @@ class DISCORD:
         }
         if self.test:
             payload["content"] = attachment_text
+        elif event in ALERT_COLOURS:
+            payload["content"] = attachment_text
+            payload["embeds"] = [{"author": {"name": text}, "description": attachment_text,
+                                  "color": ALERT_COLOURS[event], "timestamp": timestamp}]
         else:
             if 'snatched' in attachment_text.lower():
                 snatched_text = '%s: %s' % (attachment_text, snatched_nzb)
@@ -887,9 +891,15 @@ class WEBHOOK:
         return self.notify('Test Message', 'Release the Ninjas!', event='test')
 
 
+# Discord embed colours for the notifications about Issuarr itself (mylar/alerts.py)
+ALERT_COLOURS = {'task_started': 3447003, 'task_finished': 3447003, 'attention': 16753920,
+                 'match_needed': 16753920, 'action_required': 15548997, 'disk_low': 15548997}
+
+
 def send_all(headline, prline, message, event='downloaded', metadata=None, imageFile=None, module=None):
-    """Send one message to every service that is on. event is 'downloaded' (an issue was filed)
-    or 'added' (files turned up outside a download: matched by hand, imported or found by a recheck)."""
+    """Send one message to every service that is on. event is 'downloaded' (an issue was filed),
+    'added' (files turned up outside a download: matched by hand, imported or found by a recheck),
+    or one of ALERT_COLOURS (see mylar/alerts.py)."""
     metadata = metadata or {}
     try:
         if mylar.CONFIG.PROWL_ENABLED:
@@ -902,7 +912,7 @@ def send_all(headline, prline, message, event='downloaded', metadata=None, image
             BOXCAR().notify(prline=prline, prline2=message, module=module)
 
         if mylar.CONFIG.PUSHBULLET_ENABLED:
-            PUSHBULLET().notify(prline=prline, prline2=message, module=module)
+            PUSHBULLET().notify(prline=prline, prline2=message, module=module, title=headline if event in ALERT_COLOURS else None)
 
         if mylar.CONFIG.TELEGRAM_ENABLED:
             TELEGRAM().notify(message, imageFile)
@@ -916,9 +926,9 @@ def send_all(headline, prline, message, event='downloaded', metadata=None, image
         if mylar.CONFIG.DISCORD_ENABLED:
             DISCORD().notify(headline, message, module=module, imageFile=imageFile, metadata=metadata, event=event)
 
-        if mylar.CONFIG.EMAIL_ENABLED and mylar.CONFIG.EMAIL_ONPOST:
+        if mylar.CONFIG.EMAIL_ENABLED and (mylar.CONFIG.EMAIL_ONPOST or event in ALERT_COLOURS):
             logger.info("Sending email notification")
-            EMAIL().notify(message, "Issuarr notification - %s" % ('Added' if event == 'added' else 'Processed'), module=module)
+            EMAIL().notify(message, "Issuarr notification - %s" % ('Added' if event == 'added' else 'Processed' if event == 'downloaded' else headline), module=module)
 
         if mylar.CONFIG.GOTIFY_ENABLED:
             GOTIFY().notify(headline, message, module=module, imageFile=imageFile, metadata=metadata)
