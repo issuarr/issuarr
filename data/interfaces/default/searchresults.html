@@ -5,8 +5,9 @@
     <input type="hidden" id="search_query" name="search_query" value="${query_id | h}" />
     <%
         is_arc = search_type == 'story_arc'
+        failed = error is not UNDEFINED and error
     %>
-    <div class="page search-results" data-arc="${'1' if is_arc else '0'}" data-name="${query | h}">
+    <div class="page search-results" data-arc="${'1' if is_arc else '0'}" data-error="${'1' if failed else '0'}" data-name="${query | h}">
         <div class="page-head">
             <div class="head-text">
                 <h1><span class="page-crumb">${'Story Arcs' if is_arc else 'Add series'} › </span>Results for “${query | h}”</h1>
@@ -45,7 +46,7 @@
                     <option value="2:asc">Publisher</option>
                 </select>
             </label>
-            <span class="muted" id="sr-count" aria-live="polite">Loading…</span>
+            <span class="muted" id="sr-count" aria-live="polite">${'' if failed else 'Loading…'}</span>
         </div>
 
         %if not is_arc:
@@ -56,7 +57,15 @@
         </div>
         %endif
 
-        <ol class="sr-list" id="sr-list" aria-label="Results"></ol>
+        <ol class="sr-list" id="sr-list" aria-label="Results">
+            %if failed == 'nokey':
+            <li class="empty-state sr-error">ComicVine needs an API key before you can search. Add yours in <a href="config#tabs-2">Settings › General</a>; it's free from comicvine.gamespot.com/api.</li>
+            %elif failed:
+            <li class="empty-state sr-error">The ComicVine search didn't work. ComicVine may be busy or down; try again in a minute, or check the log.</li>
+            %else:
+            <li class="sr-wait"><div class="sr-wait-spin"></div>Loading results…</li>
+            %endif
+        </ol>
 
         <div class="sr-pager" id="sr-pager" hidden>
             <button type="button" class="btn btn-sm" id="sr-prev">Previous</button>
@@ -87,7 +96,7 @@
             fetch('loadSearchResults?' + params.toString(), { credentials: 'same-origin' })
                 .then(function (r) { return r.json(); })
                 .then(function (d) { st.total = d.iTotalDisplayRecords; render(d.aaData || [], d.iTotalRecords); })
-                .catch(function () { $('sr-count').textContent = 'Couldn\'t load the results. Check the log.'; });
+                .catch(function () { $('sr-count').textContent = ''; $('sr-list').innerHTML = '<li class="empty-state sr-error">Couldn\'t load the results. Check the log.</li>'; });
         }
 
         function card(r) {
@@ -232,7 +241,7 @@
             clearTimeout(timer);
             timer = setTimeout(function () { st.q = $('sr-q').value.trim(); st.start = 0; load(); }, 250);
         });
-        load();
+        if (document.querySelector('.search-results').getAttribute('data-error') !== '1') load();
     })();
     </script>
 </%def>
