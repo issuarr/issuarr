@@ -37,7 +37,8 @@ def lib(tmp_path, monkeypatch):
     db = DB()
     monkeypatch.setattr(unmatched.db, 'DBConnection', lambda: db)
     monkeypatch.setattr(mylar, 'CONFIG', SimpleNamespace(DESTINATION_DIR=str(root), MULTIPLE_DEST_DIRS=None,
-                                                         STORYARC_LOCATION=str(root / 'StoryArcs'), GRABBAG_DIR=str(root / 'Grabbag')),
+                                                         STORYARC_LOCATION=str(root / 'StoryArcs'), GRABBAG_DIR=str(root / 'Grabbag'),
+                                                         IGNORE_SEARCH_WORDS=None),
                         raising=False)
     monkeypatch.setattr(librarysync, 'work_folders', lambda: [str(root / 'Dupes')])
     monkeypatch.setattr(mylar, 'LOG_LEVEL', 0, raising=False)
@@ -197,3 +198,21 @@ def test_matching_a_folder_moves_its_files_and_rechecks_the_series(matchable):
     res = unmatched.match_folder(str(root / 'Image' / 'Spawn'), '500')
     assert res['ok'] and res['moved'] == 2 and res['tied'] == 1 and res['left'] == 1
     assert sorted(os.listdir(root / 'Image' / 'Spawn (1992)')) == ['Spawn 001.cbr', 'Spawn 002.cbr']
+
+
+def test_the_series_page_lists_files_that_are_not_its_own(lib, monkeypatch):
+    db, paths, root = lib
+    from mylar import matching, volume_check
+    series = root / 'Marvel' / 'Avengers (1998)'
+    db.conn.execute('INSERT INTO comics VALUES (?, ?, ?, ?)', ['2128', 'The Avengers', '1963', str(series)])
+    db.conn.execute('INSERT INTO issues VALUES (?, ?)', ['2128', 'The Avengers 268 (1986).cbz'])
+    db.conn.execute('ALTER TABLE issues ADD COLUMN Issue_Number TEXT')
+    db.conn.execute('ALTER TABLE annuals ADD COLUMN Issue_Number TEXT')
+    db.conn.execute("UPDATE issues SET Issue_Number='268' WHERE ComicID='2128'")
+    monkeypatch.setattr(matching, 'series_dirs', lambda comic: [comic['ComicLocation']])
+    monkeypatch.setattr(volume_check, 'check', lambda comicid: {'files': [{'name': 'Avengers Sketchbook.cbz', 'note': 'May be another volume.'}]})
+    rows = {r['name']: r for r in unmatched.series_others('7084')['files']}
+    assert set(rows) == {'The Avengers 268 (1986).cbz', 'Avengers Sketchbook.cbz'}
+    assert rows['The Avengers 268 (1986).cbz']['series'] == {'id': '2128', 'name': 'The Avengers', 'year': '1963', 'number': '268'}
+    loose = rows['Avengers Sketchbook.cbz']
+    assert loose['series'] is None and loose['sub'] == 'Extras' and loose['note'] == 'May be another volume.'

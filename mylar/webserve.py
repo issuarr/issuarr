@@ -5236,6 +5236,10 @@ class WebInterface(object):
         return self._attention_json(unmatched.match_folder(folder, comicid))
     unmatched_match_folder.exposed = True
 
+    def series_other_files(self, comicid):
+        return self._attention_json(unmatched.series_others(comicid))
+    series_other_files.exposed = True
+
     def libraryCheck(self):
         return serve_template(templatename="librarycheck.html", title="Library check", trash_days=attention.trash_days())
     libraryCheck.exposed = True
