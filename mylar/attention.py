@@ -522,7 +522,7 @@ def find_series(text, limit=20, year=None):
         if link is not None:
             found = mb.findComic(text, 'series', None, volumeid=link['comicid']) or []
         else:
-            found = mb.findComic(words or text, 'series', None, page=1, pageSize=10, relevance=True) or \
+            found = mb.findComic(words or text, 'series', None, page=1, pageSize=limit, relevance=True) or \
                 mb.findComic(words or text, 'series', None, page=1, pageSize=limit) or []
     except Exception as e:
         logger.warn('[ATTENTION] ComicVine search for %s failed: %s' % (text, e))
