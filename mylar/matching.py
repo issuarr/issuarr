@@ -17,6 +17,37 @@ def _extensions():
     return tuple(x for x in ('.cbr', '.cbz', '.cb7', '.pdf') if x not in (mylar.CONFIG.IGNORE_SEARCH_WORDS or []))
 
 
+YEAR_GAP = 3   # years between a file's name and its issue's cover date before it counts as another volume's
+
+
+def name_year(name):
+    """The first four-digit year in brackets in a file name, or None."""
+    m = re.search(r'[(\[]\s*(?:[^)\]]*?[\s,\-/])?((?:19|20)\d\d)(?=[\s,\-/)\]])', name or '')
+    return int(m.group(1)) if m else None
+
+
+def year_off(name, issue_year):
+    """Whether the year in a file name is YEAR_GAP or more years from the issue's. A file with no year, or an issue
+    with none, is never off."""
+    fy = name_year(name)
+    try:
+        iy = int(str(issue_year)[:4])
+    except (TypeError, ValueError):
+        return False
+    return fy is not None and abs(fy - iy) >= YEAR_GAP
+
+
+def year_preference(new, existing, issue_year):
+    """Of two files for one issue, 'new' or 'existing' when only that one's year fits the issue (the other is
+    YEAR_GAP or more years away), else None and the size or type rule decides."""
+    new_off, old_off = year_off(new, issue_year), year_off(existing, issue_year)
+    if old_off and not new_off:
+        return 'new'
+    if new_off and not old_off:
+        return 'existing'
+    return None
+
+
 def series_dirs(comic):
     """The series folder, and its copy under the second library folder when there is one."""
     if not comic or not comic['ComicLocation']:
