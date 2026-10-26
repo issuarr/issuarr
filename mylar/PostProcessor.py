@@ -94,10 +94,39 @@ def folder_job(folder):
                 return (None, None)
         files = filechecker.FileChecker(folder, justparse=True, pp_mode=True).listFiles()
         myDB = db.DBConnection()
-        return (frozenset(run_series(myDB, files.get('comiclist') or [], alternate_names(myDB))), None)
+        alt_list = alternate_names(myDB)
+        return (frozenset(run_series(myDB, year_in_name(myDB, files.get('comiclist') or [], alt_list), alt_list)), None)
     except Exception as e:
         logger.fdebug('[POST-PROCESSING] Holding every search for %s - could not tell which series it holds: %s' % (folder, e))
         return (None, None)
+
+
+def year_in_name(myDB, comiclist, alt_list):
+    """Files named "Uncanny X-Men Annual 1999" read as issue #1999 of Uncanny X-Men Annual. When a
+    watchlist series is called that (or has it as an alternate name, like ComicVine's aliases for
+    Uncanny X-Men 1999), the year is part of the name: file it as that series' only issue, or #1."""
+    for fl in comiclist:
+        number = str(fl.get('issue_number') or '').strip()
+        if not fl.get('series_name') or not re.match(r'^(19|20)\d\d$', number):
+            continue
+        key = _loop_name('%s %s' % (fl['series_name'], number))[0]
+        dyn = {key}
+        for x in alt_list or []:
+            if key in {re.sub(r'[\|\s]', '', a.lower()) for a in (x.get('AS_Alt') or [])}:
+                dyn.add(re.sub(r'[\|\s]', '', (x.get('AS_DyComicName') or '').lower()))
+        rows = []
+        for d in dyn:
+            rows += myDB.select('SELECT ComicID, ComicName FROM comics WHERE DynamicComicName=?', [d])
+        if len({r['ComicID'] for r in rows}) != 1:
+            continue
+        issues = myDB.select('SELECT Issue_Number FROM issues WHERE ComicID=?', [rows[0]['ComicID']])
+        numbers = [str(i['Issue_Number']) for i in issues]
+        issue = numbers[0] if len(numbers) == 1 else '1' if '1' in numbers else None
+        if issue is None:
+            continue
+        logger.fdebug('[POST-PROCESSING] %s: %s %s is the series %s, filing it as #%s' % (fl.get('comicfilename'), fl['series_name'], number, rows[0]['ComicName'], issue))
+        fl['series_name'], fl['issue_number'] = rows[0]['ComicName'], issue
+    return comiclist
 
 
 def run_series(myDB, comiclist, alt_list):
@@ -724,6 +753,7 @@ class PostProcessor(object):
                         filelist['comiccount'] = 0
                 #preload the entire ALT list in here.
                 alt_list = alternate_names(myDB)
+                year_in_name(myDB, filelist['comiclist'], alt_list)
 
                 if self.job == (None, None):
                     self._narrow_job(myDB, filelist['comiclist'], alt_list)
