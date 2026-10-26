@@ -1647,3 +1647,21 @@ a.issue-name:hover { text-decoration: underline; text-underline-offset: 3px; }
 .choose-about { margin: 2px 0 0; font-size: 12.5px; color: var(--text-2); line-height: 1.45; }
 .choose-warn { color: var(--snatched); }
 .choose-actions { gap: 8px; }
+
+/* ---------- Waiting on a ComicVine search ---------- */
+.search-wait {
+  position: fixed; inset: 0; z-index: 1100; display: flex; flex-direction: column; align-items: center; justify-content: center;
+  gap: 6px; padding: 16px; text-align: center; background: color-mix(in srgb, var(--ink) 90%, transparent); backdrop-filter: blur(2px);
+}
+.search-wait[hidden] { display: none; }
+.search-wait-spin, .sr-wait-spin {
+  width: 56px; height: 56px; margin-bottom: 14px; border-radius: 50%;
+  border: 5px solid var(--line); border-top-color: var(--have); animation: search-wait-spin .9s linear infinite;
+}
+.search-wait-title { margin: 0; font-family: var(--font-display); font-size: 20px; font-weight: 600; color: var(--text); overflow-wrap: anywhere; }
+.search-wait-sub { margin: 0; color: var(--muted); }
+.sr-list .sr-wait { display: flex; flex-direction: column; align-items: center; padding: 56px 16px; color: var(--muted); }
+.sr-wait-spin { width: 40px; height: 40px; border-width: 4px; }
+.sr-error { color: var(--failed-text); }
+@keyframes search-wait-spin { to { transform: rotate(360deg); } }
+@media (prefers-reduced-motion: reduce) { .search-wait-spin, .sr-wait-spin { animation-duration: 2.4s; } }

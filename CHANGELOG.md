@@ -6,6 +6,7 @@ Releases come from the `main` branch and are the `latest` Docker image. Changes 
 
 ## Unreleased (on dev)
 
+- [fix] Searching ComicVine from Add series, or from the search box on the results page, now shows a large spinner in the middle of the screen with a "please wait" message until ComicVine answers, instead of only the browser tab spinning. If the search fails or there's no ComicVine API key, the results page says so instead of staying blank, and a search with no results no longer makes a second, pointless ComicVine request. ([`1ed43491`](https://github.com/issuarr/issuarr/commit/1ed43491))
 - [feat] Library check now lists solid RARs, which read fine but which some readers, Kavita among them, can't open. Repack to .cbz makes each one a .cbz with the same pages and keeps the original in the trash. ([`e2caf676`](https://github.com/issuarr/issuarr/commit/e2caf676))
 - [fix] Old .cbr files that unrar complains about as a whole, even though every page reads, are no longer called damaged. WebP conversion and tagging now repack them to .cbz, checking each page against its own checksum, so a file that's really broken is still left alone. ([`235cda61`](https://github.com/issuarr/issuarr/commit/235cda61))
 - [feat] The Choose match window on Import results shows the folder a series' files are in, since folder names often carry the year or publisher. Hover a file name to see its full path. ([`4f7a75ae`](https://github.com/issuarr/issuarr/commit/4f7a75ae))
