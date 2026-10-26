@@ -150,6 +150,7 @@ Settings were reworded, but each one is the same `config.ini` key as before, so 
 - **Volume 1 is kept.** When ComicVine sets a volume for a series, Issuarr uses it, v1 included. Mylar3 dropped v1.
 - **"Wipe the NZB log"** is now **Clear the download log…** on **Downloads > History**, and explains what it affects first.
 - **Manage issues** opens on Skipped and has no Wanted tab. Wanted issues are managed on the **Wanted** page.
+- **Torrent search has one switch.** Mylar3 had an "Enable torrent search" switch over 32P, public torrent sites and Torznab, plus Torznab's own switch. Issuarr only has **Search Torznab indexers** in **Settings > Search providers**, and torrent search is on whenever that is. If your Mylar3 settings had Torznab on but torrent search off, your Torznab indexers are now searched; turn **Search Torznab indexers** off to stop that. Torrent links in GetComics posts need only **Use torrents** and a torrent client.
 - **GetComics searches** now also look for packs and series-and-year posts, so issues that only exist inside a pack can be found.
 - **Allow pack downloads** in a series' settings now shows for every series and is on by default. Turn it off and search won't grab GetComics packs for that series. In Mylar3 it only showed with 32P turned on, and whatever it was set to before isn't carried over.
 - **Notifications say Issuarr.** Snatch, download and tagging-error messages say Issuarr instead of Mylar, and Discord posts appear under the name Issuarr. If you filter or route notifications by the word "Mylar", update those rules.
