@@ -133,6 +133,7 @@
                         <div class="menu-list">
                             <button type="button" class="btn btn-ghost" title="Choose which issue each file in the series folder is" onclick="IssuarrMatch.open('${comic['ComicID'] | h}');">Match files…</button>
                             <button type="button" class="btn btn-ghost" id="want-from-btn" data-comicid="${comic['ComicID'] | h}" data-current="${(comic.get('WantFrom') if hasattr(comic, 'get') else '') or '' | h}" data-latest="${(comic.get('LatestIssue') if hasattr(comic, 'get') else '') or '' | h}" title="Want only issues from a number onward, for a run you're picking up late">Want from issue…</button>
+                            <button type="button" class="btn btn-ghost" title="Read every file of this series through, to find damaged files or files that aren't comics" onclick="checkSeriesFiles('${comic['ComicID'] | h}');">Check files</button>
                             <button type="button" class="btn btn-ghost" title="These files belong to a different ComicVine series: find it, move the files to it and match them" onclick="IssuarrMatch.wrongSeries('${comic['ComicID'] | h}', document.getElementById('tab_comicname').value, document.getElementById('tab_comicyear').value);">Wrong series…</button>
                             % if mylar.CONFIG.RENAME_FILES:
                             <a class="btn btn-ghost" href="previewRename?comicid=${comic['ComicID'] | u}" title="See the new file names, then rename">Rename files…</a>
@@ -971,6 +972,36 @@
                   //reload_tabs();
                   //reload_table();
               });
+        }
+
+        function checkSeriesFiles(comicid){
+            function post(url, params) {
+                return fetch(url, { method: 'POST', credentials: 'same-origin',
+                                    headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+                                    body: new URLSearchParams(params).toString() }).then(function (r) { return r.json(); });
+            }
+            function poll() {
+                fetch('library_check_status?comicid=' + encodeURIComponent(comicid), { credentials: 'same-origin', cache: 'no-store' })
+                    .then(function (r) { return r.json(); })
+                    .then(function (d) {
+                        if (d.state === 'running') { setTimeout(poll, 2000); return; }
+                        if (d.error) { Issuarr.toast('The check stopped: ' + d.error, false); return; }
+                        var n = d.files.length;
+                        if (!n) Issuarr.toast('Checked ' + d.done + (d.done === 1 ? ' file' : ' files') + ': none are damaged.', true);
+                        else {
+                            Issuarr.toast(n + (n === 1 ? ' file needs' : ' files need') + ' a look. Opening Library check.', false);
+                            setTimeout(function () { window.location.href = 'libraryCheck'; }, 1500);
+                        }
+                    })
+                    .catch(function () { Issuarr.toast('Couldn\'t get the check\'s result. See Tools › Library check.', false); });
+            }
+            post('library_check_scan', { comicid: comicid })
+                .then(function (r) {
+                    if (!r.ok) { Issuarr.toast('A library check is already running. Try again when it finishes.', false); return; }
+                    Issuarr.toast('Checking the files of this series.', true);
+                    setTimeout(poll, 1000);
+                })
+                .catch(function () { Issuarr.toast('Couldn\'t start the check. See the log.', false); });
         }
 
         function group_metatag(comicid){
