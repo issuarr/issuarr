@@ -871,6 +871,7 @@ def dbcheck():
     c.execute('CREATE TABLE IF NOT EXISTS provider_searches(id INTEGER UNIQUE, provider TEXT UNIQUE, type TEXT, lastrun INTEGER, active TEXT, hits INTEGER DEFAULT 0)')
     c.execute('CREATE TABLE IF NOT EXISTS mylar_info(DatabaseVersion INTEGER PRIMARY KEY)')
     c.execute('CREATE TABLE IF NOT EXISTS library_files (Path TEXT PRIMARY KEY, Size INTEGER, Mtime REAL)')
+    c.execute('CREATE TABLE IF NOT EXISTS unmatched_ignored (Path TEXT PRIMARY KEY, Size INTEGER, Mtime REAL)')
     conn.commit()
 
     #create some indexes

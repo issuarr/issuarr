@@ -12,7 +12,9 @@
     ['paused', 'Paused', function (s) { return s.status === 'Paused'; }],
     ['gaps', 'Has gaps', function (s) { return s.total > 0 && s.have < s.total; }],
     ['loading', 'Loading', function (s) { return s.status === 'Loading' || s.recent === 'Loading'; }],
-    ['problems', 'Problems', function (s) { return isError(s) || s.cv_removed === 1; }]
+    ['problems', 'Problems', function (s) { return isError(s) || s.cv_removed === 1; }],
+    // folders of files no issue points to, from unmatched_data rather than the series list
+    ['unmatched', 'Unmatched', function () { return false; }]
   ];
   var BULK = {
     refresh: { done: 'Refreshing', confirm: null },
@@ -24,7 +26,7 @@
     delete: { done: 'Removed', confirm: 'Remove {n} from Issuarr? The series, its issue list and statuses are removed. Files on disk stay where they are.', ok: 'Remove' }
   };
 
-  var st = { all: [], tab: 'all', q: '', pub: '', sort: 'title', col: null, view: 'covers', limit: CHUNK, selecting: /[?&]select=1\b/.test(location.search), sel: {}, loaded: false, noArt: {} };
+  var st = { all: [], um: null, tab: 'all', q: '', pub: '', sort: 'title', col: null, view: 'covers', limit: CHUNK, selecting: /[?&]select=1\b/.test(location.search), sel: {}, loaded: false, noArt: {} };
   try {
     var saved = JSON.parse(localStorage.getItem(STORE) || 'null');
     if (saved) { st.view = saved.view || st.view; st.sort = saved.sort || st.sort; }
@@ -113,7 +115,18 @@
   }
   document.addEventListener('error', function (e) {
     var t = e.target;
-    if (!t || !t.getAttribute || !t.hasAttribute('data-art')) return;
+    if (!t || !t.getAttribute) return;
+    // an unmatched folder's cover is cut from its first file; the server may be busy making others
+    if (t.hasAttribute('data-um-art')) {
+      var tries = +(t.getAttribute('data-tries') || 0);
+      if (tries < 3) {
+        if (!t.getAttribute('data-src')) t.setAttribute('data-src', t.getAttribute('src'));
+        t.setAttribute('data-tries', tries + 1);
+        setTimeout(function () { if (t.isConnected) t.src = t.getAttribute('data-src') + '&r=' + (tries + 1); }, 3000 * Math.pow(2, tries));
+        return;
+      }
+    }
+    if (!t.hasAttribute('data-art')) return;
     st.noArt[t.getAttribute('data-art')] = true;
     t.remove();
   }, true);
@@ -152,6 +165,48 @@
       '<td class="mono nowrap">' + (s.latest ? '#' + esc(s.latest) : '-') + '</td>' +
       '<td><span class="status ' + stt[1] + '">' + esc(stt[0]) + '</span></td>' +
       '<td><div class="lib-issues">' + bar(s) + counts(s) + '</div></td></tr>';
+  }
+
+  function umLink(g) { return 'unmatchedFolder?path=' + encodeURIComponent(g.folder); }
+  function umName(g) { return g.rel || 'Library folder'; }
+  function umNote(g) {
+    if (!g.series.length) return '';
+    return (g.series_above ? 'Inside the folder of ' : 'In the folder of ') +
+      g.series.map(function (s) { return s.name + (s.year ? ' (' + s.year + ')' : ''); }).join(' and ');
+  }
+  function umFiles(g) { return fmt(g.count) + (g.count === 1 ? ' file' : ' files'); }
+
+  function umCard(g) {
+    var name = umName(g), note = umNote(g);
+    return '<article class="cover-card is-unmatched">' +
+      '<a class="cover" href="' + umLink(g) + '" tabindex="-1" aria-hidden="true">' +
+      (st.noArt['um:' + g.folder] ? '' : '<img class="cover-art" loading="lazy" decoding="async" alt="" data-um-art data-art="' + esc('um:' + g.folder) + '" src="' +
+        esc('unmatched_cover?path=' + encodeURIComponent(g.first)) + '">') +
+      '<span class="cover-fallback" style="--tint: ' + tint(name) + '">' + esc(name) + '</span>' +
+      '<span class="cover-badges"><span class="cover-badge is-dim">Unmatched</span></span></a>' +
+      '<div class="card-text"><a class="card-title" href="' + umLink(g) + '" title="' + esc(name) + '">' + esc(name) + ' <span class="muted">[unmatched]</span></a>' +
+      '<div class="card-nums"><span>' + umFiles(g) + '</span></div>' +
+      '<div class="card-meta"' + (note ? ' title="' + esc(note) + '"' : '') + '>' + esc(note || g.publisher || '') + '</div></div></article>';
+  }
+
+  function umRow(g) {
+    var note = umNote(g);
+    return '<tr>' +
+      '<td class="check lib-check"></td>' +
+      '<td><span class="lib-name"><span class="thumb-wrap"></span><a href="' + umLink(g) + '">' + esc(umName(g)) + '</a> <span class="muted">[unmatched]</span></span>' +
+      (note ? '<div class="muted">' + esc(note) + '</div>' : '') + '</td>' +
+      '<td class="nowrap">' + esc(g.publisher || '-') + '</td>' +
+      '<td class="mono">-</td><td class="mono">-</td>' +
+      '<td><span class="status is-snatched">Unmatched</span></td>' +
+      '<td class="mono">' + umFiles(g) + '</td></tr>';
+  }
+
+  function umFiltered() {
+    var words = st.q.toLowerCase().split(/\s+/).filter(Boolean);
+    return (st.um || []).filter(function (g) {
+      var hay = [g.rel].concat(g.series.map(function (s) { return s.name; })).join(' ').toLowerCase();
+      return words.every(function (w) { return hay.indexOf(w) > -1; });
+    });
   }
 
   function filtered() {
@@ -196,9 +251,13 @@
 
   function renderTabs() {
     $id('lib-tabs').innerHTML = TABS.map(function (t) {
-      var n = st.all.filter(t[2]).length;
-      if (!n && t[0] !== 'all' && (t[0] === 'loading' || t[0] === 'problems') && st.tab !== t[0]) return '';
-      return '<button type="button" data-ui data-tab="' + t[0] + '" aria-pressed="' + (st.tab === t[0]) + '">' + t[1] + '<span class="count">' + fmt(n) + '</span></button>';
+      var um = t[0] === 'unmatched';
+      var n = um ? (st.um || []).length : st.all.filter(t[2]).length;
+      if (!n && t[0] !== 'all' && (t[0] === 'loading' || t[0] === 'problems' || um) && st.tab !== t[0]) return '';
+      var files = um ? (st.um || []).reduce(function (a, g) { return a + g.count; }, 0) : 0;
+      return '<button type="button" data-ui data-tab="' + t[0] + '" aria-pressed="' + (st.tab === t[0]) + '"' +
+        (um ? ' title="' + fmt(n) + ' folders with ' + fmt(files) + ' comic files that no issue points to, as of the last library scan"' : '') +
+        '>' + t[1] + '<span class="count">' + fmt(n) + '</span></button>';
     }).join('');
   }
 
@@ -221,16 +280,21 @@
   }
 
   function render() {
-    var list = filtered();
+    var um = st.tab === 'unmatched';
+    var list = um ? umFiltered() : filtered();
     var shown = list.slice(0, st.limit);
     var covers = st.view === 'covers';
     $id('lib-grid').hidden = !covers || !shown.length;
     $id('lib-list').hidden = covers || !shown.length;
-    if (covers) $id('lib-grid').innerHTML = shown.map(card).join('');
-    else $id('lib-list').querySelector('tbody').innerHTML = shown.map(row).join('');
+    if (covers) $id('lib-grid').innerHTML = shown.map(um ? umCard : card).join('');
+    else $id('lib-list').querySelector('tbody').innerHTML = shown.map(um ? umRow : row).join('');
     var empty = $id('lib-empty');
-    empty.hidden = !!shown.length || !st.loaded;
-    if (!shown.length && st.loaded) {
+    var ready = um ? st.um !== null : st.loaded;
+    empty.hidden = !!shown.length || !ready;
+    if (!shown.length && ready && um) {
+      empty.innerHTML = (st.um || []).length ? 'No unmatched folders match. <button type="button" class="btn btn-sm" id="lib-clear-filters">Clear filters</button>'
+        : 'Every comic file the last library scan found is tied to an issue.';
+    } else if (!shown.length && ready) {
       empty.innerHTML = st.all.length
         ? 'No series match. <button type="button" class="btn btn-sm" id="lib-clear-filters">Clear filters</button>'
         : 'Your library is empty. <button type="button" class="btn btn-sm btn-primary" data-action-add>Add a series</button> ' +
@@ -241,7 +305,7 @@
     more.textContent = 'Show more (' + fmt(Math.max(list.length - st.limit, 0)) + ' left)';
     document.querySelectorAll('.library [data-view]').forEach(function (b) { b.setAttribute('aria-pressed', String(b.getAttribute('data-view') === st.view)); });
     $id('lib-sort').value = st.sort;
-    renderRail(list);
+    renderRail(um ? [] : list);
     renderBulk();
   }
 
@@ -296,7 +360,7 @@
 
   function renderBulk() {
     var n = Object.keys(st.sel).length;
-    $id('lib-bulk').hidden = !st.selecting;
+    $id('lib-bulk').hidden = !st.selecting || st.tab === 'unmatched';
     $id('lib-bulk-count').textContent = n ? n + (n === 1 ? ' series selected' : ' series selected') : 'Select series below';
     document.querySelectorAll('#lib-bulk [data-bulk]').forEach(function (b) { b.disabled = !n; });
     document.querySelector('.library').classList.toggle('is-selecting', st.selecting);
@@ -315,13 +379,28 @@
         Object.keys(st.sel).forEach(function (k) { if (!ids[k]) delete st.sel[k]; });
         renderStats(); renderTabs(); renderPublishers(); render();
         var h = history.state;
-        if (h && h.libScroll && !st.restored) window.scrollTo(0, h.libScroll);
+        if (h && h.libScroll && !st.restored && st.tab !== 'unmatched') window.scrollTo(0, h.libScroll);
         st.restored = true;
+        loadUnmatched();
       })
       .catch(function () {
         st.loaded = true;
         $id('lib-empty').hidden = false;
         $id('lib-empty').textContent = 'Couldn\'t load your library. Check the log.';
+      });
+  }
+
+  function loadUnmatched() {
+    return fetch('unmatched_data', { credentials: 'same-origin', cache: 'no-store' })
+      .then(function (r) { if (!r.ok) throw new Error(r.status); return r.json(); })
+      .then(function (d) {
+        st.um = d.folders || [];
+        renderTabs();
+        if (st.tab === 'unmatched') render();
+      })
+      .catch(function () {
+        st.um = st.um || [];
+        if (st.tab === 'unmatched') { $id('lib-empty').hidden = false; $id('lib-empty').textContent = 'Couldn\'t list unmatched files. Check the log.'; }
       });
   }
 
@@ -527,9 +606,10 @@
   $id('lib-grid').addEventListener('click', function (e) {
     if (!st.selecting || e.target.closest('[data-pick]')) return;
     var cardEl = e.target.closest('.cover-card');
-    if (!cardEl) return;
+    if (!cardEl || !cardEl.querySelector('[data-pick]')) return;
     e.preventDefault();
     var cb = cardEl.querySelector('[data-pick]');
+    if (!cb) return;
     cb.checked = !cb.checked;
     cb.dispatchEvent(new Event('change', { bubbles: true }));
   });
