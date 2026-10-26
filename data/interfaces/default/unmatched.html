@@ -1,0 +1,53 @@
+<%inherit file="base.html" />
+<%!
+    import mylar
+%>
+
+<%def name="body()">
+    <input type="hidden" id="page_name" value="unmatched" />
+    <div class="page unmatched" id="um-page" data-path="${path | h}">
+        <div class="page-head">
+            <div class="head-text">
+                <h1><span class="page-crumb"><a href="home?show=unmatched">Library › Unmatched</a></span><span id="um-title">Unmatched files</span></h1>
+                <p class="page-sub">Comic files in this folder that no issue points to, as of your last library scan. Match a file to an issue, or the whole folder to a series. A file outside the series' folder is moved into it, and you're told how many move before anything does. Ignore hides a file until it changes.</p>
+            </div>
+            <div class="head-actions">
+                <button type="button" class="btn btn-primary" id="um-match-folder" hidden>Match folder to series…</button>
+            </div>
+        </div>
+
+        <p class="notice" id="um-owner" hidden></p>
+
+        <section class="section" aria-label="Unmatched files">
+            <p class="section-note" id="um-note" aria-live="polite">Loading…</p>
+            <div class="dt-wrap" id="um-wrap" hidden>
+                <table class="dt" id="um-table">
+                    <thead>
+                        <tr>
+                            <th scope="col">File</th>
+                            <th scope="col" class="num">Size</th>
+                            <th scope="col">Name reads as</th>
+                            <th scope="col">Closest series on your watchlist</th>
+                            <th scope="col">Import results</th>
+                            <th scope="col"><span class="sr-only">Actions</span></th>
+                        </tr>
+                    </thead>
+                    <tbody></tbody>
+                </table>
+            </div>
+        </section>
+    </div>
+
+    <dialog id="um-dialog" class="match-dialog" aria-labelledby="um-dialog-title">
+        <h2 id="um-dialog-title">Match</h2>
+        <p class="match-intro" id="um-dialog-intro"></p>
+        <div class="match-body" id="um-dialog-body"></div>
+        <div class="btn-row" style="justify-content: flex-end; margin-top: 12px">
+            <button type="button" class="btn btn-ghost" data-um-close>Close</button>
+        </div>
+    </dialog>
+</%def>
+
+<%def name="javascriptIncludes()">
+    <script src="js/unmatched.js?v=${mylar.CURRENT_VERSION}"></script>
+</%def>
