@@ -6,6 +6,8 @@ Releases come from the `main` branch and are the `latest` Docker image. Changes 
 
 ## Unreleased (on dev)
 
+- [feat] Library check now lists solid RARs, which read fine but which some readers, Kavita among them, can't open. Repack to .cbz makes each one a .cbz with the same pages and keeps the original in the trash. ([`e2caf676`](https://github.com/issuarr/issuarr/commit/e2caf676))
+- [fix] Old .cbr files that unrar complains about as a whole, even though every page reads, are no longer called damaged. WebP conversion and tagging now repack them to .cbz, checking each page against its own checksum, so a file that's really broken is still left alone. ([`235cda61`](https://github.com/issuarr/issuarr/commit/235cda61))
 - Series on Import results no longer stay stuck on "Importing". Files a series' import didn't bring in (for example one that couldn't be moved) go back to Not imported with a line in the log, and starting a new import resets series left behind by an import that was cut off. ([`875bb39`](https://github.com/issuarr/issuarr/commit/875bb39))
 - With JDownloader 2 turned on but no JDownloader 2 address set, the JD2 queue no longer crashes over and over. It logs a warning that the address is missing, and Restart queue hands downloads that were waiting on JD2 to the built-in downloader. ([`c7155591`](https://github.com/issuarr/issuarr/commit/c7155591))
 - A series' ⋯ menu has Check files, which reads every file of just that series through to find damaged files, files that aren't comics or files that wrap another comic, without waiting for a whole-library check. When a file needs a look it opens Tools › Library check, where you choose what to do with it. ([`546d446f`](https://github.com/issuarr/issuarr/commit/546d446f))
