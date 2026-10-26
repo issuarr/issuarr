@@ -5217,17 +5217,6 @@ class WebInterface(object):
         return self._attention_json({'ok': True})
     library_check_stop.exposed = True
 
-    def library_check_tag(self):
-        self._attention_post()
-        return self._attention_json({'ok': library_check.tag_untagged()})
-    library_check_tag.exposed = True
-
-    def library_check_tag_stop(self):
-        self._attention_post()
-        library_check.stop_tagging()
-        return self._attention_json({'ok': True})
-    library_check_tag_stop.exposed = True
-
     def library_check_act(self, path, action):
         self._attention_post()
         acts = {'unwrap': library_check.unwrap, 'redownload': library_check.redownload, 'remove': library_check.remove}
@@ -8791,17 +8780,18 @@ class WebInterface(object):
 
         version = 'Unknown'
         try:
-            v = requests.get(querysab, params={'mode': 'version'}, verify=verify)
+            v = requests.get(querysab, params={'mode': 'version'}, verify=verify, timeout=30)
             if str(v.status_code) == '200':
                 try:
                     version = v.json()['version']
                 except Exception as e:
                     version = v.text.strip()
                 logger.fdebug('sabnzbd version: %s' % version)
-            r = requests.get(querysab, params=payload, verify=verify)
+            r = requests.get(querysab, params=payload, verify=verify, timeout=30)
         except Exception as e:
             logger.warn('Error fetching data from %s: %s' % (querysab, e))
-            if requests.exceptions.SSLError:
+            # only a certificate problem is worth retrying; an address that doesn't answer won't answer twice
+            if isinstance(e, requests.exceptions.SSLError):
                 logger.warn('Cannot verify ssl certificate. Attempting to authenticate with no ssl-certificate verification.')
                 try:
                     from requests.packages.urllib3 import disable_warnings
@@ -8812,14 +8802,14 @@ class WebInterface(object):
                 verify = False
 
                 try:
-                    v = requests.get(querysab, params={'mode': 'version'}, verify=verify)
+                    v = requests.get(querysab, params={'mode': 'version'}, verify=verify, timeout=30)
                     if str(v.status_code) == '200':
                         try:
                             version = v.json()['version']
                         except Exception as e:
                             version = v.text.strip()
                         logger.fdebug('sabnzbd version: %s' % version)
-                    r = requests.get(querysab, params=payload, verify=verify)
+                    r = requests.get(querysab, params=payload, verify=verify, timeout=30)
                 except Exception as e:
                     logger.warn('Error fetching data from %s: %s' % (sabhost, e))
                     return json.dumps({"status": False, "message": "Unable to retrieve data from SABnzbd.", "version": str(version)})

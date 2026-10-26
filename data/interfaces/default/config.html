@@ -738,7 +738,7 @@
         </section>
 
         <section class="set-group" aria-labelledby="sg-meta">
-            <div class="set-group-head"><h2 id="sg-meta">Metadata</h2><p>Uses ComicTagger to write ComicInfo.xml into each file. Each tagged issue uses ComicVine API requests.</p></div>
+            <div class="set-group-head"><h2 id="sg-meta">Metadata</h2><p>Uses ComicTagger to write ComicInfo.xml into each file it files, which uses ComicVine API requests. Files already in your library that have no ComicInfo.xml get one on their own (once an hour Issuarr looks for them), built from the series and issue details Issuarr already has, without asking ComicVine. Credits and characters need Write metadata on the series page.</p></div>
             <div class="set-row set-tog">
                 <label class="set-label" for="cbr2cbz_only"><b>Convert CBR to CBZ</b><span id="cbr2cbz_section" style="display:none;"><span id="cbr2cbz_blurb"></span></span></label>
                 <% cbr2cbz_config = int(mylar.CONFIG.CBR2CBZ_ONLY) %>

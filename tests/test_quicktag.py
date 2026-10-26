@@ -110,3 +110,35 @@ def test_fill_leaves_a_file_webp_is_converting(tmp_path):
         assert mine
         assert not quicktag.fill(path, FakeDB(ROW))
     assert not quicktag.tagged(path)
+
+
+def test_append_adds_comicinfo_without_touching_the_pages(tmp_path):
+    path = cbz(tmp_path / 'T2 #01.cbz')
+    with zipfile.ZipFile(path) as z:
+        before = {i.filename: (i.header_offset, i.CRC) for i in z.infolist()}
+    assert quicktag.append(path, b'<ComicInfo/>')
+    with zipfile.ZipFile(path) as z:
+        assert z.testzip() is None
+        assert z.read('ComicInfo.xml') == b'<ComicInfo/>'
+        assert {i.filename: (i.header_offset, i.CRC) for i in z.infolist() if i.filename in before} == before
+
+
+def test_append_puts_the_file_back_when_it_fails(monkeypatch, tmp_path):
+    path = cbz(tmp_path / 'T2 #01.cbz')
+    original = open(path, 'rb').read()
+    real = zipfile.ZipFile.writestr
+
+    def boom(self, *a, **kw):
+        real(self, *a, **kw)
+        raise OSError('disk full')
+    monkeypatch.setattr(zipfile.ZipFile, 'writestr', boom)
+    assert not quicktag.append(path, b'<ComicInfo/>')
+    monkeypatch.setattr(zipfile.ZipFile, 'writestr', real)
+    assert open(path, 'rb').read() == original
+
+
+def test_append_never_adds_a_second_comicinfo(tmp_path):
+    path = cbz(tmp_path / 'tagged.cbz', tagged=True)
+    original = open(path, 'rb').read()
+    assert not quicktag.append(path, b'<ComicInfo/>')
+    assert open(path, 'rb').read() == original
