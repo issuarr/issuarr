@@ -85,6 +85,7 @@ from mylar import (
     logger,
     matching,
     volume_check,
+    unmatched,
     mb,
     moveit,
     notifiers,
@@ -5194,6 +5195,28 @@ class WebInterface(object):
         started = ledger.start_build(force=helpers.str_to_bool(force))
         return json.dumps({'started': started, 'status': ledger.status_summary()})
     ledger_build.exposed = True
+
+    def unmatched_data(self):
+        return self._attention_json({'folders': unmatched.folders()})
+    unmatched_data.exposed = True
+
+    def unmatchedFolder(self, path=None):
+        return serve_template(templatename="unmatched.html", title="Unmatched files", path=path or '')
+    unmatchedFolder.exposed = True
+
+    def unmatched_folder(self, path):
+        data = unmatched.folder(path)
+        return self._attention_json(data if data is not None else {'files': [], 'note': 'This folder has no unmatched files now. A recheck or match may have tied them to issues.'})
+    unmatched_folder.exposed = True
+
+    def unmatched_cover(self, path, v=None, r=None):   # v: the file's time, so a changed file isn't served from cache; r: a retry
+        return self._attention_image(unmatched.cover(path))
+    unmatched_cover.exposed = True
+
+    def unmatched_ignore(self, path, on='1'):
+        self._attention_post()
+        return self._attention_json(unmatched.ignore(path, on != '0'))
+    unmatched_ignore.exposed = True
 
     def libraryCheck(self):
         return serve_template(templatename="librarycheck.html", title="Library check", trash_days=attention.trash_days())

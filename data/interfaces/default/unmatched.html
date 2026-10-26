@@ -1,0 +1,41 @@
+<%inherit file="base.html" />
+<%!
+    import mylar
+%>
+
+<%def name="body()">
+    <input type="hidden" id="page_name" value="unmatched" />
+    <div class="page unmatched" id="um-page" data-path="${path | h}">
+        <div class="page-head">
+            <div class="head-text">
+                <h1><span class="page-crumb"><a href="home?show=unmatched">Library › Unmatched</a></span><span id="um-title">Unmatched files</span></h1>
+                <p class="page-sub">Comic files in this folder that no issue points to, as of your last library scan. Ignore hides a file until it changes. Nothing on disk changes here.</p>
+            </div>
+        </div>
+
+        <p class="notice" id="um-owner" hidden></p>
+
+        <section class="section" aria-label="Unmatched files">
+            <p class="section-note" id="um-note" aria-live="polite">Loading…</p>
+            <div class="dt-wrap" id="um-wrap" hidden>
+                <table class="dt" id="um-table">
+                    <thead>
+                        <tr>
+                            <th scope="col">File</th>
+                            <th scope="col" class="num">Size</th>
+                            <th scope="col">Name reads as</th>
+                            <th scope="col">Closest series on your watchlist</th>
+                            <th scope="col">Import results</th>
+                            <th scope="col"><span class="sr-only">Actions</span></th>
+                        </tr>
+                    </thead>
+                    <tbody></tbody>
+                </table>
+            </div>
+        </section>
+    </div>
+</%def>
+
+<%def name="javascriptIncludes()">
+    <script src="js/unmatched.js?v=${mylar.CURRENT_VERSION}"></script>
+</%def>
