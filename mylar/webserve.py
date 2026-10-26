@@ -7103,6 +7103,10 @@ class WebInterface(object):
             importchoice.drop_gone()
         except Exception as e:
             logger.warn('[IMPORT] Could not check Import results for files that are gone: %s' % e)
+        try:
+            importchoice.mark_untied(force=False)
+        except Exception as e:
+            logger.warn('[IMPORT] Could not check Import results for files no issue points to: %s' % e)
         myDB = db.DBConnection()
         # one query for the rows and their file counts: a count per row took minutes on big scans.
         # FileCount, not IssueCount: SELECT * already has an (unused, empty) IssueCount column, which would win.
@@ -7125,16 +7129,18 @@ class WebInterface(object):
         return serve_template(templatename="importresults.html", title="Import Results", results=countit) #results, watchresults=watchresults)
     importResults.exposed = True
 
-    def ImportFilelisting(self, comicname, dynamicname, volume, fmt=None):
+    def ImportFilelisting(self, comicname, dynamicname, volume, fmt=None, status=None):
         comicname = urllib.parse.unquote_plus(comicname)
         dynamicname = urllib.parse.unquote_plus(dynamicname) #urllib.unquote(dynamicname).decode('utf-8')
         myDB = db.DBConnection()
+        # a row of the page is one status of a series, so it lists only that status' files
+        bystatus, sargs = (' AND Status=?', [status]) if status else ('', [])
         if volume is None or volume == 'None':
-            results = myDB.select("SELECT * FROM importresults WHERE (WatchMatch is Null OR WatchMatch LIKE 'C%') AND DynamicName=? AND Volume IS NULL",[dynamicname])
+            results = myDB.select("SELECT * FROM importresults WHERE (WatchMatch is Null OR WatchMatch LIKE 'C%') AND DynamicName=? AND Volume IS NULL" + bystatus, [dynamicname] + sargs)
         else:
             if not volume.lower().startswith('v'):
                 volume = 'v' + str(volume)
-            results = myDB.select("SELECT * FROM importresults WHERE (WatchMatch is Null OR WatchMatch LIKE 'C%') AND DynamicName=? AND Volume=?",[dynamicname,volume])
+            results = myDB.select("SELECT * FROM importresults WHERE (WatchMatch is Null OR WatchMatch LIKE 'C%') AND DynamicName=? AND Volume=?" + bystatus, [dynamicname, volume] + sargs)
         if fmt == 'json':
             # the Import results page escapes these itself
             cherrypy.response.headers['Content-Type'] = 'application/json'
@@ -7528,6 +7534,7 @@ class WebInterface(object):
         if mylar.CONFIG.IMP_MOVE and movealreadyonlist == "yes":
              mylar.moveit.movefiles(movedata_comicid, movedata_comiclocation, movedata_comicname)
              updater.forceRescan(comicid)
+             importchoice.mark_untied(movedata_comicid)
              raise cherrypy.HTTPRedirect("importResults")
 
         #figure out # of issues and the year range allowable

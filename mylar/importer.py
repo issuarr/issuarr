@@ -31,7 +31,7 @@ import requests
 import threading
 
 import mylar
-from mylar import logger, filers, helpers, db, mb, cv, parseit, filechecker, search, updater, moveit, comicbookdb, series_metadata, want_from
+from mylar import logger, filers, helpers, db, mb, cv, parseit, filechecker, search, updater, moveit, comicbookdb, series_metadata, want_from, importchoice
 
 
 def is_exists(comicid):
@@ -649,6 +649,7 @@ def addComictoDB(comicid, mismatch=None, pullupd=None, imported=None, ogcname=No
     updater.forceRescan(comicid)
     if imported not in (None, 'None', 'futurecheck'):
         moveit.tag_imported(comicid)
+        importchoice.mark_untied(comicid)
 
     #series.json updater here (after all data written out)
     if not json_updated and mylar.CONFIG.SERIES_METADATA_LOCAL is True:
@@ -1090,6 +1091,8 @@ def GCDimport(gcomicid, pullupd=None, imported=None, ogcname=None):
 
     #check for existing files...
     updater.forceRescan(gcomicid)
+    if imported not in (None, 'None'):
+        importchoice.mark_untied(gcomicid)
 
 
     if pullupd is None:
