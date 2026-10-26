@@ -44,7 +44,7 @@ from lib.rarfile import rarfile
 import mylar
 from mylar import db, logger, quicktag
 
-STATE = {'state': 'idle', 'done': 0, 'total': 0, 'opened': 0, 'finished': None, 'stop': False, 'error': None}
+STATE = {'state': 'idle', 'done': 0, 'total': 0, 'opened': 0, 'trusted': 0, 'finished': None, 'stop': False, 'error': None}
 TAGGING = {'state': 'idle', 'done': 0, 'total': 0, 'tagged': 0, 'failed': 0, 'finished': None, 'stop': False}
 _LOCK = threading.Lock()
 
@@ -119,9 +119,34 @@ def scan():
     with _LOCK:
         if STATE['state'] == 'running' or TAGGING['state'] == 'running':
             return False
-        STATE.update(state='running', done=0, total=0, opened=0, finished=None, stop=False, error=None)
+        STATE.update(state='running', done=0, total=0, opened=0, trusted=0, finished=None, stop=False, error=None)
     threading.Thread(target=_scan, name='LIBRARY-CHECK', daemon=True).start()
     return True
+
+
+# WebP conversion reads every entry of a zip (which checks each CRC) when it converts it, or
+# when it tries and finds nothing worth saving. While the file is unchanged since, that read
+# stands in for opening it again here. Files skipped as already WebP or with no pages weren't read.
+WEBP_READ = ('nothing to gain',)
+WEBP_READ_REASONS = ('nothing to gain', 'saves less than')
+
+
+def _webp_reads(myDB):
+    """{path: (size, mtime, status, detail)} for files WebP read through, or found damaged."""
+    from mylar import webp
+    out = {}
+    try:
+        rows = webp.remembered(myDB)
+    except Exception as e:
+        logger.fdebug('[LIBRARY-CHECK] Unable to read what WebP remembers: %s' % e)
+        return out
+    for path, r in rows.items():
+        reason = r.get('reason') or ''
+        if r['status'] == 'converted' or (r['status'] in WEBP_READ and reason.startswith(WEBP_READ_REASONS)):
+            out[path] = (r['size'], r['mtime'], 'ok', '')
+        elif r['status'] == 'damaged':
+            out[path] = (r['size'], r['mtime'], 'damaged', 'Found while converting to WebP: %s.' % (reason or 'damaged'))
+    return out
 
 
 def _scan():
@@ -130,6 +155,7 @@ def _scan():
         myDB = db.DBConnection()
         ensure(myDB)
         known = {r['path']: r for r in myDB.select('SELECT path, size, mtime, status, tagged FROM library_check')}
+        webp_read = _webp_reads(myDB)
         comics = myDB.select('SELECT * FROM comics WHERE ComicLocation IS NOT NULL ORDER BY ComicSortName')
         work = []
         for c in comics:
@@ -155,12 +181,17 @@ def _scan():
                     tagged = int(quicktag.tagged(path))   # checked before tags were noted
                 myDB.action('UPDATE library_check SET comicid=?, issueid=?, tagged=? WHERE path=?', [comicid, issueid, tagged, path])
                 continue
-            try:
-                status, detail, inner = check_file(path)
-            except Exception as e:
-                logger.warn('[LIBRARY-CHECK] Unable to check %s: %s' % (path, e))
-                status, detail, inner = 'unchecked', 'Couldn\'t be checked: %s' % e, None
-            STATE['opened'] += 1
+            read = webp_read.get(path)
+            if read and read[:2] == (size, mtime):
+                status, detail, inner = read[2], read[3], None
+                STATE['trusted'] += 1
+            else:
+                try:
+                    status, detail, inner = check_file(path)
+                except Exception as e:
+                    logger.warn('[LIBRARY-CHECK] Unable to check %s: %s' % (path, e))
+                    status, detail, inner = 'unchecked', 'Couldn\'t be checked: %s' % e, None
+                STATE['opened'] += 1
             myDB.upsert('library_check', {'size': size, 'mtime': mtime, 'status': status, 'detail': detail, 'inner': inner,
                                           'comicid': comicid, 'issueid': issueid,
                                           'tagged': int(quicktag.tagged(path)) if status == 'ok' else None,
@@ -168,7 +199,8 @@ def _scan():
         if not STATE['stop']:
             for path in set(known) - seen:
                 myDB.action('DELETE FROM library_check WHERE path=?', [path])
-        logger.info('[LIBRARY-CHECK] Checked %s files (%s opened).' % (STATE['done'], STATE['opened']))
+        logger.info('[LIBRARY-CHECK] Checked %s files (%s opened, %s already read through by WebP).' % (
+            STATE['done'], STATE['opened'], STATE['trusted']))
     except Exception as e:
         logger.warn('[LIBRARY-CHECK] Stopped: %s' % e)
         STATE['error'] = '%s: %s' % (type(e).__name__, e)
@@ -181,7 +213,7 @@ def stop():
 
 
 def status():
-    out = {k: STATE[k] for k in ('state', 'done', 'total', 'opened', 'finished', 'error')}
+    out = {k: STATE[k] for k in ('state', 'done', 'total', 'opened', 'trusted', 'finished', 'error')}
     myDB = db.DBConnection()
     ensure(myDB)
     rows = myDB.select("SELECT l.*, c.ComicName, c.ComicYear, i.Issue_Number FROM library_check l "
