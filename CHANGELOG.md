@@ -6,7 +6,7 @@ Releases come from the `main` branch and are the `latest` Docker image. Changes 
 
 ## Unreleased (on dev)
 
-Nothing yet.
+- [fix] A year that shares its brackets with other words in a file name, such as "The Star Wars 007 (2015, Marvel edition)", is read as the year again, so Needs attention offers the series from that year instead of a newer one with the same name. When a file name has no year, Needs attention takes it from the pack folder the file came in. ([`a55e415`](https://github.com/issuarr/issuarr/commit/a55e415))
 
 ## 0.11.0 (26 October 2026)
 
