@@ -575,3 +575,22 @@ def test_an_annual_named_for_one_year_is_not_offered_another_years_one_shot(env)
     for m in attention.suggest(attention.parse('Uncanny X-Men Annual 1996 (Universo Edits-DCP).cbr')):
         assert m['issueid'] is None
     assert [s['comicid'] for s in attention.search('Uncanny X-Men Annual 1997')] == []
+
+
+@pytest.mark.unit
+def test_a_year_beside_other_words_picks_that_years_series(env):
+    env.db.action("INSERT INTO comics (ComicID, ComicName, ComicYear, ComicVersion, Total) VALUES "
+                  "('2015', 'Star Wars', '2015', NULL, 75), ('2020', 'Star Wars', '2020', 'v3', 50)")
+    env.db.action("INSERT INTO issues VALUES ('sw15', '2015', '7', 'Wanted', '2015-09-01', NULL), ('sw20', '2020', '7', 'Downloaded', '2020-09-01', NULL)")
+    parsed = attention.parse('/downloads/mylar-dl/The Star Wars 000-008 (2015 Marvel edition) [__633460__]/'
+                             'The Star Wars 007 (2015, Marvel edition) (Digital) (Zone-Empire).cbr')
+    assert parsed['year'] == '2015'
+    assert attention.suggest(parsed)[0]['issueid'] == 'sw15'
+
+
+@pytest.mark.unit
+def test_a_name_without_a_year_takes_its_pack_folders(env):
+    pack = '/downloads/mylar-dl/The Star Wars 000-008 (2015 Marvel edition) [__633460__]/'
+    assert attention.parse(pack + 'The Star Wars 007.cbr')['year'] == '2015'
+    # a folder for something else doesn't lend its year
+    assert attention.parse('/downloads/Marvel Weekly (2015)/The Star Wars 007.cbr')['year'] is None

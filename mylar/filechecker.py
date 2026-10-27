@@ -372,6 +372,7 @@ class FileChecker(object):
         modfilename = re.sub(r'(\d)\s+\d+\s+of\s+\d+\s+(?:variant\s+)?covers?\b', r'\1 ', modfilename, flags=re.I).strip()
         # A cover date in square brackets, '[2013-07]', reads like the usual '(2013-07)'.
         modfilename = re.sub(r'\[((?:19|20)\d{2}(?:-\d{2}){0,2})\]', r' (\1)', modfilename).strip()
+        modfilename = re.sub(r'\(([^()]+)\)', self._year_apart, modfilename)
 
         #here we take a snapshot of the current modfilename, the intent is that we will remove characters that match
         #as we discover them - namely volume, issue #, years, etc
@@ -1849,6 +1850,20 @@ class FileChecker(object):
         return {'AS_Alt':   AS_Alt,
                 'AS_Tuple': AS_Tuple}
     
+    def _year_apart(self, m):
+        """'(2015, Marvel edition)' or '(Marvel edition 2015)' becomes '(2015) (Marvel edition)',
+        so the year reads as the year. Dates like '(Jan 2015)' are left whole."""
+        inner = m.group(1).strip()
+        if self.checkthedate(inner) or self.checkthedate(re.sub(r'[\s,]+', ' ', inner)):
+            return m.group(0)
+        y = re.search(r'(?<![\w-])((?:19|20)\d{2})(?![\w-])', inner)
+        if not y or int(y.group(1)) > dt.datetime.now().year + 1:
+            return m.group(0)
+        rest = re.sub(r'\s+', ' ', (inner[:y.start()] + ' ' + inner[y.end():]).strip(' ,')).strip(' ,')
+        if not re.search(r'[a-z]', rest, re.I):
+            return m.group(0)
+        return '(%s) (%s)' % (y.group(1), rest)
+
     def checkthedate(self, txt, fulldate=False, cnt=0):
     #    txt='''\
     #    Jan 19, 1990
