@@ -308,7 +308,7 @@ def parse(path):
     if not isinstance(p, dict) or p.get('parse_status') != 'success':
         return out
     out.update(series=p.get('series_name'), issue=p.get('issue_number'), year=p.get('issue_year') or _folder_year(path, p.get('series_name')),
-               volume=p.get('series_volume'))
+               volume=p.get('series_volume'), name_year=bool(p.get('name_year')))
     out['search'] = _titled(out) or out['series']
     return out
 
@@ -413,8 +413,10 @@ def suggest(parsed, limit=3, comicid=None):
                 if _num(r['Issue_Number']) == target:
                     issue = dict(r)
                     break
-        elif len(rows) == 1 and s >= 0.92 and not (is_collected and singles):
-            issue = dict(rows[0])   # a one-shot: the name says no number, or the number was part of the name
+        elif len(rows) == 1 and s >= 0.92 and not (is_collected and singles) and (by_title or not parsed.get('name_year')):
+            # a one-shot: the name says no number, or the number was part of the name. "X-Men Annual 2000"
+            # is only the one-shot of a series named for that year, not of X-Men Annual (2023)
+            issue = dict(rows[0])
         iyear = str((issue or {}).get('IssueDate') or (issue or {}).get('ReleaseDate') or '')[:4]
         fvol, svol = _vol(parsed.get('volume')), _vol(c.get('ComicVersion'))
         agree = {
@@ -444,9 +446,11 @@ def suggest(parsed, limit=3, comicid=None):
 
 
 def _titled(parsed):
-    """Series name with the issue number put back when that number looks like a year:
-    "X-Men Annual 1995 (1995)" reads as X-Men Annual #1995, but the series may be called that."""
+    """Series name with its year put back when the year may be part of the name: "X-Men Annual
+    1995 (1995)" has no issue number, and the series may be called X-Men Annual 1995."""
     series, number = parsed.get('series'), str(parsed.get('issue') or '').strip()
+    if parsed.get('name_year') and not number:
+        number = str(parsed.get('year') or '').strip()
     if series and re.match(r'^(19|20)\d\d$', number):
         return '%s %s' % (series, number)
     return None
