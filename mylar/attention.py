@@ -952,10 +952,16 @@ def refile_all(auto=False):
         folders = refile_folders(paths)
         if not folders:
             return {'ok': False, 'note': 'Nothing here to try again.'}
+        # with "Add the series of comics nothing on the watchlist wants" on, look their series up
+        # again first, files tried before included: the lookup may know more now
+        from mylar import autoadd
+        rows = _rows(db.DBConnection())
+        lookup = [p for p in paths if (rows.get(p) or {}).get('reason', 'unclaimed') in ('series', 'unclaimed')] \
+            if not auto and autoadd.enabled() else []
         REFILE.clear()
         REFILE.update(state='running', auto=auto, folders=folders, total=len(folders), done=0, current='',
                       before=len(paths), after=None, started=time.time(), finished=None, stop=False)
-    threading.Thread(target=_refile_run, args=(folders,), name='ATTENTION-REFILE', daemon=True).start()
+    threading.Thread(target=_refile_run, args=(folders, lookup), name='ATTENTION-REFILE', daemon=True).start()
     logger.info('[ATTENTION] Trying to file %s file(s) again, in %s folder(s)%s.'
                 % (len(paths), len(folders), ' after an update' if auto else ''))
     return {'ok': True, 'note': 'Trying %s files again. New downloads are filed first.' % len(paths)}
@@ -969,9 +975,19 @@ def stop_refile():
     return False
 
 
-def _refile_run(folders):
-    from mylar import PostProcessor
+def _refile_run(folders, lookup=None):
+    from mylar import PostProcessor, autoadd
     try:
+        if lookup and not REFILE.get('stop'):
+            REFILE['lookup'] = True
+            if autoadd.running():
+                logger.info('[ATTENTION] Auto-add is already looking up series; not looking these up again now.')
+            else:
+                try:
+                    autoadd._run(lookup, refile=False)
+                except Exception as e:
+                    logger.warn('[ATTENTION] Looking up the series of %s file(s) failed: %s' % (len(lookup), e))
+            REFILE['lookup'] = False
         for n, folder in enumerate(folders):
             # new downloads go first: wait while the post-processing queue has work
             while not REFILE.get('stop') and getattr(mylar, 'PP_QUEUE', None) is not None and mylar.PP_QUEUE.qsize():

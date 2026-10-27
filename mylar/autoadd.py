@@ -52,7 +52,7 @@ def _norm(name):
     name = (name or '').lower().replace('&', 'and')
     name = re.sub(r'\bversus\b|\bvs\b\.?', 'vs', name)
     name = re.sub(r'\(\d{4}\)', '', name)
-    name = re.sub(r'^the\s+', '', name.strip())
+    name = re.sub(r'\bthe\b', ' ', name)   # "Silver Surfer: The Enslavers" is "Silver Surfer Enslavers"
     return re.sub(r'[^a-z0-9]', '', name)
 
 
@@ -86,9 +86,14 @@ def _parse(path):
         res = filechecker.FileChecker(dir=os.path.dirname(path), file=os.path.basename(path)).listFiles()
     except Exception:
         return None
-    if not res or res.get('parse_status') != 'success' or not res.get('series_name') or not res.get('issue_number'):
+    if not res or res.get('parse_status') != 'success' or not res.get('series_name'):
         return None
-    return {'series': res['series_name'], 'issue': str(res['issue_number']).lstrip('0') or '0', 'year': res.get('issue_year')}
+    issue = str(res['issue_number']).lstrip('0') or '0' if res.get('issue_number') else None
+    year = res.get('issue_year')
+    # "X-Men Annual 1995": the year may be the series' name (ComicVine's X-Men '95, also called
+    # X-Men Annual 1995), whether the name was read as no issue number or as issue #1995
+    name_year = bool(res.get('name_year')) or bool(re.search(r'\bannual$', res['series_name'].strip(), re.I) and year and issue in (None, year))
+    return {'series': res['series_name'], 'issue': None if name_year else issue, 'year': year, 'name_year': name_year}
 
 
 def _cv(resource, params):
@@ -112,12 +117,36 @@ def _volume_for_issue(issueid):
     return str(vol['id']) if vol and vol.get('id') else None
 
 
-def _find_volume(series, issue, year, packdate):
-    vols = [v for v in _cv('search', {'resources': 'volume', 'query': series, 'limit': 20,
-                                      'field_list': 'id,name,start_year,count_of_issues'})
-            if _norm(v.get('name')) == _norm(series)]
+def _names(v):
+    """A ComicVine volume's name and its aliases, one per line on ComicVine."""
+    return [v.get('name')] + [a for a in re.split(r'[\r\n]+', v.get('aliases') or '') if a.strip()]
+
+
+def _single(vols, year):
+    """The one single-issue volume from about that year, for a file with no issue number (a one-shot,
+    a graphic novel, "X-Men Annual 1995"). None when there's none, or more than one to choose from."""
+    ones = [v for v in vols if v.get('count_of_issues') == 1]
+    if year and str(year).isdigit():
+        ones = [v for v in ones if str(v.get('start_year') or '').isdigit() and abs(int(v['start_year']) - int(year)) <= 1]
+    return str(ones[0]['id']) if len(ones) == 1 else None
+
+
+def _find_volume(series, issue, year, packdate, name_year=False):
+    """The ComicVine volume a file belongs to. Its name or one of its aliases has to be the file's
+    series ("X-Men '95" is also called "X-Men Annual 1995"); then the issue number has to be on it,
+    or, with no number, it has to be the one single-issue volume from that year."""
+    wants = {_norm(series)}
+    query = series
+    if name_year and year:
+        query = '%s %s' % (series, year)
+        wants = {_norm(query)}
+    vols = [v for v in _cv('search', {'resources': 'volume', 'query': query, 'limit': 20,
+                                      'field_list': 'id,name,start_year,count_of_issues,aliases'})
+            if any(_norm(n) in wants for n in _names(v))]
     if not vols:
         return None
+    if issue is None:
+        return _single(vols, year)
     issues = _cv('issues', {'filter': 'volume:%s,issue_number:%s' % ('|'.join(str(v['id']) for v in vols), issue),
                             'field_list': 'id,volume,store_date,cover_date', 'limit': 100})
     best = None
@@ -166,7 +195,9 @@ def queue(paths, force=False, folder=None):
     return None
 
 
-def _run(paths, folder=None):
+def _run(paths, folder=None, refile=True):
+    """Look up and add the series of these files. refile: then file folder (or the monitored folder)
+    again; Try filing again files its folders itself."""
     from mylar import importer, archives
     with _lock:
         _running.set()
@@ -176,6 +207,7 @@ def _run(paths, folder=None):
             from mylar.PostProcessor import PP_LOCK
             reg = _load()
             groups = {}
+            unknown = []
             with PP_LOCK:
                 for p in paths:
                     reg[p] = {'at': time.time()}
@@ -183,18 +215,19 @@ def _run(paths, folder=None):
                         continue
                     info = _parse(p)
                     if not info:
+                        unknown.append(os.path.basename(p))   # can't even read a series name
                         continue
                     key = (_norm(info['series']), info['year'], _pack_date(p))
                     groups.setdefault(key, {'info': info, 'files': [], 'cvid': None})['files'].append(p)
                     if not groups[key]['cvid']:
                         groups[key]['cvid'] = _comicinfo_issueid(p)
-            added, unknown = [], []
+            added = []
             archives.busy('Finding series for %s unclaimed issues' % len(paths))
             for (nm, year, packdate), g in groups.items():
                 try:
                     volid = _volume_for_issue(g['cvid']) if g['cvid'] else None
                     if volid is None:
-                        volid = _find_volume(g['info']['series'], g['info']['issue'], year, packdate)
+                        volid = _find_volume(g['info']['series'], g['info']['issue'], year, packdate, g['info'].get('name_year'))
                 except Exception as e:
                     logger.warn('[AUTO-ADD] ComicVine lookup failed for %s: %s' % (g['info']['series'], e))
                     volid = None
@@ -215,8 +248,9 @@ def _run(paths, folder=None):
                 archives.note('added %s series: %s' % (len(added), ', '.join(sorted(set(added)))))
             if unknown:
                 archives.note('could not identify %s series' % len(set(unknown)))
-            logger.info('[AUTO-ADD] Added %s series; %s could not be identified.' % (len(added), len(set(unknown))))
-            refile = folder or mylar.CONFIG.CHECK_FOLDER
+            logger.info('[AUTO-ADD] Added %s series; %s could not be identified%s.' % (
+                len(added), len(set(unknown)), ': %s' % ', '.join(sorted(set(unknown))) if unknown else ''))
+            refile = refile and (folder or mylar.CONFIG.CHECK_FOLDER)
             if added and refile:
                 logger.info('[AUTO-ADD] Filing the issues of the new series now (%s).' % refile)
                 mylar.PP_QUEUE.put({'nzb_name': 'Manual Run', 'nzb_folder': refile, 'failed': False, 'issueid': None,

@@ -606,3 +606,28 @@ def test_a_suggested_issue_already_in_the_library_says_so(env):
     assert (best['comicid'], best['issueid'], best['owned']) == ('154673', 'a2', True)
     best = attention.suggest({'series': 'Aliens', 'issue': '003', 'year': '2024', 'volume': None})[0]
     assert (best['issueid'], best['owned']) == ('a3', False)
+def test_try_filing_again_looks_up_unclaimed_series_first_when_auto_add_is_on(env, monkeypatch):
+    from mylar import autoadd, PostProcessor
+    a = touch(env.review / 'X-Men Annual 2000 (scan).cbr')
+    b = touch(env.review / 'Great Lakes Avengers 002 (2017).cbz')
+    attention.record(b, 'year')
+    order = []
+    monkeypatch.setattr(autoadd, 'enabled', lambda: True)
+    monkeypatch.setattr(autoadd, '_run', lambda paths, folder=None, refile=True: order.append(('lookup', sorted(paths), refile)))
+    monkeypatch.setattr(mylar, 'PP_QUEUE', None, raising=False)
+
+    class FakePP(object):
+        def __init__(self, name, folder, queue=None):
+            order.append(('file', folder))
+
+        def Process(self):
+            pass
+    monkeypatch.setattr(PostProcessor, 'PostProcessor', FakePP)
+    monkeypatch.setattr(attention.threading, 'Thread', lambda target, args=(), **k: types.SimpleNamespace(start=lambda: target(*args)))
+    assert attention.refile_all()['ok'] is True
+    # only the file nothing claimed is looked up, files tried before included, and filing runs after
+    assert order == [('lookup', [a], False), ('file', str(env.review))]
+    order.clear()
+    monkeypatch.setattr(autoadd, 'enabled', lambda: False)
+    attention.refile_all()
+    assert order == [('file', str(env.review))]
