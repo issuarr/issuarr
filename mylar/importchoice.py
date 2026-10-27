@@ -40,10 +40,36 @@ def _live(path):
     return next((stem + ext for ext in COMIC_EXTS if os.path.isfile(stem + ext)), None)
 
 
+def _roots():
+    """The library folders in Settings: the comic folder, the import folder and any extra library folders."""
+    roots = []
+    for value in (getattr(mylar.CONFIG, k, None) for k in ('COMIC_DIR', 'DESTINATION_DIR', 'MULTIPLE_DEST_DIRS')):
+        if value and value != 'None':
+            root = os.path.normpath(value)
+            if os.path.dirname(root) != root:
+                roots.append(root)
+    return roots
+
+
+def _mounted(path):
+    """The share holding the file is there. Under a library folder, that folder has to exist and hold
+    something (an unmounted share is an empty folder, or none): a whole folder deleted or moved inside it
+    doesn't count. Anywhere else, the folder two levels up has to exist."""
+    path = os.path.normpath(path)
+    root = next((r for r in _roots() if path.startswith(r + os.sep)), None)
+    if root is None:
+        return os.path.isdir(os.path.dirname(os.path.dirname(path)))
+    try:
+        with os.scandir(root) as entries:
+            return next(entries, None) is not None
+    except OSError:
+        return False
+
+
 def _gone(path):
-    """The file is gone for good: not there under any comic extension, while the folder two levels up is
+    """The file is gone for good: not there under any comic extension, while its share is mounted
     (a library share that isn't mounted right now leaves its import results alone)."""
-    return _live(path) is None and bool(path) and os.path.isdir(os.path.dirname(os.path.dirname(path)))
+    return bool(path) and _live(path) is None and _mounted(path)
 
 
 def _forget(myDB, paths):
