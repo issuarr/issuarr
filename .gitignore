@@ -33,3 +33,6 @@ __pycache__
 # Docs site: generated from README.md at build time, and the build output
 build/
 site/
+
+# Claude superpowers plans and specs
+docs/superpowers/
