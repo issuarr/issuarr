@@ -276,9 +276,23 @@ def parse(path):
         return out
     if not isinstance(p, dict) or p.get('parse_status') != 'success':
         return out
-    out.update(series=p.get('series_name'), issue=p.get('issue_number'), year=p.get('issue_year'), volume=p.get('series_volume'))
+    out.update(series=p.get('series_name'), issue=p.get('issue_number'), year=p.get('issue_year') or _folder_year(path, p.get('series_name')),
+               volume=p.get('series_volume'))
     out['search'] = _titled(out) or out['series']
     return out
+
+
+def _folder_year(path, series):
+    """The year in the folder's name, '(2015 Marvel edition)', when the name has none and the
+    folder is that series' pack."""
+    folder = os.path.basename(os.path.dirname(path))
+    if not series or not _norm(folder).startswith(_norm(series)):
+        return None
+    for group in re.findall(r'\(([^()]*)\)', folder):
+        m = re.search(r'(?<![\w-])((?:19|20)\d{2})(?![\w-])', group)
+        if m and int(m.group(1)) <= datetime.datetime.now().year + 1:
+            return m.group(1)
+    return None
 
 
 def _num(v):
