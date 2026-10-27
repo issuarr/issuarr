@@ -759,12 +759,12 @@ class GOTIFY:
                 "extras": {
                     "client::display": {
                         "contentType": "text/markdown"
-                    },
-                    "client::notification": {
-                      "click": { "url": "https://comicvine.gamespot.com/issue/4000-"+metadata['issueid']+"/" }
                     }
                 }
             }
+            click = _cv_issue_url(metadata)   # a recheck's cover is the series', with no one issue to open
+            if click:
+                payload["extras"]["client::notification"] = {"click": {"url": click}}
 
         try:
             response = requests.post(self.webhook_url, json=payload, verify=True)
@@ -950,11 +950,39 @@ def added_line(series, year, numbers, most=10):
     return ('%s (%s) %s' % (series, year, issues) if year else '%s %s' % (series, issues)), issues
 
 
-def files_added(series, year, numbers, issueid=None, module=None):
+def wants_cover():
+    """Whether a service that is on shows a cover, so the cover is worth reading."""
+    c = mylar.CONFIG
+    return any([c.PUSHOVER_IMAGE and c.PUSHOVER_ENABLED, c.TELEGRAM_IMAGE and c.TELEGRAM_ENABLED, c.DISCORD_ENABLED,
+                c.GOTIFY_ENABLED, c.MATTERMOST_ENABLED, c.NTFY_ENABLED])
+
+
+def cover(path=None, comicid=None):
+    """The front cover of the issue file, else the series cover Issuarr keeps, as base64 JPEG; None when neither is there."""
+    from mylar import getimage
+    if path and os.path.isfile(path):
+        try:
+            got = getimage.extract_image(path, single=True, imquality='notif')
+            if got and got.get('rawImage'):
+                return got['ComicImage']
+        except Exception as e:
+            logger.fdebug('[NOTIFIER] No cover from %s: %s' % (path, e))
+    series_cover = os.path.join(mylar.CONFIG.CACHE_DIR or '', '%s.jpg' % comicid) if comicid else None
+    if series_cover and os.path.isfile(series_cover):
+        try:
+            with getimage.Image.open(series_cover) as img:
+                return str(base64.b64encode(getimage.scale_image(img, 'JPEG', 600)), 'utf-8')
+        except Exception as e:
+            logger.fdebug('[NOTIFIER] No cover from %s: %s' % (series_cover, e))
+    return None
+
+
+def files_added(series, year, numbers, issueid=None, module=None, comicid=None, path=None):
     """Files turned up for issues of a series outside a download. Sent only when the
-    'Files added by hand' notification is on."""
+    'Files added by hand' notification is on. The cover is path's, else the series cover."""
     if not mylar.CONFIG.NOTIFY_ON_ADDED or not numbers:
         return
     prline, issues = added_line(series, year, numbers)
-    send_all('Files added', prline, 'Added to Issuarr: ' + prline, event='added',
+    image = cover(path, comicid) if wants_cover() else None
+    send_all('Files added', prline, 'Added to Issuarr: ' + prline, event='added', imageFile=image,
              metadata={'series': series, 'issue': issues, 'year': year, 'issueid': issueid}, module=module)

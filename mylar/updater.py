@@ -1783,7 +1783,7 @@ def forceRescan(ComicID, archive=None, module=None, recheck=False):
         logger.warn('Error updating: %s' % e)
     logger.fdebug('[haves] issue_status_writing took %s' % (datetime.datetime.now() - b_start))
     if added:
-        notifiers.files_added(rescan['ComicName'], rescan['ComicYear'], added, issueid=None, module=module)
+        notifiers.files_added(rescan['ComicName'], rescan['ComicYear'], added, issueid=None, module=module, comicid=ComicID)
 
     #if this far, forced_file is true and the file didn't parse properly due to w/e reason, we need to force the filename to link to the given issueid.
     reforce = myDB.select('SELECT * FROM issues WHERE ComicID=? AND forced_file = 1', [ComicID])
