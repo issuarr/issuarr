@@ -53,8 +53,15 @@ def tasks_from_form(picked):
     return ','.join(t for t in TASKS if t in picked)
 
 
-def _send(event, headline, message):
-    notifiers.send_all(headline, message, message, event=event, module='[ALERTS]')
+def _send(event, headline, message, imageFile=None):
+    notifiers.send_all(headline, message, message, event=event, imageFile=imageFile, module='[ALERTS]')
+
+
+def _first_cover(paths):
+    """The cover of the first new file on Needs attention (as the message lists them), for the services that show one."""
+    if not paths or not notifiers.wants_cover():
+        return None
+    return notifiers.cover(path=sorted(paths, key=os.path.basename)[0])
 
 
 def _took(seconds):
@@ -179,7 +186,7 @@ def tick():
         try:
             new = _new(what, look())
             if new:
-                _send(event, headline, say(new))
+                _send(event, headline, say(new), _first_cover(new) if what == 'attention' else None)
         except Exception as e:
             logger.fdebug('[ALERTS] Could not check %s: %s' % (what, e))
     if _on('NOTIFY_ON_DISK_LOW'):

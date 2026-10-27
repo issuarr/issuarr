@@ -1482,6 +1482,7 @@ def verification(verified_matches, is_info):
                     verified_matches[verified_index]['pack_numbers'],
                     verified_matches[verified_index]['nzbprov'],
                     True,
+                    comicid=is_info['ComicID'],
                 )
             else:
                 notify_snatch(
@@ -1491,6 +1492,7 @@ def verification(verified_matches, is_info):
                     None,
                     is_info['nzbprov'],
                     True,
+                    comicid=is_info['ComicID'],
                 )
 
         else:
@@ -1544,7 +1546,8 @@ def verification(verified_matches, is_info):
                 cyear = is_info['ComicYear']
             else:
                 cyear = verified_matches[verified_index]['comyear']
-            notify_snatch(sent_to, is_info['ComicName'], cyear, is_info['IssueNumber'], tmpprov, False)
+            notify_snatch(sent_to, is_info['ComicName'], cyear, is_info['IssueNumber'], tmpprov, False,
+                          comicid=is_info['ComicID'], issueid=is_info['IssueID'])
 
         #prov_count == 0
         #return is_info
@@ -3873,11 +3876,11 @@ def searcher(
             )
         # send out notifications for on snatch after the updater incase notification
         # fails (it would bugger up the updater/pp scripts)
-        notify_snatch(sent_to, ComicName, comyear, IssueNumber, tmpprov, False)
+        notify_snatch(sent_to, ComicName, comyear, IssueNumber, tmpprov, False, comicid=ComicID, issueid=IssueID)
         return return_val
 
 
-def notify_snatch(sent_to, comicname, comyear, IssueNumber, nzbprov, pack):
+def notify_snatch(sent_to, comicname, comyear, IssueNumber, nzbprov, pack, comicid=None, issueid=None):
     # pack = {"pack": True, "issues": '#1 - 60', "years": "(1997-2002"}
     #logger.fdebug('sent_to: %s' % sent_to)
     #logger.fdebug('pack: %s' % pack)
@@ -3900,6 +3903,12 @@ def notify_snatch(sent_to, comicname, comyear, IssueNumber, nzbprov, pack):
 
     nzbprov = re.sub(r'\(newznab\)', '', nzbprov).strip()
     nzbprov = re.sub(r'\(torznab\)', '', nzbprov).strip()
+    # the issue's cover, else the series' (a pack's is the series'), for the services that show one
+    c = mylar.CONFIG
+    shows_cover = any([c.PUSHOVER_ENABLED and c.PUSHOVER_ONSNATCH and c.PUSHOVER_IMAGE, c.TELEGRAM_ENABLED and c.TELEGRAM_ONSNATCH and c.TELEGRAM_IMAGE,
+                       c.DISCORD_ENABLED and c.DISCORD_ONSNATCH, c.GOTIFY_ENABLED and c.GOTIFY_ONSNATCH, c.NTFY_ENABLED and c.NTFY_ONSNATCH])
+    image = notifiers.cover(comicid=comicid, issueid=None if pack else issueid) if shows_cover else None
+    metadata = {'series': comicname, 'issue': IssueNumber, 'year': comyear, 'issueid': None if pack else issueid, 'comicid': comicid}
 
     if mylar.CONFIG.PROWL_ENABLED and mylar.CONFIG.PROWL_ONSNATCH:
         logger.info("Sending Prowl notification")
@@ -3909,7 +3918,8 @@ def notify_snatch(sent_to, comicname, comyear, IssueNumber, nzbprov, pack):
         logger.info("Sending Pushover notification")
         pushover = notifiers.PUSHOVER()
         pushover.notify(
-            snline, snatched_nzb=snatched_name, prov=nzbprov, sent_to=sent_to
+            snline, snatched_nzb=snatched_name, prov=nzbprov, sent_to=sent_to,
+            imageFile=image if mylar.CONFIG.PUSHOVER_IMAGE else None,
         )
     if mylar.CONFIG.BOXCAR_ENABLED and mylar.CONFIG.BOXCAR_ONSNATCH:
         logger.info("Sending Boxcar notification")
@@ -3928,7 +3938,17 @@ def notify_snatch(sent_to, comicname, comyear, IssueNumber, nzbprov, pack):
     if mylar.CONFIG.TELEGRAM_ENABLED and mylar.CONFIG.TELEGRAM_ONSNATCH:
         logger.info("Sending Telegram notification")
         telegram = notifiers.TELEGRAM()
-        telegram.notify("%s - %s - Issuarr %s" % (snline, snatched_name, sent_to))
+        telegram.notify("%s - %s - Issuarr %s" % (snline, snatched_name, sent_to), image if mylar.CONFIG.TELEGRAM_IMAGE else None)
+    if mylar.CONFIG.MATTERMOST_ENABLED and mylar.CONFIG.MATTERMOST_ONSNATCH:
+        logger.info("Sending Mattermost notification")
+        notifiers.MATTERMOST().notify(
+            "Snatched",
+            snline,
+            snatched_nzb=snatched_name,
+            sent_to=sent_to,
+            prov=nzbprov,
+            metadata=metadata,
+        )
     if mylar.CONFIG.SLACK_ENABLED and mylar.CONFIG.SLACK_ONSNATCH:
         logger.info("Sending Slack notification")
         slack = notifiers.SLACK()
@@ -3948,6 +3968,8 @@ def notify_snatch(sent_to, comicname, comyear, IssueNumber, nzbprov, pack):
             snatched_nzb=snatched_name,
             sent_to=sent_to,
             prov=nzbprov,
+            imageFile=image,
+            metadata=metadata,
         )
     if mylar.CONFIG.EMAIL_ENABLED and mylar.CONFIG.EMAIL_ONGRAB:
         logger.info("Sending email notification")
@@ -3966,6 +3988,8 @@ def notify_snatch(sent_to, comicname, comyear, IssueNumber, nzbprov, pack):
             snatched_nzb=snatched_name,
             sent_to=sent_to,
             prov=nzbprov,
+            imageFile=image,
+            metadata=metadata,
         )
     if mylar.CONFIG.NTFY_ENABLED and mylar.CONFIG.NTFY_ONSNATCH:
         logger.info("Sending ntfy notification")
@@ -3975,6 +3999,8 @@ def notify_snatch(sent_to, comicname, comyear, IssueNumber, nzbprov, pack):
             snatched_nzb=snatched_name,
             sent_to=sent_to,
             prov=nzbprov,
+            imageFile=image,
+            metadata=metadata,
         )
     if mylar.CONFIG.WEBHOOK_ENABLED and mylar.CONFIG.WEBHOOK_ONSNATCH:
         logger.info("Sending webhook notification")
