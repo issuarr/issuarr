@@ -272,6 +272,10 @@ class FileChecker(object):
 
         ro = re.match(r'^(0\d{1,2})\s*[-.]?\s+(?=\S)(.*\d.*)$', modfilename)
         if not ro:
+            # an unpadded number set off by a dash before a volume ("12 - Aliens Omnibus v03") is a
+            # reading order too. Otherwise it could be the series' own name (52 - Week Fifty-Two, 100 Bullets)
+            ro = re.match(r'^([1-9]\d{0,2})\s+-\s+(?=\S)(.*\bv(?:ol(?:ume)?)?\.?\s*\d.*)$', modfilename, re.I)
+        if not ro:
             arc = re.match(r'^(\d{1,3})\s+-\s+(?=[^a-z]*[A-Z][^a-z]*?\s+-\s+.*\d)(.*)$', modfilename)
             if arc and len(re.sub(r'[^A-Z]', '', arc.group(2).split(' - ')[0])) >= 3:
                 ro = arc
