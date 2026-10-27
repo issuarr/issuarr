@@ -6,6 +6,7 @@ Releases come from the `main` branch and are the `latest` Docker image. Changes 
 
 ## Unreleased (on dev)
 
+- [feat] The "Files added" notification now shows a cover on Discord and the other services that show covers: the file's own cover when you match it by hand, or the series cover after a recheck or import. ([`bac2672c`](https://github.com/issuarr/issuarr/commit/bac2672c))
 - [fix] Import results, including Needs a choice, now drop files that are gone when their whole folder was deleted or moved too, such as an emptied _UNMATCHED or publisher folder. Before, those stayed listed as if they still needed a choice. A library folder that isn't mounted is still left alone. ([`aa60230`](https://github.com/issuarr/issuarr/commit/aa60230))
 - [feat] After Try filing again, Needs attention says why the files that are left weren't filed, such as "12 for series not on your watchlist, 2 already in your library", not just how many there are. ([`0042340`](https://github.com/issuarr/issuarr/commit/0042340))
 - [fix] A publisher in brackets and "GN" after a title, as in "Silver Surfer Homecoming GN [Marvel] (1991)", are no longer read as part of the series name. ([`4dd3eb2`](https://github.com/issuarr/issuarr/commit/4dd3eb2))

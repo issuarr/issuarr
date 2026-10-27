@@ -244,7 +244,8 @@ def match(comicid, issueid, name):
     _rescan(comicid)
     if issue['Status'] not in ('Downloaded', 'Archived'):
         from mylar import notifiers
-        notifiers.files_added(comic['ComicName'], comic['ComicYear'], [issue['Issue_Number']], issueid=issueid, module='[MATCHING]')
+        notifiers.files_added(comic['ComicName'], comic['ComicYear'], [issue['Issue_Number']], issueid=issueid, module='[MATCHING]',
+                              comicid=comicid, path=f['path'])
     return {'ok': True, 'note': '%s is now #%s.' % (name, issue['Issue_Number'])}
 
 
