@@ -456,6 +456,44 @@ def _in_monitor(path):
     return bool(mon) and os.path.normpath(path).startswith(os.path.normpath(mon) + os.sep)
 
 
+# Folders a setting points at: filing never removes one of these (or a folder holding one), even empty.
+ROOT_SETTINGS = ('CHECK_FOLDER', 'DDL_LOCATION', 'DESTINATION_DIR', 'MANUAL_PP_FOLDER', 'JD2_LOCAL_DIR',
+                 'JD2_DEST_DIR', 'SAB_DIRECTORY', 'NZBGET_DIRECTORY', 'BLACKHOLE_DIR', 'LOCAL_WATCHDIR',
+                 'TORRENT_LOCAL', 'QBITTORRENT_FOLDER', 'DELUGE_DONE_DIRECTORY', 'DELUGE_DOWNLOAD_DIRECTORY',
+                 'TRANSMISSION_DIRECTORY', 'RTORRENT_DIRECTORY', 'AIRDCPP_DOWNLOAD_DIR', 'GRABBAG_DIR',
+                 'ARCHIVE_REVIEW_DIR', 'CACHE_DIR')
+
+
+def drop_empty_source(folder):
+    """A manual run filed everything out of a download's own folder (a JDownloader package, a folder
+    re-filed from Needs attention): remove it once it is empty. Folders a setting points at, and the
+    folders above them, stay. Returns whether it was removed."""
+    if not folder or not _moving() or not os.path.isdir(folder):
+        return False
+    path = os.path.realpath(folder)
+    if path == os.path.dirname(path) or os.listdir(path):
+        return False
+    roots = [getattr(mylar.CONFIG, k, None) for k in ROOT_SETTINGS]
+    try:
+        from mylar.downloaders import jdownloader2
+        roots.append(jdownloader2.local_folder())
+    except Exception:
+        pass
+    for root in roots:
+        if not isinstance(root, str) or not root.strip():
+            continue
+        root = os.path.realpath(root)
+        if root == path or root.startswith(path.rstrip(os.sep) + os.sep):
+            return False
+    try:
+        os.rmdir(path)
+    except OSError as e:
+        logger.fdebug('[POST-PROCESSING] Unable to remove the emptied folder %s: %s' % (folder, e))
+        return False
+    logger.info('[POST-PROCESSING] Removed the emptied download folder %s' % folder)
+    return True
+
+
 def cleanup(folders):
     if not folders or not _moving():
         return

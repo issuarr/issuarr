@@ -25,6 +25,9 @@ def parse(name):
     ('01 - BATTLE OF THE ATOM - X-Men - Battle of the Atom 01 (of 2) (2013) (Digital) (Zone-Empire).cbr', 'X-Men - Battle of the Atom', '01'),
     ('02 - BATTLE OF THE ATOM - All New X-Men 016 (2013) (Digital) (Zone-Empire).cbr', 'All New X-Men', '016'),
     ('10 - BATTLE OF THE ATOM - X-Men - Battle of the Atom 02 (of 2) (2013) (Digital) (Zone-Empire).cbr', 'X-Men - Battle of the Atom', '02'),
+    ('05 - Aliens Omnibus v02 (2007) (digital).cbr', 'Aliens Omnibus', None),
+    ('12 - Aliens Omnibus v03 (2008) (digital).cbr', 'Aliens Omnibus', None),
+    ('7 - Justice League Vol. 2 015 (2013).cbz', 'Justice League', '015'),
 ])
 def test_reading_order_prefix_is_ignored(name, series, issue):
     r = parse(name)

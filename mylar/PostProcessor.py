@@ -35,6 +35,18 @@ PP_LOCK = threading.RLock()
 
 
 
+def volume_as_issue(parsed):
+    """The issue number in a parsed filename. Collected editions (TPB, HC, omnibus) often number each
+    book only as a volume ("Aliens Omnibus v04"), so with no issue number the volume stands in for it.
+    A series that carries the same volume on every issue ("Justice League v2 015") keeps its issue."""
+    issue = parsed.get('issue_number')
+    if issue is None and parsed.get('series_volume'):
+        digits = re.sub(r'[^0-9]', '', str(parsed['series_volume'])).lstrip('0')
+        if digits:
+            return digits
+    return issue
+
+
 def series_year_label(file_year, series_year, issue_year):
     """Whether a filename's year fits this issue even though it isn't the issue's own year. Filenames
     are inconsistent: one says the year the series began ("The Punisher 2099 005 (1993)" for #5, out
@@ -597,6 +609,11 @@ class PostProcessor(object):
             return result
         finally:
             archives.cleanup(self.extracted)
+            if source_name == 'Manual Run':
+                try:
+                    archives.drop_empty_source(source)
+                except Exception as e:
+                    logger.warn('[POST-PROCESSING] Unable to tidy up %s: %s' % (source, e))
             if source_name == 'Manual Run' and mylar.CONFIG.CHECK_FOLDER and source and \
                     os.path.normpath(source) == os.path.normpath(mylar.CONFIG.CHECK_FOLDER):
                 archives.sweep(source, started)
@@ -1095,8 +1112,9 @@ class PostProcessor(object):
                         #do some extra checks in here to ignore these types:
                         # check for valid issue number - if not, don't even bother checking it
                         # TODO Not sure why this is here.  If it catches any exception, then it's going to cause problems further down.
+                        tmp_iss = None
                         try:
-                            tmp_iss = helpers.issue_number_parser(fl['issue_number']).asInt
+                            tmp_iss = helpers.issue_number_parser(volume_as_issue(fl)).asInt
                         except Exception as e:
                             logger.warn('Unable to determine issue number. This is a no-go, Captain [%s]' % (e,))
 
@@ -1128,6 +1146,10 @@ class PostProcessor(object):
                                     if dbcheck[0] in ('Downloaded', 'Archived'):
                                         self._att_why('owned', '%s (%s) #%s is already in your library.' % (wv['ComicName'], wv['ComicYear'], fl['issue_number']), wv['ComicID'])
                                     continue
+                            elif myDB.selectone("SELECT 1 FROM issues WHERE ComicID=? AND Status IN ('Wanted', 'Snatched')", [wv['ComicID']]).fetchone():
+                                # Have can be stale (issues marked Wanted again after their files went); a series
+                                # still wanting issues isn't complete, so let matching decide.
+                                logger.fdebug('%s [%s] counts as 100%s complete, but still has Wanted issues - checking it.' % (wv['ComicName'], wv['ComicYear'], '%'))
                             else:
                                 logger.warn('%s [%s] is either Paused or in an Ended status with 100%s completion. Ignoring for match.' % (wv['ComicName'], wv['ComicYear'], '%'))
                                 continue
@@ -1280,6 +1302,8 @@ class PostProcessor(object):
                                         just_the_digits = re.sub(r'[^0-9]', '', watchmatch['series_volume']).strip()
                                     else:
                                         just_the_digits = re.sub(r'[^0-9.\-\u00BC-\u00BE\u2150-\u215E\u221E]', '', watchmatch['justthedigits']).strip()
+                                elif watchmatch['justthedigits'] is None:
+                                    just_the_digits = volume_as_issue({'series_volume': watchmatch['series_volume']})
                                 else:
                                     just_the_digits = watchmatch['justthedigits']
                             except Exception as e:
