@@ -70,6 +70,12 @@ The Star Wars 000 (2015 Marvel edition) (Digital).cbr,The Star Wars,000,2015,Non
 "Batman 001 (2015, digital).cbr",Batman,001,2015,None,False,
 Batman 001 (January 2015).cbr,Batman,001,2015,None,False,a month and year stays one date
 Spider-Man 001 (Spider-Man 2099).cbr,Spider-Man,001,None,None,False,a future year in a group isn't the year
+X-Men Annual 2000 (scan).cbr,X-Men Annual,None,2000,None,False,a year right after Annual is the year not the issue
+X-Men Annual 1995 (1995) (digital) (Minutemen-Bluntman).cbr,X-Men Annual,None,1995,None,False,a year right after Annual is the year not the issue
+Uncanny X-Men Annual 1998 (Universo Edits-DCP).cbr,Uncanny X-Men Annual,None,1998,None,False,a year right after Annual is the year not the issue
+X-Men - Dr. Doom Annual (1998) (Digital) (Shadowcat-Empire).cbz,X-Men - Dr Doom Annual,None,1998,None,False,an Annual with only a year has no issue number
+X-Men Annual 2000 (2001) (scan).cbr,X-Men Annual,2000,2001,None,False,a different year in brackets leaves the number alone
+X-Men Annual 003 (1994) (digital).cbz,X-Men Annual,003,1994,None,False,a real annual number stays the issue
 X-Men _C2_BD (1998) (digital) (Minutemen-Bluntman).cbr,X-Men,½,1998,None,False,a character a tool wrote as its UTF-8 bytes is put back
 Silver Surfer Homecoming GN [Marvel] (1991) (Bchry-DCP).cbz,Silver Surfer Homecoming,None,1991,v1,False,a publisher in brackets and GN after the title aren't the series name
 Silver Surfer Judgment Day GN (1988) (F2) (Bchry-DCP).cbz,Silver Surfer Judgment Day,None,1988,v1,False,GN after the title isn't the series name

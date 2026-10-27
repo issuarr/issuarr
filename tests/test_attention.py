@@ -596,6 +596,39 @@ def test_a_name_without_a_year_takes_its_pack_folders(env):
     assert attention.parse('/downloads/Marvel Weekly (2015)/The Star Wars 007.cbr')['year'] is None
 
 
+def _x_men_annuals(env):
+    env.db.action('ALTER TABLE comics ADD COLUMN ComicPublished TEXT')
+    env.db.action("INSERT INTO comics (ComicID, ComicName, ComicYear, ComicVersion, Total, ComicPublished) VALUES "
+                  "('22988', 'X-Men Annual', '1970', NULL, 15, 'December 1970 - September 1991'), "
+                  "('10748', 'X-Men Annual', '1992', 'v1', 3, 'July 1992 - December 1994'), "
+                  "('146988', 'X-Men Annual', '2023', NULL, 1, 'February 2023'), "
+                  "('153608', 'X-Men Annual', '2023', NULL, 1, 'November 2023'), "
+                  "('60440', 'Iron Man 2000', '2000', NULL, 1, 'October 2000')")
+    env.db.action("UPDATE comics SET AlternateSearch='Iron Man Annual 2000' WHERE ComicID='60440'")
+    env.db.action("INSERT INTO issues VALUES ('a70', '22988', '1', 'Downloaded', '1970-12-01', NULL), ('a92', '10748', '1', 'Downloaded', '1992-07-01', NULL), "
+                  "('a23', '146988', '1', 'Downloaded', '2023-02-01', NULL), ('b23', '153608', '1', 'Downloaded', '2023-11-01', NULL), "
+                  "('im', '60440', '1', 'Wanted', '2000-10-01', NULL)")
+
+
+@pytest.mark.unit
+def test_search_puts_the_series_from_the_year_asked_for_first(env):
+    _x_men_annuals(env)
+    # the 2000 is the year: the X-Men Annual nearest 2000 first, the 2023 ones after, another title's Annual 2000 not above them
+    out = attention.search('X-Men Annual 2000')
+    assert [s['comicid'] for s in out][:4] == ['10748', '22988', '146988', '153608']
+    # the same name twice from one year: side by side at the top, told apart by their run
+    out = attention.search('X-Men Annual', year='2023')
+    assert [(s['comicid'], s['published'], s['fits']) for s in out][:2] == [('146988', 'February 2023', True), ('153608', 'November 2023', True)]
+    out = attention.search('X-Men Annual', year='1995')
+    assert [s['comicid'] for s in out][:2] == ['10748', '22988']
+
+
+@pytest.mark.unit
+def test_suggestions_without_a_matching_issue_go_by_the_series_year(env):
+    _x_men_annuals(env)
+    out = attention.suggest(attention.parse('X-Men Annual 2000 (scan).cbr'), limit=4)
+    assert [m['comicid'] for m in out] == ['10748', '22988', '146988', '153608']
+    assert 'February 2023' in [m['published'] for m in out]
 @pytest.mark.unit
 def test_trashing_a_damaged_library_file_can_mark_its_issue_wanted(env, monkeypatch):
     from mylar import search
@@ -646,3 +679,28 @@ def test_a_suggested_issue_already_in_the_library_says_so(env):
     assert (best['comicid'], best['issueid'], best['owned']) == ('154673', 'a2', True)
     best = attention.suggest({'series': 'Aliens', 'issue': '003', 'year': '2024', 'volume': None})[0]
     assert (best['issueid'], best['owned']) == ('a3', False)
+def test_try_filing_again_looks_up_unclaimed_series_first_when_auto_add_is_on(env, monkeypatch):
+    from mylar import autoadd, PostProcessor
+    a = touch(env.review / 'X-Men Annual 2000 (scan).cbr')
+    b = touch(env.review / 'Great Lakes Avengers 002 (2017).cbz')
+    attention.record(b, 'year')
+    order = []
+    monkeypatch.setattr(autoadd, 'enabled', lambda: True)
+    monkeypatch.setattr(autoadd, '_run', lambda paths, folder=None, refile=True: order.append(('lookup', sorted(paths), refile)))
+    monkeypatch.setattr(mylar, 'PP_QUEUE', None, raising=False)
+
+    class FakePP(object):
+        def __init__(self, name, folder, queue=None):
+            order.append(('file', folder))
+
+        def Process(self):
+            pass
+    monkeypatch.setattr(PostProcessor, 'PostProcessor', FakePP)
+    monkeypatch.setattr(attention.threading, 'Thread', lambda target, args=(), **k: types.SimpleNamespace(start=lambda: target(*args)))
+    assert attention.refile_all()['ok'] is True
+    # only the file nothing claimed is looked up, files tried before included, and filing runs after
+    assert order == [('lookup', [a], False), ('file', str(env.review))]
+    order.clear()
+    monkeypatch.setattr(autoadd, 'enabled', lambda: False)
+    attention.refile_all()
+    assert order == [('file', str(env.review))]

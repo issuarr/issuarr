@@ -255,13 +255,44 @@ def _names(name, aliases):
 def _watchlist():
     if time.time() - _COMICS[0] < 300 and _COMICS[1]:
         return _COMICS[1]
-    rows = db.DBConnection().select('SELECT ComicID, ComicName, ComicYear, ComicVersion, Total, Type, Corrected_Type, AlternateSearch FROM comics WHERE ComicName IS NOT NULL')
-    rows = [dict(r, norm=_norm(r['ComicName'])) for r in rows]
+    rows = db.DBConnection().select('SELECT * FROM comics WHERE ComicName IS NOT NULL')
+    keep = ('ComicID', 'ComicName', 'ComicYear', 'ComicVersion', 'Total', 'Type', 'Corrected_Type', 'AlternateSearch', 'ComicPublished')
+    rows = [{k: r[k] if k in r.keys() else None for k in keep} for r in rows]
+    rows = [dict(r, norm=_norm(r['ComicName']), years=_run_years(r)) for r in rows]
     for r in rows:
         r['names'] = [(n, collections.Counter(n)) for n in _names(r['ComicName'], r['AlternateSearch'])]
     _COMICS[:] = [time.time(), rows]
     _NAMED.clear()
     return _COMICS[1]
+
+
+def _run_years(c):
+    """The years a series came out in, (first, last): from its publication run ("July 1992 -
+    December 1994"), else its start year. None when neither is known."""
+    years = [int(y) for y in re.findall(r'(?<!\d)(?:19|20)\d\d(?!\d)', str(c.get('ComicPublished') or ''))]
+    if not years and str(c.get('ComicYear') or '').isdigit():
+        years = [int(c['ComicYear'])]
+    return (min(years), max(years)) if years else None
+
+
+def _year_gap(c, year):
+    """How many years a series' run is from year: 0 when it came out that year (or the year
+    before, as cover dates run ahead), None when either isn't known."""
+    run = c.get('years') if 'years' in c else _run_years(c)
+    if not run or not str(year or '').isdigit():
+        return None
+    year = int(year)
+    if run[0] - 1 <= year <= run[1] + 1:
+        return 0
+    return run[0] - 1 - year if year < run[0] else year - run[1] - 1
+
+
+def _year_rank(gap):
+    """A small nudge by how near a series is to the file's year, so of series with the same name the
+    one from that year comes first, and one from decades away last."""
+    if gap is None:
+        return 0
+    return 0.15 if gap == 0 else -0.01 * min(gap, 20)
 
 
 def parse(path):
@@ -277,7 +308,7 @@ def parse(path):
     if not isinstance(p, dict) or p.get('parse_status') != 'success':
         return out
     out.update(series=p.get('series_name'), issue=p.get('issue_number'), year=p.get('issue_year') or _folder_year(path, p.get('series_name')),
-               volume=p.get('series_volume'))
+               volume=p.get('series_volume'), name_year=bool(p.get('name_year')))
     out['search'] = _titled(out) or out['series']
     return out
 
@@ -359,7 +390,8 @@ def suggest(parsed, limit=3, comicid=None):
         # a series named for another year isn't this year's annual
         named = [n for n in named if not all(_years_clash(tnorm, nm) for nm, _ in n[1]['names'])]
         best = {str(c['ComicID']): s for s, c, _ in named}
-        extra = [(s, c, True) for s, c in _named(tnorm, comicid) if s > best.get(str(c['ComicID']), 0)]
+        # only a series called (nearly) exactly that: "Iron Man Annual 2000" isn't X-Men Annual 2000
+        extra = [(s, c, True) for s, c in _named(tnorm, comicid) if s >= 0.92 and s > best.get(str(c['ComicID']), 0)]
         named = sorted([n for n in named if not any(str(n[1]['ComicID']) == str(e[1]['ComicID']) for e in extra)] + extra, key=lambda x: -x[0])
     myDB = db.DBConnection()
     fyear = str(parsed.get('year') or '')
@@ -381,8 +413,10 @@ def suggest(parsed, limit=3, comicid=None):
                 if _num(r['Issue_Number']) == target:
                     issue = dict(r)
                     break
-        elif len(rows) == 1 and s >= 0.92 and not (is_collected and singles):
-            issue = dict(rows[0])   # a one-shot: the name says no number, or the number was part of the name
+        elif len(rows) == 1 and s >= 0.92 and not (is_collected and singles) and (by_title or not parsed.get('name_year')):
+            # a one-shot: the name says no number, or the number was part of the name. "X-Men Annual 2000"
+            # is only the one-shot of a series named for that year, not of X-Men Annual (2023)
+            issue = dict(rows[0])
         iyear = str((issue or {}).get('IssueDate') or (issue or {}).get('ReleaseDate') or '')[:4]
         fvol, svol = _vol(parsed.get('volume')), _vol(c.get('ComicVersion'))
         agree = {
@@ -396,7 +430,11 @@ def suggest(parsed, limit=3, comicid=None):
         near = fyear.isdigit() and iyear.isdigit() and abs(int(fyear) - int(iyear)) <= 1   # cover dates run ahead
         rank = s + (0.3 if agree['issue'] else 0) + (0.2 if agree['year'] else 0.1 if near else -0.2 if agree['year'] is False else 0) + \
             {True: 0.1, False: -0.1, None: 0}[agree['volume']] + {True: 0, None: 0, False: -0.5 if is_collected else -0.2}[agree['format']]
+        if agree['year'] is None:
+            # no issue to date: go by when the series itself came out
+            rank += _year_rank(_year_gap(c, fyear))
         out.append({'comicid': c['ComicID'], 'name': c['ComicName'], 'year': c['ComicYear'], 'volume': c['ComicVersion'],
+                     'published': c.get('ComicPublished'),
                      'total': c['Total'], 'score': round(s, 2), 'rank': round(rank, 2), 'agree': agree,
                      'format': 'Single issues' if singles else stype,
                      'issueid': (issue or {}).get('IssueID'), 'number': (issue or {}).get('Issue_Number'),
@@ -408,9 +446,11 @@ def suggest(parsed, limit=3, comicid=None):
 
 
 def _titled(parsed):
-    """Series name with the issue number put back when that number looks like a year:
-    "X-Men Annual 1995 (1995)" reads as X-Men Annual #1995, but the series may be called that."""
+    """Series name with its year put back when the year may be part of the name: "X-Men Annual
+    1995 (1995)" has no issue number, and the series may be called X-Men Annual 1995."""
     series, number = parsed.get('series'), str(parsed.get('issue') or '').strip()
+    if parsed.get('name_year') and not number:
+        number = str(parsed.get('year') or '').strip()
     if series and re.match(r'^(19|20)\d\d$', number):
         return '%s %s' % (series, number)
     return None
@@ -474,20 +514,36 @@ def search_link(text):
     return {'series': series, 'link': link}
 
 
-def search(text, limit=12):
-    """Watchlist series for the manual pick."""
-    want = _norm(_year_hint(text)[0])
+def search(text, limit=12, year=None):
+    """Watchlist series for the manual pick, closest name first. Of names that score alike, the
+    series that came out in the year asked for comes first, then the nearest: a "(1996)" in the
+    text, else a year in it ("X-Men Annual 2000"), else year (the file's)."""
+    words, hinted = _year_hint(text)
+    want = _norm(words)
     if not want:
         return []
+    named = sorted(_name_years(want))
+    year = hinted or (named[-1] if named else None) or (str(year) if str(year or '').isdigit() else None)
+    # "X-Men Annual 2000" is also X-Men Annual from 2000: names are compared with and without the year
+    bare = _norm(re.sub(r'(?<!\d)%s(?!\d)' % named[-1], ' ', want)) if named else None
+    wants = [w for w in (want, bare) if w]
+
+    def score(w, n):
+        return 0 if _years_clash(w, n) else 3.0 if n == w else 2.0 if n.startswith(w) else 1.0 if w in n else \
+            difflib.SequenceMatcher(None, w, n).ratio()
+
     hits = []
     for c in _watchlist():
-        s = max(0 if _years_clash(want, n) else 3.0 if n == want else 2.0 if n.startswith(want) else 1.0 if want in n else
-                difflib.SequenceMatcher(None, want, n).ratio() for n, _ in c['names'])
+        # a name for another year ("Uncanny X-Men Annual 1999") still never matches
+        s = max(0 if _years_clash(want, n) else score(w, n if w == want else _norm(re.sub(r'(?<!\d)(?:19|20)\d\d(?!\d)', ' ', n)))
+                for n, _ in c['names'] for w in wants)
         if s >= 0.5:
-            hits.append((s, c))
-    hits.sort(key=lambda x: (-x[0], x[1]['ComicName']))
-    hits.sort(key=lambda x: (-x[0], x[1]['ComicName'], str(x[1]['ComicYear'])))
-    return [{'comicid': c['ComicID'], 'name': c['ComicName'], 'year': c['ComicYear'], 'volume': c['ComicVersion']} for s, c in hits[:limit]]
+            gap = _year_gap(c, year)
+            hits.append((round(s, 2) + _year_rank(gap), gap, c))
+    # series with the same name and year stay side by side
+    hits.sort(key=lambda x: (-x[0], 99 if x[1] is None else x[1], x[2]['ComicName'], str(x[2]['ComicYear']), str(x[2].get('ComicPublished') or '')))
+    return [{'comicid': c['ComicID'], 'name': c['ComicName'], 'year': c['ComicYear'], 'volume': c['ComicVersion'],
+             'published': c.get('ComicPublished'), 'fits': gap == 0} for s, gap, c in hits[:limit]]
 
 
 def _cv_key():
@@ -991,10 +1047,16 @@ def refile_all(auto=False):
         folders = refile_folders(paths)
         if not folders:
             return {'ok': False, 'note': 'Nothing here to try again.'}
+        # with "Add the series of comics nothing on the watchlist wants" on, look their series up
+        # again first, files tried before included: the lookup may know more now
+        from mylar import autoadd
+        rows = _rows(db.DBConnection())
+        lookup = [p for p in paths if (rows.get(p) or {}).get('reason', 'unclaimed') in ('series', 'unclaimed')] \
+            if not auto and autoadd.enabled() else []
         REFILE.clear()
         REFILE.update(state='running', auto=auto, folders=folders, total=len(folders), done=0, current='',
                       before=len(paths), after=None, started=time.time(), finished=None, stop=False)
-    threading.Thread(target=_refile_run, args=(folders,), name='ATTENTION-REFILE', daemon=True).start()
+    threading.Thread(target=_refile_run, args=(folders, lookup), name='ATTENTION-REFILE', daemon=True).start()
     logger.info('[ATTENTION] Trying to file %s file(s) again, in %s folder(s)%s.'
                 % (len(paths), len(folders), ' after an update' if auto else ''))
     return {'ok': True, 'note': 'Trying %s files again. New downloads are filed first.' % len(paths)}
@@ -1008,9 +1070,19 @@ def stop_refile():
     return False
 
 
-def _refile_run(folders):
-    from mylar import PostProcessor
+def _refile_run(folders, lookup=None):
+    from mylar import PostProcessor, autoadd
     try:
+        if lookup and not REFILE.get('stop'):
+            REFILE['lookup'] = True
+            if autoadd.running():
+                logger.info('[ATTENTION] Auto-add is already looking up series; not looking these up again now.')
+            else:
+                try:
+                    autoadd._run(lookup, refile=False)
+                except Exception as e:
+                    logger.warn('[ATTENTION] Looking up the series of %s file(s) failed: %s' % (len(lookup), e))
+            REFILE['lookup'] = False
         for n, folder in enumerate(folders):
             # new downloads go first: wait while the post-processing queue has work
             while not REFILE.get('stop') and getattr(mylar, 'PP_QUEUE', None) is not None and mylar.PP_QUEUE.qsize():
