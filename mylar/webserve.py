@@ -4799,8 +4799,8 @@ class WebInterface(object):
         return self._attention_image(attention.issue_cover(issueid))
     attention_issue_cover.exposed = True
 
-    def attention_search(self, q=''):
-        return self._attention_json(attention.search_link(q) or {'series': attention.search(q)})
+    def attention_search(self, q='', year=''):
+        return self._attention_json(attention.search_link(q) or {'series': attention.search(q, year=year or None)})
     attention_search.exposed = True
 
     def cv_link(self, q=''):
