@@ -597,6 +597,46 @@ def test_a_name_without_a_year_takes_its_pack_folders(env):
 
 
 @pytest.mark.unit
+def test_trashing_a_damaged_library_file_can_mark_its_issue_wanted(env, monkeypatch):
+    from mylar import search
+    searched = []
+    monkeypatch.setattr(search, 'searchIssueIDList', lambda ids: searched.append(ids))
+    monkeypatch.setattr(attention.threading, 'Thread', lambda target, args, **k: types.SimpleNamespace(start=lambda: target(*args)))
+    env.db.action('ALTER TABLE comics ADD COLUMN ComicLocation TEXT')
+    env.db.action('ALTER TABLE issues ADD COLUMN Location TEXT')
+    env.db.action('ALTER TABLE issues ADD COLUMN ComicSize TEXT')
+    env.db.action('CREATE TABLE webp_files (path TEXT PRIMARY KEY, size INTEGER, mtime REAL, status TEXT, reason TEXT, at TEXT, saved INTEGER)')
+    # the series' folder on record is out of date; the file name still ties it to one issue
+    env.db.action("INSERT INTO comics (ComicID, ComicName, ComicYear, ComicLocation) VALUES ('34429', 'The Perhapanauts', '2005', '/comics/Dark Horse Comics/The Perhapanauts (2005)')")
+    env.db.action("INSERT INTO issues (IssueID, ComicID, Issue_Number, Status, Location, ComicSize) VALUES "
+                  "('p4', '34429', '4', 'Archived', 'Perhapanauts 04 (2006).cbr', '6626616'), ('p3', '34429', '3', 'Archived', 'Perhapanauts 03 (2006).cbr', '1')")
+    bad = touch(env.root / 'comics' / 'Perhapanauts (Image)' / 'Perhapanauts 04 (2006).cbr')
+    env.db.action("INSERT INTO webp_files (path, status) VALUES (?, 'damaged')", [bad])
+    attention.record(bad, 'damaged', 'Bad CRC')
+    item = [i for i in attention.items() if i['path'] == bad][0]
+    assert item['in_library'] and (item['issue']['issueid'], item['issue']['status']) == ('p4', 'Archived')
+
+    out = attention.trash(bad, want=True)
+    assert out['ok'] and 'The Perhapanauts (2005) #4 is now Wanted.' in out['note']
+    assert not os.path.exists(bad)
+    row = env.db.selectone("SELECT Status, Location FROM issues WHERE IssueID='p4'").fetchone()
+    assert (row['Status'], row['Location']) == ('Wanted', None)
+    assert searched == [['p4']]
+    assert env.db.selectone("SELECT Status FROM issues WHERE IssueID='p3'").fetchone()['Status'] == 'Archived'
+
+
+@pytest.mark.unit
+def test_plain_trash_leaves_the_issue_alone(env, monkeypatch):
+    env.db.action('ALTER TABLE comics ADD COLUMN ComicLocation TEXT')
+    env.db.action('ALTER TABLE issues ADD COLUMN Location TEXT')
+    env.db.action('CREATE TABLE webp_files (path TEXT PRIMARY KEY, size INTEGER, mtime REAL, status TEXT, reason TEXT, at TEXT, saved INTEGER)')
+    env.db.action("INSERT INTO comics (ComicID, ComicName, ComicYear) VALUES ('9', 'Thunderbolts', '1997')")
+    env.db.action("INSERT INTO issues (IssueID, ComicID, Issue_Number, Status, Location) VALUES ('t66', '9', '66', 'Downloaded', 'Thunderbolts 66 (2002).cbz')")
+    bad = touch(env.root / 'comics' / 'Thunderbolts (1997)' / 'Thunderbolts 66 (2002).cbz')
+    env.db.action("INSERT INTO webp_files (path, status) VALUES (?, 'damaged')", [bad])
+    attention.record(bad, 'damaged', 'Bad CRC')
+    assert 'Wanted' not in attention.trash(bad)['note']
+    assert env.db.selectone("SELECT Status FROM issues WHERE IssueID='t66'").fetchone()['Status'] == 'Downloaded'
 def test_a_suggested_issue_already_in_the_library_says_so(env):
     # "Aliens 002 (2024)" is Alien (2024) #2, already filed: the page offers the trash, not File as
     env.db.action("INSERT INTO comics (ComicID, ComicName, ComicYear, ComicVersion, Total) VALUES ('154673', 'Alien', '2024', NULL, 4)")

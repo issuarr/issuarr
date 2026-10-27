@@ -6,6 +6,7 @@ Releases come from the `main` branch and are the `latest` Docker image. Changes 
 
 ## Unreleased (on dev)
 
+- [feat] On Downloads > Needs attention, a damaged file in your library shows which issue it is, and Move to trash and mark Wanted sends it to the trash, marks that issue Wanted and looks for a good copy. Plain Move to trash still leaves the issue as it was. ([`aae72e2`](https://github.com/issuarr/issuarr/commit/aae72e2))
 - [feat] On Downloads > Needs attention, when the suggested issue is already in your library, the row says so and offers Move to trash instead of filing a second copy. Other suggestions already in your library are marked too. ([`bb71655`](https://github.com/issuarr/issuarr/commit/bb71655))
 - [fix] File names where a tool wrote a character as its UTF-8 bytes, such as "X-Men _C2_BD (1998)" for X-Men ½, are read with the character put back, so the name reads as X-Men #½ instead of a series called "X-Men C2 BD". The file keeps its name. ([`32bb6bc`](https://github.com/issuarr/issuarr/commit/32bb6bc))
 - [fix] A reading-order number at the start of a book's name, such as "12 - Aliens Omnibus v03", is dropped from the series name. Names like "52 - Week Fifty-Two" keep their number. ([`8386f3b`](https://github.com/issuarr/issuarr/commit/8386f3b))
