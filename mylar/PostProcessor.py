@@ -114,11 +114,14 @@ def folder_job(folder):
 
 
 def year_in_name(myDB, comiclist, alt_list):
-    """Files named "Uncanny X-Men Annual 1999" read as issue #1999 of Uncanny X-Men Annual. When a
+    """Files named "Uncanny X-Men Annual 1999" have no issue number: the parser marks the year as one
+    that may be part of the name (name_year), and older parses read it as issue #1999. When a
     watchlist series is called that (or has it as an alternate name, like ComicVine's aliases for
-    Uncanny X-Men 1999), the year is part of the name: file it as that series' only issue, or #1."""
+    Uncanny X-Men 1999), file it as that series' only issue, or #1."""
     for fl in comiclist:
         number = str(fl.get('issue_number') or '').strip()
+        if fl.get('name_year') and not number:
+            number = str(fl.get('issue_year') or '').strip()
         if not fl.get('series_name') or not re.match(r'^(19|20)\d\d$', number):
             continue
         key = _loop_name('%s %s' % (fl['series_name'], number))[0]

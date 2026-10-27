@@ -4799,8 +4799,8 @@ class WebInterface(object):
         return self._attention_image(attention.issue_cover(issueid))
     attention_issue_cover.exposed = True
 
-    def attention_search(self, q=''):
-        return self._attention_json(attention.search_link(q) or {'series': attention.search(q)})
+    def attention_search(self, q='', year=''):
+        return self._attention_json(attention.search_link(q) or {'series': attention.search(q, year=year or None)})
     attention_search.exposed = True
 
     def cv_link(self, q=''):
@@ -4833,10 +4833,10 @@ class WebInterface(object):
         return self._attention_json(attention.file_as(path, comicid, issueid))
     attention_file.exposed = True
 
-    def attention_trash(self, path):
+    def attention_trash(self, path, want=None):
         self._attention_post()
         try:
-            return self._attention_json(attention.trash(path))
+            return self._attention_json(attention.trash(path, want=want == '1'))
         except Exception as e:
             logger.warn('[ATTENTION] Could not move %s to the trash: %s' % (path, e))
             return self._attention_json({'ok': False, 'note': 'Could not move it: %s' % e})
