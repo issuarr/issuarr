@@ -1145,7 +1145,8 @@ class PostProcessor(object):
                                 if any([dbcheck[0] == 'Wanted', dbcheck[0] == 'Snatched']):
                                     logger.fdebug('Series is 100%s complete, but specific issue %s matched up to a %s status. Let\'s Go!' % ('%', tmp_iss, dbcheck[0]))
                                 else:
-                                    logger.fdebug('Series is 100%s complete, however status is not Wanted (or Snatched), but %s. Set to Wanted for this to post-process on the next run.' % ('%', dbcheck[0]))
+                                    logger.fdebug('%s [%s] is 100%s complete and issue %s is %s, not Wanted or Snatched, so this file isn\'t filed. '
+                                                  'Mark the issue Wanted to file it on the next run.' % (wv['ComicName'], wv['ComicYear'], '%', tmp_iss, dbcheck[0]))
                                     if dbcheck[0] in ('Downloaded', 'Archived'):
                                         self._att_why('owned', '%s (%s) #%s is already in your library.' % (wv['ComicName'], wv['ComicYear'], fl['issue_number']), wv['ComicID'])
                                     continue

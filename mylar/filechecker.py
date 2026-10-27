@@ -1339,6 +1339,15 @@ class FileChecker(object):
                     alt_series = re.sub('tpb', '', alt_series, flags=re.I).strip()
             logger.fdebug('Alternate series / issue title: %s [%s]' % (alt_series, alt_issue))
 
+        # "Silver Surfer Homecoming GN [Marvel]": a publisher in brackets and a GN label after the
+        # title aren't part of the series' name
+        if series_name:
+            tidy = re.sub(r'(\s*\[[^\]]*\])+\s*$', '', series_name).strip()
+            tidy = re.sub(r'\s+O?GN$', '', tidy, flags=re.I).strip()
+            if tidy and tidy != series_name:
+                logger.fdebug('series title tidied: %s' % tidy)
+                series_name = tidy
+
         #if the filename is unicoded, it won't match due to the unicode translation. Keep the unicode as well as the decoded.
         series_name_decoded= unicodedata.normalize('NFKD', series_name)
         og_seriesn = series_name
