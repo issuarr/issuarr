@@ -268,6 +268,7 @@ class FileChecker(object):
         #split the file and then get all the relevant numbers that could possibly be an issue number.
         #remove the extension.
         modfilename = re.sub(filetype, '', filename).strip()
+        modfilename = re.sub(r'(?:_[0-9A-Fa-f]{2}){2,}', self._utf8_escape, modfilename)
         reading_order = None
 
         ro = re.match(r'^(0\d{1,2})\s*[-.]?\s+(?=\S)(.*\d.*)$', modfilename)
@@ -1854,6 +1855,16 @@ class FileChecker(object):
         return {'AS_Alt':   AS_Alt,
                 'AS_Tuple': AS_Tuple}
     
+    def _utf8_escape(self, m):
+        """'X-Men _C2_BD' is 'X-Men ½' with its UTF-8 bytes written out as _XX."""
+        try:
+            raw = bytes.fromhex(m.group(0).replace('_', ''))
+            if raw[0] < 0xC2:
+                return m.group(0)
+            return raw.decode('utf-8')
+        except ValueError:
+            return m.group(0)
+
     def _year_apart(self, m):
         """'(2015, Marvel edition)' or '(Marvel edition 2015)' becomes '(2015) (Marvel edition)',
         so the year reads as the year. Dates like '(Jan 2015)' are left whole."""
