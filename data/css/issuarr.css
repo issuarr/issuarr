@@ -1474,6 +1474,7 @@ a.w-where:hover { color: var(--text); text-decoration-color: currentColor; }
 .att-col.is-differ .att-lib { color: var(--wanted); }
 .att-unread { margin: 0 0 14px; color: var(--muted); }
 .att-others { margin: -4px 0 12px; font-size: 13.5px; color: var(--muted); }
+.att-owned { margin: 0 0 12px; font-size: 14px; }
 .att-acts { display: flex; flex-wrap: wrap; gap: 8px; }
 .att-job { margin: 0 0 10px; color: var(--snatched); font-size: 13.5px; }
 .att-job.is-failed { color: var(--failed-text); }

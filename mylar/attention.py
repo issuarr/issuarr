@@ -400,7 +400,9 @@ def suggest(parsed, limit=3, comicid=None):
                      'total': c['Total'], 'score': round(s, 2), 'rank': round(rank, 2), 'agree': agree,
                      'format': 'Single issues' if singles else stype,
                      'issueid': (issue or {}).get('IssueID'), 'number': (issue or {}).get('Issue_Number'),
-                     'status': (issue or {}).get('Status'), 'issue_year': iyear or None})
+                     'status': (issue or {}).get('Status'), 'issue_year': iyear or None,
+                     # filing it would only duplicate the copy already filed
+                     'owned': (issue or {}).get('Status') in ('Downloaded', 'Archived')})
     out.sort(key=lambda m: -m['rank'])
     return out[:limit]
 
