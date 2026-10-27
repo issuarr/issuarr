@@ -424,6 +424,7 @@ def test_try_filing_again_runs_filing_over_each_folder_after_new_downloads(env, 
     assert len(waits) == 2   # waited twice for the queue to empty before starting
     st = attention.status()['refile']
     assert (st['state'], st['before'], st['after'], st['done'], st['total']) == ('done', 2, 1, 2, 2)
+    assert st['why'] == [('year', 1)]   # what's left, and why
 
 
 @pytest.mark.unit
@@ -670,6 +671,9 @@ def test_plain_trash_leaves_the_issue_alone(env, monkeypatch):
     attention.record(bad, 'damaged', 'Bad CRC')
     assert 'Wanted' not in attention.trash(bad)['note']
     assert env.db.selectone("SELECT Status FROM issues WHERE IssueID='t66'").fetchone()['Status'] == 'Downloaded'
+
+
+@pytest.mark.unit
 def test_a_suggested_issue_already_in_the_library_says_so(env):
     # "Aliens 002 (2024)" is Alien (2024) #2, already filed: the page offers the trash, not File as
     env.db.action("INSERT INTO comics (ComicID, ComicName, ComicYear, ComicVersion, Total) VALUES ('154673', 'Alien', '2024', NULL, 4)")
@@ -679,6 +683,9 @@ def test_a_suggested_issue_already_in_the_library_says_so(env):
     assert (best['comicid'], best['issueid'], best['owned']) == ('154673', 'a2', True)
     best = attention.suggest({'series': 'Aliens', 'issue': '003', 'year': '2024', 'volume': None})[0]
     assert (best['issueid'], best['owned']) == ('a3', False)
+
+
+@pytest.mark.unit
 def test_try_filing_again_looks_up_unclaimed_series_first_when_auto_add_is_on(env, monkeypatch):
     from mylar import autoadd, PostProcessor
     a = touch(env.review / 'X-Men Annual 2000 (scan).cbr')
@@ -704,3 +711,9 @@ def test_try_filing_again_looks_up_unclaimed_series_first_when_auto_add_is_on(en
     monkeypatch.setattr(autoadd, 'enabled', lambda: False)
     attention.refile_all()
     assert order == [('file', str(env.review))]
+
+
+@pytest.mark.unit
+def test_why_files_were_left_is_counted_most_first():
+    rows = {'a': {'reason': 'series'}, 'b': {'reason': 'series'}, 'c': {'reason': 'owned'}, 'd': {'reason': 'damaged'}, 'e': None}
+    assert attention.why_left(rows) == [('series', 2), ('damaged', 1), ('owned', 1), ('unclaimed', 1)]

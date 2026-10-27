@@ -56,6 +56,17 @@
             cover: ['bad', 'Covers only, not the full issue.'],
             unclaimed: ['review', 'Nothing on your watchlist claimed it, so it was moved to review.']
         };
+        /* Try filing again's summary: "12 for series not on your watchlist, 1 already in your library". */
+        var WHY_LEFT = {
+            series: 'for series not on your watchlist (or named differently)',
+            unclaimed: 'that nothing on your watchlist claimed',
+            issue: 'whose issue isn\'t on the series',
+            volume: 'with a different volume',
+            year: 'with a different year',
+            owned: 'already in your library',
+            damaged: 'damaged',
+            cover: 'covers only'
+        };
         var TABS = [['all', 'All'], ['place', 'Couldn\'t place'], ['owned', 'Already have'], ['review', 'In review'], ['bad', 'Damaged or covers']];
 
         function esc(t) { return window.Issuarr.esc(t == null ? '' : String(t)); }
@@ -565,7 +576,8 @@
             } else if (r.state === 'done' || r.state === 'stopped') {
                 var filed = r.after == null ? null : Math.max(r.before - r.after, 0);
                 text = (r.state === 'stopped' ? 'Stopped. ' : 'Tried everything again. ') +
-                       (filed == null ? '' : filed + ' of ' + r.before + ' files were filed; ' + r.after + ' still need you.');
+                       (filed == null ? '' : filed + ' of ' + r.before + ' files were filed; ' + r.after + ' still need you') +
+                       (r.why && r.why.length ? ': ' + r.why.map(function (w) { return w[1] + ' ' + (WHY_LEFT[w[0]] || w[0]); }).join(', ') + '.' : '.');
             }
             refileNote.textContent = text;
             refileNote.hidden = !text;
