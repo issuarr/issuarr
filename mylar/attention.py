@@ -961,6 +961,13 @@ def refile_all(auto=False):
     return {'ok': True, 'note': 'Trying %s files again. New downloads are filed first.' % len(paths)}
 
 
+def why_left(rows):
+    """Why the files still listed weren't filed, as [(reason, count)], most files first: what Try
+    filing again tells the user it couldn't do. rows: path -> attention row."""
+    counts = collections.Counter((r or {}).get('reason') or 'unclaimed' for r in rows.values())
+    return sorted(counts.items(), key=lambda x: (-x[1], REASONS.index(x[0]) if x[0] in REASONS else len(REASONS)))
+
+
 def stop_refile():
     with _REFILE_LOCK:
         if REFILE.get('state') == 'running':
@@ -994,14 +1001,16 @@ def _refile_run(folders):
     finally:
         _COUNT[0] = 0
         try:
-            left = len([p for p in _open_paths(db.DBConnection()) if not in_library(p)])
+            still = {p: r for p, r in _open_paths(db.DBConnection()).items() if not in_library(p)}
+            left = len(still)
+            why = why_left(still)
         except Exception:
-            left = None
+            left, why = None, []
         with _REFILE_LOCK:
-            REFILE.update(state='stopped' if REFILE.get('stop') else 'done', after=left, current='',
+            REFILE.update(state='stopped' if REFILE.get('stop') else 'done', after=left, why=why, current='',
                           waiting=False, finished=time.time())
-        logger.info('[ATTENTION] Finished trying again: %s of %s file(s) still need attention.'
-                    % ('?' if left is None else left, REFILE.get('before')))
+        logger.info('[ATTENTION] Finished trying again: %s of %s file(s) still need attention%s.'
+                    % ('?' if left is None else left, REFILE.get('before'), ' (%s)' % ', '.join('%s %s' % (n, r) for r, n in why) if why else ''))
 
 
 def _version_key():
