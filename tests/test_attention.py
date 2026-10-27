@@ -596,7 +596,80 @@ def test_a_name_without_a_year_takes_its_pack_folders(env):
     assert attention.parse('/downloads/Marvel Weekly (2015)/The Star Wars 007.cbr')['year'] is None
 
 
+def _x_men_annuals(env):
+    env.db.action('ALTER TABLE comics ADD COLUMN ComicPublished TEXT')
+    env.db.action("INSERT INTO comics (ComicID, ComicName, ComicYear, ComicVersion, Total, ComicPublished) VALUES "
+                  "('22988', 'X-Men Annual', '1970', NULL, 15, 'December 1970 - September 1991'), "
+                  "('10748', 'X-Men Annual', '1992', 'v1', 3, 'July 1992 - December 1994'), "
+                  "('146988', 'X-Men Annual', '2023', NULL, 1, 'February 2023'), "
+                  "('153608', 'X-Men Annual', '2023', NULL, 1, 'November 2023'), "
+                  "('60440', 'Iron Man 2000', '2000', NULL, 1, 'October 2000')")
+    env.db.action("UPDATE comics SET AlternateSearch='Iron Man Annual 2000' WHERE ComicID='60440'")
+    env.db.action("INSERT INTO issues VALUES ('a70', '22988', '1', 'Downloaded', '1970-12-01', NULL), ('a92', '10748', '1', 'Downloaded', '1992-07-01', NULL), "
+                  "('a23', '146988', '1', 'Downloaded', '2023-02-01', NULL), ('b23', '153608', '1', 'Downloaded', '2023-11-01', NULL), "
+                  "('im', '60440', '1', 'Wanted', '2000-10-01', NULL)")
+
+
 @pytest.mark.unit
+def test_search_puts_the_series_from_the_year_asked_for_first(env):
+    _x_men_annuals(env)
+    # the 2000 is the year: the X-Men Annual nearest 2000 first, the 2023 ones after, another title's Annual 2000 not above them
+    out = attention.search('X-Men Annual 2000')
+    assert [s['comicid'] for s in out][:4] == ['10748', '22988', '146988', '153608']
+    # the same name twice from one year: side by side at the top, told apart by their run
+    out = attention.search('X-Men Annual', year='2023')
+    assert [(s['comicid'], s['published'], s['fits']) for s in out][:2] == [('146988', 'February 2023', True), ('153608', 'November 2023', True)]
+    out = attention.search('X-Men Annual', year='1995')
+    assert [s['comicid'] for s in out][:2] == ['10748', '22988']
+
+
+@pytest.mark.unit
+def test_suggestions_without_a_matching_issue_go_by_the_series_year(env):
+    _x_men_annuals(env)
+    out = attention.suggest(attention.parse('X-Men Annual 2000 (scan).cbr'), limit=4)
+    assert [m['comicid'] for m in out] == ['10748', '22988', '146988', '153608']
+    assert 'February 2023' in [m['published'] for m in out]
+@pytest.mark.unit
+def test_trashing_a_damaged_library_file_can_mark_its_issue_wanted(env, monkeypatch):
+    from mylar import search
+    searched = []
+    monkeypatch.setattr(search, 'searchIssueIDList', lambda ids: searched.append(ids))
+    monkeypatch.setattr(attention.threading, 'Thread', lambda target, args, **k: types.SimpleNamespace(start=lambda: target(*args)))
+    env.db.action('ALTER TABLE comics ADD COLUMN ComicLocation TEXT')
+    env.db.action('ALTER TABLE issues ADD COLUMN Location TEXT')
+    env.db.action('ALTER TABLE issues ADD COLUMN ComicSize TEXT')
+    env.db.action('CREATE TABLE webp_files (path TEXT PRIMARY KEY, size INTEGER, mtime REAL, status TEXT, reason TEXT, at TEXT, saved INTEGER)')
+    # the series' folder on record is out of date; the file name still ties it to one issue
+    env.db.action("INSERT INTO comics (ComicID, ComicName, ComicYear, ComicLocation) VALUES ('34429', 'The Perhapanauts', '2005', '/comics/Dark Horse Comics/The Perhapanauts (2005)')")
+    env.db.action("INSERT INTO issues (IssueID, ComicID, Issue_Number, Status, Location, ComicSize) VALUES "
+                  "('p4', '34429', '4', 'Archived', 'Perhapanauts 04 (2006).cbr', '6626616'), ('p3', '34429', '3', 'Archived', 'Perhapanauts 03 (2006).cbr', '1')")
+    bad = touch(env.root / 'comics' / 'Perhapanauts (Image)' / 'Perhapanauts 04 (2006).cbr')
+    env.db.action("INSERT INTO webp_files (path, status) VALUES (?, 'damaged')", [bad])
+    attention.record(bad, 'damaged', 'Bad CRC')
+    item = [i for i in attention.items() if i['path'] == bad][0]
+    assert item['in_library'] and (item['issue']['issueid'], item['issue']['status']) == ('p4', 'Archived')
+
+    out = attention.trash(bad, want=True)
+    assert out['ok'] and 'The Perhapanauts (2005) #4 is now Wanted.' in out['note']
+    assert not os.path.exists(bad)
+    row = env.db.selectone("SELECT Status, Location FROM issues WHERE IssueID='p4'").fetchone()
+    assert (row['Status'], row['Location']) == ('Wanted', None)
+    assert searched == [['p4']]
+    assert env.db.selectone("SELECT Status FROM issues WHERE IssueID='p3'").fetchone()['Status'] == 'Archived'
+
+
+@pytest.mark.unit
+def test_plain_trash_leaves_the_issue_alone(env, monkeypatch):
+    env.db.action('ALTER TABLE comics ADD COLUMN ComicLocation TEXT')
+    env.db.action('ALTER TABLE issues ADD COLUMN Location TEXT')
+    env.db.action('CREATE TABLE webp_files (path TEXT PRIMARY KEY, size INTEGER, mtime REAL, status TEXT, reason TEXT, at TEXT, saved INTEGER)')
+    env.db.action("INSERT INTO comics (ComicID, ComicName, ComicYear) VALUES ('9', 'Thunderbolts', '1997')")
+    env.db.action("INSERT INTO issues (IssueID, ComicID, Issue_Number, Status, Location) VALUES ('t66', '9', '66', 'Downloaded', 'Thunderbolts 66 (2002).cbz')")
+    bad = touch(env.root / 'comics' / 'Thunderbolts (1997)' / 'Thunderbolts 66 (2002).cbz')
+    env.db.action("INSERT INTO webp_files (path, status) VALUES (?, 'damaged')", [bad])
+    attention.record(bad, 'damaged', 'Bad CRC')
+    assert 'Wanted' not in attention.trash(bad)['note']
+    assert env.db.selectone("SELECT Status FROM issues WHERE IssueID='t66'").fetchone()['Status'] == 'Downloaded'
 def test_a_suggested_issue_already_in_the_library_says_so(env):
     # "Aliens 002 (2024)" is Alien (2024) #2, already filed: the page offers the trash, not File as
     env.db.action("INSERT INTO comics (ComicID, ComicName, ComicYear, ComicVersion, Total) VALUES ('154673', 'Alien', '2024', NULL, 4)")

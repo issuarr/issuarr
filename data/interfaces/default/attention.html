@@ -86,7 +86,7 @@
             var a = m ? m.agree : {};
             return '<div class="att-read" role="group" aria-label="The file name next to the closest series">' +
                 '<div class="att-col att-rowhead"><span class="att-part">&nbsp;</span><span class="att-file">File name</span><span class="att-lib">' + (m ? 'Closest match' : 'No close match') + '</span></div>' +
-                cell('Series', p.series, m && (m.name + ' (' + m.year + ')'), m ? a.series : null) +
+                cell('Series', p.series, m && label(i, m), m ? a.series : null) +
                 cell('Issue', p.issue && '#' + p.issue, m && m.number && '#' + m.number, m ? a.issue : null, m ? 'not on this series' : '') +
                 cell('Year', p.year, m && m.issue_year, m ? a.year : null) +
                 cell('Volume', p.volume, m && m.volume, m ? a.volume : null) +
@@ -99,7 +99,9 @@
             if (i.job && (i.job.state === 'filing' || i.job.state === 'waiting')) return '<p class="att-job">' + esc(i.job.note) + '…</p>';
             if (i.in_library) {
                 // already filed: filing it again would put it over itself
-                return '<div class="att-acts"><button type="button" class="btn btn-sm btn-ghost" data-trash>Move to trash</button>' +
+                var want = i.issue && i.issue.status !== 'Wanted' ?
+                    '<button type="button" class="btn btn-sm btn-primary" data-trash-want>Move to trash and mark Wanted</button>' : '';
+                return '<div class="att-acts">' + want + '<button type="button" class="btn btn-sm btn-ghost" data-trash>Move to trash</button>' +
                        '<button type="button" class="btn btn-sm btn-ghost" data-ignore>Ignore</button></div>';
             }
             if (m && m.issueid && m.owned) {
@@ -125,7 +127,7 @@
             var rest = i.matches.slice(1).filter(function (m) { return m.issueid; });
             if (!rest.length) return '';
             return '<p class="att-others">Or ' + rest.map(function (m) {
-                return '<button type="button" class="link-btn" data-file="' + esc(m.comicid) + '|' + esc(m.issueid) + '">' + esc(m.name) + ' (' + esc(m.year) + ') #' + esc(m.number) + '</button>' +
+                return '<button type="button" class="link-btn" data-file="' + esc(m.comicid) + '|' + esc(m.issueid) + '">' + esc(label(i, m)) + ' #' + esc(m.number) + '</button>' +
                        (m.owned ? ' <span class="faint">(already in your library)</span>' : '');
             }).join(', ') + '</p>';
         }
@@ -158,7 +160,8 @@
                     '<button type="button" class="link-btn" data-copy>Copy path</button></p>' +
                 '<div class="att-body">' + covers(i) + '<div class="att-main">' +
                 '<p class="att-why"><b>' + r[1] + '</b>' + (i.detail ? ' ' + esc(i.detail) : '') + '</p>' +
-                (i.in_library ? '<p class="att-unread">Replace it with a good copy, or move it to the trash.</p>' : reading(i) + owned(i) + others(i)) + job + actions(i) +
+                (i.in_library ? '<p class="att-unread">' + (i.issue ? 'It\'s ' + esc(i.issue.name) + ' (' + esc(i.issue.year) + ') #' + esc(i.issue.number) +
+                    (i.issue.status === 'Wanted' ? ', already Wanted' : '') + '. ' : '') + 'Replace it with a good copy, or move it to the trash.</p>' : reading(i) + owned(i) + others(i)) + job + actions(i) +
                 (open === i.path ? picker(i) : '') +
                 '</div></div>' +
                 '</article>';
@@ -418,17 +421,28 @@
 
         /* A file no watchlist series' name agrees with: its series likely isn't on the watchlist
            yet, so the picker asks ComicVine straight away (once, when it opens). */
+        /* No watchlist series has both the name and the issue: ComicVine is asked too when the picker opens. */
         function noCloseMatch(i) {
-            return !(i.matches || []).some(function (m) { return m.agree && m.agree.series; });
+            return !(i.matches || []).some(function (m) { return m.agree && m.agree.series && m.agree.issue; });
+        }
+
+        /* "X-Men Annual (2023)" twice: the run tells them apart. */
+        function twin(i, m) {
+            return (i.matches || []).some(function (o) { return o !== m && o.name === m.name && String(o.year) === String(m.year); });
+        }
+
+        function label(i, m) {
+            return m.name + ' (' + m.year + ')' + (m.published && twin(i, m) ? ', ' + m.published : '');
         }
 
         function search(pk, text, opening) {
-            fetch('attention_search?' + q({ q: text }), { credentials: 'same-origin' }).then(function (r) { return r.json(); }).then(function (d) {
+            var it = itemOf(pk);
+            fetch('attention_search?' + q({ q: text, year: (it && it.parsed && it.parsed.year) || '' }), { credentials: 'same-origin' }).then(function (r) { return r.json(); }).then(function (d) {
                 var ul = pk.querySelector('[data-series]');
                 wantIssue(pk, d.link);
                 ul.innerHTML = d.series.length ? d.series.map(function (s) {
                     return '<li><button type="button" class="link-btn" data-series-id="' + esc(s.comicid) + '">' + esc(s.name) + ' (' + esc(s.year) + ')' +
-                           (s.volume ? ' ' + esc(s.volume) : '') + '</button></li>';
+                           (s.volume ? ' ' + esc(s.volume) : '') + '</button>' + (s.published ? ' <span class="faint">' + esc(s.published) + '</span>' : '') + '</li>';
                 }).join('') : d.link ? '<li class="muted">That series isn\'t on your watchlist yet.</li>' : '<li class="muted">No series on your watchlist by that name.</li>';
                 var i = itemOf(pk);
                 if (opening && !d.link && text.trim() && i && noCloseMatch(i) && !adding[i.path]) cvSearch(pk, text, i.parsed && i.parsed.year);
@@ -666,6 +680,7 @@
                 if (!open) unpark();
                 return;
             }
+            if (e.target.closest('[data-trash-want]')) return act('attention_trash', i, { want: '1' }, 'Moving it to the trash and marking the issue Wanted');
             if (e.target.closest('[data-trash]')) return act('attention_trash', i, null, 'Moving it to the trash');
             if (e.target.closest('[data-ignore]')) return act('attention_ignore', i, null, 'Hiding it');
             if ((b = e.target.closest('[data-series-id]'))) return chooseSeries(b.closest('[data-picker]'), b.getAttribute('data-series-id'), b);
