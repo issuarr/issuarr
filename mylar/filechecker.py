@@ -136,6 +136,7 @@ class FileChecker(object):
                     'alt_issue':           runresults['alt_issue'],
                     'issue_year':          runresults['issue_year'],
                     'issue_number':        runresults['issue_number'],
+                    'name_year':           runresults.get('name_year', False),
                     'scangroup':           runresults['scangroup'],
                     'reading_order':       runresults['reading_order'],
                     'booktype':            runresults['booktype']
@@ -179,6 +180,7 @@ class FileChecker(object):
                                     'series_volume':       runresults['series_volume'],
                                     'issue_year':          runresults['issue_year'],
                                     'issue_number':        runresults['issue_number'],
+                                    'name_year':           runresults.get('name_year', False),
                                     'scangroup':           runresults['scangroup'],
                                     'reading_order':       runresults['reading_order'],
                                     'booktype':            runresults['booktype']
@@ -1398,8 +1400,21 @@ class FileChecker(object):
                             'booktype':            booktype,
                             'reading_order':       None}
 
+        # "X-Men Annual 2000", "X-Men - Dr. Doom Annual (1998)": a year right after "Annual" is the
+        # year, and may be part of the series' name (ComicVine's "X-Men 2000"), not issue #2000
+        name_year = False
+        if series_name and re.search(r'\bannual$', series_name.strip(), re.I) and re.match(r'^(19|20)\d\d$', str(issue_year or '')) \
+                and str(issue_number or issue_year) == str(issue_year):
+            logger.fdebug('%s %s: the year is the year, and may be part of the series name - no issue number' % (series_name, issue_year))
+            issue_number = None
+            name_year = True
+            booktype = 'issue'
+            if not volume_found:
+                issue_volume = None
+
         if self.justparse:
             return {'parse_status':           'success',
+                    'name_year':              name_year,
                     'type':                   re.sub(r'\.','', filetype).strip(),
                     'sub':                    path_list,
                     'comicfilename':          filename,
@@ -1430,6 +1445,7 @@ class FileChecker(object):
                        'series_volume':          issue_volume,
                        'issue_year':             issue_year,
                        'issue_number':           issue_number,
+                       'name_year':              name_year,
                        'scangroup':              scangroup,
                        'booktype':               booktype}
 

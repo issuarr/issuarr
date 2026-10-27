@@ -277,7 +277,7 @@ def parse(path):
     if not isinstance(p, dict) or p.get('parse_status') != 'success':
         return out
     out.update(series=p.get('series_name'), issue=p.get('issue_number'), year=p.get('issue_year') or _folder_year(path, p.get('series_name')),
-               volume=p.get('series_volume'))
+               volume=p.get('series_volume'), name_year=bool(p.get('name_year')))
     out['search'] = _titled(out) or out['series']
     return out
 
@@ -406,9 +406,11 @@ def suggest(parsed, limit=3, comicid=None):
 
 
 def _titled(parsed):
-    """Series name with the issue number put back when that number looks like a year:
-    "X-Men Annual 1995 (1995)" reads as X-Men Annual #1995, but the series may be called that."""
+    """Series name with its year put back when the year may be part of the name: "X-Men Annual
+    1995 (1995)" has no issue number, and the series may be called X-Men Annual 1995."""
     series, number = parsed.get('series'), str(parsed.get('issue') or '').strip()
+    if parsed.get('name_year') and not number:
+        number = str(parsed.get('year') or '').strip()
     if series and re.match(r'^(19|20)\d\d$', number):
         return '%s %s' % (series, number)
     return None
