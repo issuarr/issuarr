@@ -42,6 +42,19 @@ if 'windows' not in platform.system().lower():
     from pwd import getpwnam
     from grp import getgrnam
 
+def unescape_bytes(name):
+    """Some tools write each byte of a character they can't keep as _XX, so "X-Men \u00bd" turns up as
+    "X-Men _C2_BD". Puts those characters back. Only runs of two or more non-ASCII bytes that
+    decode as UTF-8 are read this way; anything else is left as it is."""
+    def put_back(m):
+        raw = bytes(int(h, 16) for h in m.group(0).split('_')[1:])
+        try:
+            return raw.decode('utf-8') if len(raw) > 1 else m.group(0)
+        except UnicodeDecodeError:
+            return m.group(0)
+    return re.sub(r'(?:_[89A-F][0-9A-F](?![0-9A-Za-z]))+', put_back, name)
+
+
 class FileChecker(object):
 
     def __init__(self, dir=None, watchcomic=None, Publisher=None, AlternateSearch=None, manual=None, sarc=None, justparse=None, file=None, pp_mode=False):
@@ -267,7 +280,7 @@ class FileChecker(object):
         #find the issue number first.
         #split the file and then get all the relevant numbers that could possibly be an issue number.
         #remove the extension.
-        modfilename = re.sub(filetype, '', filename).strip()
+        modfilename = unescape_bytes(re.sub(filetype, '', filename).strip())
         reading_order = None
 
         ro = re.match(r'^(0\d{1,2})\s*[-.]?\s+(?=\S)(.*\d.*)$', modfilename)
