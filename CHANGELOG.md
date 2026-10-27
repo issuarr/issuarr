@@ -6,6 +6,7 @@ Releases come from the `main` branch and are the `latest` Docker image. Changes 
 
 ## Unreleased (on dev)
 
+- [fix] Import results, including Needs a choice, now drop files that are gone when their whole folder was deleted or moved too, such as an emptied _UNMATCHED or publisher folder. Before, those stayed listed as if they still needed a choice. A library folder that isn't mounted is still left alone. ([`aa60230`](https://github.com/issuarr/issuarr/commit/aa60230))
 - [feat] After Try filing again, Needs attention says why the files that are left weren't filed, such as "12 for series not on your watchlist, 2 already in your library", not just how many there are. ([`0042340`](https://github.com/issuarr/issuarr/commit/0042340))
 - [fix] A publisher in brackets and "GN" after a title, as in "Silver Surfer Homecoming GN [Marvel] (1991)", are no longer read as part of the series name. ([`4dd3eb2`](https://github.com/issuarr/issuarr/commit/4dd3eb2))
 - [fix] Adding the series of comics nothing on the watchlist wants now finds more of them: it reads ComicVine's other names for a series (X-Men '95 is also "X-Men Annual 1995"), finds one-shots and graphic novels with no issue number by their year, and counts the files it couldn't identify instead of skipping them. With it on, Try filing again looks up the series of the files nothing claimed first. ([`36720b1`](https://github.com/issuarr/issuarr/commit/36720b1))
