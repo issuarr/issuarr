@@ -594,3 +594,15 @@ def test_a_name_without_a_year_takes_its_pack_folders(env):
     assert attention.parse(pack + 'The Star Wars 007.cbr')['year'] == '2015'
     # a folder for something else doesn't lend its year
     assert attention.parse('/downloads/Marvel Weekly (2015)/The Star Wars 007.cbr')['year'] is None
+
+
+@pytest.mark.unit
+def test_a_suggested_issue_already_in_the_library_says_so(env):
+    # "Aliens 002 (2024)" is Alien (2024) #2, already filed: the page offers the trash, not File as
+    env.db.action("INSERT INTO comics (ComicID, ComicName, ComicYear, ComicVersion, Total) VALUES ('154673', 'Alien', '2024', NULL, 4)")
+    env.db.action("INSERT INTO issues VALUES ('a2', '154673', '2', 'Downloaded', '2024-02-01', '2023-12-20'), "
+                  "('a3', '154673', '3', 'Wanted', '2024-03-01', '2024-01-17')")
+    best = attention.suggest({'series': 'Aliens', 'issue': '002', 'year': '2024', 'volume': None})[0]
+    assert (best['comicid'], best['issueid'], best['owned']) == ('154673', 'a2', True)
+    best = attention.suggest({'series': 'Aliens', 'issue': '003', 'year': '2024', 'volume': None})[0]
+    assert (best['issueid'], best['owned']) == ('a3', False)
