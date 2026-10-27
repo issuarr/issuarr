@@ -440,7 +440,7 @@ def items():
             job = {'state': 'waiting', 'note': 'Waiting to file'}
         out.append({'path': path, 'name': os.path.basename(path), 'folder': os.path.dirname(path), 'group': group_of(path)[0],
                     'in_review': bool(review) and os.path.normpath(path).startswith(review + os.sep),
-                    'in_library': library,
+                    'in_library': library, 'issue': library_issue(path) if library else None,
                     'reason': row.get('reason') or 'unclaimed', 'detail': row.get('detail') or '',
                     'size': _size(path), 'modified': mtime, 'parsed': parsed,
                     'matches': matches, 'job': job})
@@ -732,15 +732,54 @@ def gone(path):
     return {'ok': True, 'gone': True, 'note': 'That file was already moved or deleted, so it\'s off the list.'}
 
 
-def trash(path):
+def library_issue(path, myDB=None):
+    """The issue a file in the library is filed as: its name in the series' folder, or else the only
+    issue anywhere with that file name (a series folder can move without the series noticing)."""
+    myDB = myDB or db.DBConnection()
+    try:
+        rows = myDB.select('SELECT i.IssueID, i.ComicID, i.Issue_Number, i.Status, c.ComicName, c.ComicYear, c.ComicLocation FROM issues i '
+                           'JOIN comics c ON c.ComicID=i.ComicID WHERE i.Location=?', [os.path.basename(path)])
+    except Exception as e:
+        logger.fdebug('[ATTENTION] Could not look up the issue of %s: %s' % (path, e))
+        return None
+    folder = os.path.normpath(os.path.dirname(path))
+    here = [r for r in rows if r['ComicLocation'] and os.path.normpath(r['ComicLocation']) == folder]
+    row = here[0] if len(here) == 1 else rows[0] if len(rows) == 1 else None
+    if row is None:
+        return None
+    return {'issueid': row['IssueID'], 'comicid': row['ComicID'], 'name': row['ComicName'], 'year': row['ComicYear'],
+            'number': row['Issue_Number'], 'status': row['Status']}
+
+
+def trash(path, want=False):
+    """Move a listed file to the trash. want: it's a damaged file in the library, so mark its issue
+    Wanted (unless it already is) and look for a good copy."""
     left = gone(path)
     if left:
         return left
     if not _known(path):
         return {'ok': False, 'note': 'That file is no longer waiting for a decision.'}
+    issue = library_issue(path) if want and in_library(path) else None
     dest_dir = _trash_file(path)
     logger.info('[ATTENTION] Moved %s to the trash (%s).' % (os.path.basename(path), dest_dir))
-    return {'ok': True, 'note': 'Moved to the trash. It\'s deleted for good after %s days.' % trash_days()}
+    note = 'Moved to the trash. It\'s deleted for good after %s days.' % trash_days()
+    if issue:
+        note += ' ' + _want(issue)
+    return {'ok': True, 'note': note}
+
+
+def _want(issue):
+    """Mark a trashed library file's issue Wanted and search for it, as marking it Wanted by hand does."""
+    from mylar import search
+    label = '%s (%s) #%s' % (issue['name'], issue['year'], issue['number'])
+    myDB = db.DBConnection()
+    myDB.action("UPDATE issues SET Location=NULL, ComicSize=NULL WHERE IssueID=?", [issue['issueid']])
+    if issue['status'] == 'Wanted':
+        return '%s was already Wanted.' % label
+    myDB.upsert('issues', {'Status': 'Wanted'}, {'IssueID': issue['issueid']})
+    logger.info('[ATTENTION] Marked %s Wanted after its damaged file went to the trash.' % label)
+    threading.Thread(target=search.searchIssueIDList, args=[[issue['issueid']]], name='ATTENTION-WANT', daemon=True).start()
+    return '%s is now Wanted.' % label
 
 
 def _trash_file(path):

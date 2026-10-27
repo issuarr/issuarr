@@ -99,7 +99,9 @@
             if (i.job && (i.job.state === 'filing' || i.job.state === 'waiting')) return '<p class="att-job">' + esc(i.job.note) + '…</p>';
             if (i.in_library) {
                 // already filed: filing it again would put it over itself
-                return '<div class="att-acts"><button type="button" class="btn btn-sm btn-ghost" data-trash>Move to trash</button>' +
+                var want = i.issue && i.issue.status !== 'Wanted' ?
+                    '<button type="button" class="btn btn-sm btn-primary" data-trash-want>Move to trash and mark Wanted</button>' : '';
+                return '<div class="att-acts">' + want + '<button type="button" class="btn btn-sm btn-ghost" data-trash>Move to trash</button>' +
                        '<button type="button" class="btn btn-sm btn-ghost" data-ignore>Ignore</button></div>';
             }
             if (m && m.issueid) {
@@ -147,7 +149,8 @@
                     '<button type="button" class="link-btn" data-copy>Copy path</button></p>' +
                 '<div class="att-body">' + covers(i) + '<div class="att-main">' +
                 '<p class="att-why"><b>' + r[1] + '</b>' + (i.detail ? ' ' + esc(i.detail) : '') + '</p>' +
-                (i.in_library ? '<p class="att-unread">Replace it with a good copy, or move it to the trash.</p>' : reading(i) + others(i)) + job + actions(i) +
+                (i.in_library ? '<p class="att-unread">' + (i.issue ? 'It\'s ' + esc(i.issue.name) + ' (' + esc(i.issue.year) + ') #' + esc(i.issue.number) +
+                    (i.issue.status === 'Wanted' ? ', already Wanted' : '') + '. ' : '') + 'Replace it with a good copy, or move it to the trash.</p>' : reading(i) + others(i)) + job + actions(i) +
                 (open === i.path ? picker(i) : '') +
                 '</div></div>' +
                 '</article>';
@@ -655,6 +658,7 @@
                 if (!open) unpark();
                 return;
             }
+            if (e.target.closest('[data-trash-want]')) return act('attention_trash', i, { want: '1' }, 'Moving it to the trash and marking the issue Wanted');
             if (e.target.closest('[data-trash]')) return act('attention_trash', i, null, 'Moving it to the trash');
             if (e.target.closest('[data-ignore]')) return act('attention_ignore', i, null, 'Hiding it');
             if ((b = e.target.closest('[data-series-id]'))) return chooseSeries(b.closest('[data-picker]'), b.getAttribute('data-series-id'), b);
