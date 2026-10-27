@@ -559,7 +559,7 @@
             stopBtn.disabled = !!r.stopping;
             var text = '';
             if (running) {
-                var where = r.waiting ? 'Waiting while new downloads are filed.' : r.current ? 'Filing ' + r.current + '.' : '';
+                var where = r.lookup ? 'Looking up their series on ComicVine.' : r.waiting ? 'Waiting while new downloads are filed.' : r.current ? 'Filing ' + r.current + '.' : '';
                 text = (r.auto ? 'Trying everything here again after the update: ' : 'Trying again: ') + 'folder ' + Math.min(r.done + 1, r.total) +
                        ' of ' + r.total + '. ' + where + (r.stopping ? ' Stopping after this folder.' : '');
             } else if (r.state === 'done' || r.state === 'stopped') {
