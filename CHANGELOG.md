@@ -6,6 +6,7 @@ Releases come from the `main` branch and are the `latest` Docker image. Changes 
 
 ## Unreleased (on dev)
 
+- [feat] On Downloads > Needs attention, when the suggested issue is already in your library, the row says so and offers Move to trash instead of filing a second copy. Other suggestions already in your library are marked too. ([`bb71655`](https://github.com/issuarr/issuarr/commit/bb71655))
 - [fix] A reading-order number at the start of a book's name, such as "12 - Aliens Omnibus v03", is dropped from the series name. Names like "52 - Week Fifty-Two" keep their number. ([`8386f3b`](https://github.com/issuarr/issuarr/commit/8386f3b))
 - [fix] Books numbered only by volume, such as "Aliens Omnibus v04", are filed with the volume as the issue number when the name has no issue number, and a series that still has Wanted issues is no longer skipped as "100% complete" because of an out-of-date count. That count had left Aliens Omnibus vols 2 to 6 unfiled after JDownloader finished them. After filing a download's folder, Issuarr now removes the folder if it is left empty. ([`39a49ec`](https://github.com/issuarr/issuarr/commit/39a49ec))
 - [fix] A year that shares its brackets with other words in a file name, such as "The Star Wars 007 (2015, Marvel edition)", is read as the year again, so Needs attention offers the series from that year instead of a newer one with the same name. When a file name has no year, Needs attention takes it from the pack folder the file came in. ([`a55e415`](https://github.com/issuarr/issuarr/commit/a55e415))
