@@ -176,3 +176,18 @@ def test_the_switches_are_on_the_settings_page():
     for name in ('notify_on_task_start', 'notify_on_task_done', 'notify_task', 'notify_tasks_shown', 'notify_on_attention',
                  'notify_on_match_needed', 'notify_on_action', 'notify_on_disk_low', 'notify_disk_min_gb'):
         assert "'%s'" % name in page or 'name="%s"' % name in page
+
+
+
+@pytest.mark.unit
+def test_needs_attention_sends_the_first_new_files_cover(monkeypatch, sent):
+    calls = []
+    monkeypatch.setattr(alerts.notifiers, 'send_all', lambda headline, prline, message, **kw: calls.append(kw))
+    monkeypatch.setattr(mylar, 'CONFIG', _config(DISCORD_ENABLED=True), raising=False)
+    _quiet_checks(monkeypatch)
+    alerts.tick()
+    _quiet_checks(monkeypatch, attention=['/r/b.cbz', '/r/a.cbz'])
+    with mock.patch.object(alerts.notifiers, 'cover', return_value='COVER') as cover:
+        alerts.tick()
+    assert cover.call_args.kwargs == {'path': '/r/a.cbz'}
+    assert calls[0]['imageFile'] == 'COVER'
