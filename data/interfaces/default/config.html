@@ -689,6 +689,12 @@
                 ${toggle('archive_delete', 'Delete .zip and .rar packs after unpacking them', config['archive_delete'])}
                 ${toggle('archive_auto_add', 'Add the series of comics nothing on the watchlist wants', config['archive_auto_add'],
                          help='Finds each series on ComicVine (using the pack\'s release week when there is one), adds it, and files the issue on the next folder monitor pass. Anything it can\'t identify follows the option below.')}
+                ${toggle('cover_match_strict', 'Issues must match by cover to get filed', config['cover_match_strict'],
+                         help='Each issue\'s front cover is compared with its cover on ComicVine before it\'s filed. A clearly different cover always goes to Needs attention. With this on, so does any issue whose cover isn\'t a match, or that has no cover on ComicVine to compare with.')}
+                <div class="set-row">
+                    <label class="set-label" for="f_cover_match_score"><b>Cover match strictness</b><span>How different two covers may be and still match, from 4 (nearly identical) to 32. 16 is ComicTagger's own. Lower it if wrong issues get filed; raise it if variant covers or scans keep failing.</span></label>
+                    <div class="set-ctl"><input type="number" name="cover_match_score" id="f_cover_match_score" value="${config['cover_match_score'] | h}" min="4" max="32" class="set-num" /></div>
+                </div>
                 ${select('archive_leftovers', 'Comics nothing on the watchlist wants', [('review', 'Move to a review folder'), ('delete', 'Delete them')], 'delete' if config['archive_leftovers'] == 'delete' else 'review',
                          help='From packs and the monitored folder.')}
                 ${field('archive_review_dir', 'Review folder', config['archive_review_dir'], placeholder=config['archive_review_default'] or '',

@@ -29,7 +29,7 @@ import pathlib
 from xml.dom.minidom import parseString
 import mylar
 
-from mylar import logger, db, helpers, updater, notifiers, filechecker, weeklypull, getimage, archives, autoadd, webp, attention, editions
+from mylar import logger, db, helpers, updater, notifiers, filechecker, weeklypull, getimage, archives, autoadd, webp, attention, editions, covermatch
 
 PP_LOCK = threading.RLock()
 
@@ -206,6 +206,7 @@ class PostProcessor(object):
         self.nzb_folder = nzb_folder
         # which download this is ({'provider', 'id'}), so the queue can show it being filed
         self.download_info = download_info
+        self._att_listed = []   # files this run listed in Needs attention
         if module is not None:
             self.module = module + '[POST-PROCESSING]'
         else:
@@ -625,6 +626,10 @@ class PostProcessor(object):
             archives.done()
             if pending:
                 autoadd.queue(pending)
+            # what this run listed in Needs attention may still be placed by its cover
+            listed = [p for p in getattr(self, '_att_listed', []) if os.path.isfile(p)]
+            if listed:
+                attention.cover_pass(listed)
 
     # Files filing looks at but can't place go to Downloads > Needs attention, with why.
     def _att_start(self, fl, counts):
@@ -648,11 +653,43 @@ class PostProcessor(object):
         if comicid and reason in ('volume', 'year', 'issue'):
             cur['comicid'] = comicid
 
+    def _cover_ok(self, ml):
+        """Before filing, the file's front cover is compared with the issue's on ComicVine. A clearly
+        different cover, or with "Issues must match by cover" on anything short of a match, goes to
+        Needs attention instead. Issues the user picked by hand aren't checked."""
+        if ml.get('ForcedMatch') or ml.get('One-Off') or ml.get('IssueArcID') or not ml.get('IssueID'):
+            return True
+        path = ml.get('ComicLocation')
+        if not path or not os.path.isfile(path):
+            return True
+        try:
+            res = covermatch.check(path, ml['IssueID'])
+        except Exception as e:
+            logger.warn('%s[COVER-MATCH] Could not compare the cover of %s: %s' % (self.module, path, e))
+            res = {'distance': None, 'verdict': 'unknown'}
+        label = '%s (%s) #%s' % (ml.get('ComicName'), ml.get('SeriesYear'), ml.get('IssueNumber'))
+        if covermatch.may_file(res):
+            logger.fdebug('%s[COVER-MATCH] %s against %s: %s (distance %s)' % (self.module, os.path.basename(path), label, res['verdict'], res['distance']))
+            return True
+        limit = covermatch.pass_score()
+        if res['verdict'] == 'unknown':
+            detail = 'There was no cover to compare with %s\'s on ComicVine.' % label
+        elif res['verdict'] == 'unsure':
+            detail = 'Its cover is close to %s\'s on ComicVine, but not a match (%s apart; a match is %s or less).' % (label, res['distance'], limit)
+        else:
+            detail = 'Its cover doesn\'t look like %s\'s on ComicVine (%s apart; a match is %s or less).' % (label, res['distance'], limit)
+        logger.info('%s[COVER-MATCH] Not filing %s as %s: %s' % (self.module, os.path.basename(path), label, detail))
+        attention.record(path, 'coverart', detail, ml.get('ComicID'))
+        archives.tally('attention')
+        self.__dict__.setdefault('_att_listed', []).append(path)
+        return False
+
     def _att_settle(self, counts):
         cur, self._att = getattr(self, '_att', None), None
         if cur and cur['path'] and counts == cur['counts'] and os.path.isfile(cur['path']):
             attention.record(cur['path'], attention.pick(cur['reasons']), cur['detail'], cur['comicid'])
             archives.tally('attention')
+            self.__dict__.setdefault('_att_listed', []).append(cur['path'])
 
     def _process_main(self):
             module = self.module
@@ -2555,6 +2592,7 @@ class PostProcessor(object):
                 #loop through the hits here.
                 annualtype = None
                 issuenumOG = None
+                manual_list = [ml for ml in manual_list if self._cover_ok(ml)]
                 if len(manual_list) == 0 and len(manual_arclist) == 0:
                     if self.nzb_name == 'Manual Run':
                         logger.info('%s No matches for Manual Run ... exiting.' % module)

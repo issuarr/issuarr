@@ -291,7 +291,8 @@ def _leftover_action():
 
 def _dispose(path, rel_dir):
     from mylar import attention
-    if _leftover_action() == 'delete':
+    # a wanted issue held back for its cover is moved to review, never deleted
+    if _leftover_action() == 'delete' and not attention.held(path):
         os.remove(path)
         attention.forget(path)
         return 'deleted'
@@ -354,7 +355,7 @@ def clear_pack(folder):
     for r, dirs, names in os.walk(root):
         for n in names:
             path = os.path.join(r, n)
-            if not n.lower().endswith(COMIC_EXT) or path in PENDING or _hold(path):
+            if not n.lower().endswith(COMIC_EXT) or path in PENDING or attention.held(path) or _hold(path):
                 continue
             try:
                 os.makedirs(dest, exist_ok=True)
