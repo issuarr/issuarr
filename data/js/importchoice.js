@@ -41,12 +41,25 @@
       (s.publisher_folder ? '<p class="match-meta">In a ' + esc(s.publisher_folder) + ' folder, so that publisher\'s series are listed first.</p>' : '');
   }
 
+  // ComicVine shows a series by its first issue's cover, so the file shown first is #1 (or the
+  // lowest whole number after it), not a #0 or #½ that sorts ahead of it
+  function firstShown(s) {
+    var best = -1;
+    s.files.forEach(function (f, i) {
+      if (f.missing) return;
+      var v = parseFloat(f.number);
+      if (best < 0 && v >= 1 && v === Math.floor(v)) best = i;
+    });
+    if (best < 0) best = s.files.findIndex(function (f) { return !f.missing; });
+    return best;
+  }
+
   function files(s) {
-    var n = s.files.length;
+    var n = s.files.length, shown = firstShown(s);
     var nums = s.files.map(function (f) { return f.number; }).filter(function (x) { return x != null && x !== ''; });
     var range = nums.length ? ' · #' + esc(num(nums[0])) + (nums.length > 1 ? '–#' + esc(num(nums[nums.length - 1])) : '') : '';
     return '<div class="choose-files">' +
-      '<div class="match-covers" data-file-cover>' + fileCover(s.files.filter(function (f) { return !f.missing; })[0]) + '</div>' +
+      '<div class="match-covers" data-file-cover>' + fileCover(s.files[shown]) + '</div>' +
       '<div class="match-file">' +
         '<p class="choose-name">' + esc(s.name) + (s.year ? ' <span class="muted">(' + esc(s.year) + ')</span>' : '') +
           (s.volume ? ' <span class="muted mono">' + esc(s.volume) + '</span>' : '') + '</p>' +
@@ -54,7 +67,7 @@
         '<p class="match-meta">' + n + (n === 1 ? ' file' : ' files') + range + '. Click a file to see its cover.</p>' +
         '<ul class="choose-filelist">' + s.files.map(function (f, i) {
           if (f.missing) return '<li class="mono faint" title="Not on disk any more">' + esc(f.name) + ' (missing)</li>';
-          return '<li><button type="button" class="link-btn mono" data-file="' + i + '" title="' + esc(f.path) + '">' + esc(f.name) + '</button></li>';
+          return '<li><button type="button" class="link-btn mono' + (i === shown ? ' is-current' : '') + '" data-file="' + i + '" title="' + esc(f.path) + '">' + esc(f.name) + '</button></li>';
         }).join('') + '</ul>' +
       '</div></div>';
   }
