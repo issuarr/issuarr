@@ -305,6 +305,8 @@ _CONFIG_DEFINITIONS = OrderedDict({
     'ARCHIVE_REVIEW_DIR':  (str, 'PostProcess', None),
     'ATTENTION_TRASH_DAYS':  (int, 'PostProcess', 14),   # Needs attention: days a trashed file is kept
     'ARCHIVE_AUTO_ADD':  (bool, 'PostProcess', False),
+    'COVER_MATCH_STRICT':  (bool, 'PostProcess', False),   # file only issues whose cover matches ComicVine's
+    'COVER_MATCH_SCORE':  (int, 'PostProcess', 16),        # largest cover hash distance that counts as a match
     'WEBP_ON_IMPORT': (bool, 'WebP', False),
     'WEBP_SINCE': (str, 'WebP', '2015'),
     'WEBP_QUALITY': (int, 'WebP', 85),

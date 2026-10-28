@@ -8028,6 +8028,8 @@ class WebInterface(object):
                     "archive_review_dir": mylar.CONFIG.ARCHIVE_REVIEW_DIR or '',
                     "archive_review_default": archives.review_dir(),
                     "archive_auto_add": helpers.checked(mylar.CONFIG.ARCHIVE_AUTO_ADD),
+                    "cover_match_strict": helpers.checked(mylar.CONFIG.COVER_MATCH_STRICT),
+                    "cover_match_score": mylar.CONFIG.COVER_MATCH_SCORE,
                     "webp_on_import": helpers.checked(mylar.CONFIG.WEBP_ON_IMPORT),
                     "webp_since": mylar.CONFIG.WEBP_SINCE or '',
                     "webp_quality": mylar.CONFIG.WEBP_QUALITY,
@@ -8641,7 +8643,7 @@ class WebInterface(object):
                            'enforce_perms', 'sab_to_mylar', 'torrent_local', 'torrent_seedbox', 'rtorrent_ssl', 'rtorrent_verify', 'rtorrent_startonload', 'qbittorrent_ignore_ssl',
                            'enable_torrents', 'enable_rss', 'experimental', 'enable_32p', 'enable_torznab',
                            'newznab', 'use_minsize', 'use_maxsize', 'ddump', 'failed_download_handling', 'sab_client_post_processing', 'nzbget_client_post_processing',
-                           'failed_auto', 'post_processing', 'enable_check_folder', 'archive_delete', 'archive_auto_add', 'webp_on_import', 'enable_pre_scripts', 'enable_snatch_script', 'enable_extra_scripts',
+                           'failed_auto', 'post_processing', 'enable_check_folder', 'archive_delete', 'archive_auto_add', 'cover_match_strict', 'webp_on_import', 'enable_pre_scripts', 'enable_snatch_script', 'enable_extra_scripts',
                            'enable_meta', 'cbr2cbz_only', 'ct_tag_cr', 'ct_tag_cbl', 'ct_cbz_overwrite', 'cmtag_start_year_as_volume', 'cmtag_volume', 'setdefaultvolume',
                            'rename_files', 'replace_spaces', 'zero_level', 'sab_remove_completed', 'sab_remove_failed',
                            'lowercase_filenames', 'autowant_upcoming', 'autowant_all', 'comic_cover_local', 'cover_folder_local', 'series_metadata_local', 'alternate_latest_series_covers', 'cvinfo', 'snatchedtorrent_notify', 'notify_on_download', 'notify_on_added',
@@ -8671,6 +8673,11 @@ class WebInterface(object):
             kwargs['ddl_query_delay'] = query_delay(kwargs['ddl_query_delay'])
         if 'cvapi_rate' in kwargs:
             kwargs['cvapi_rate'] = cv_gap(kwargs['cvapi_rate'])
+        if 'cover_match_score' in kwargs:
+            try:
+                kwargs['cover_match_score'] = max(4, min(int(kwargs['cover_match_score']), 32))
+            except (TypeError, ValueError):
+                kwargs['cover_match_score'] = 16
 
         custom_css = kwargs.pop('custom_css', None)
         if custom_css is not None:

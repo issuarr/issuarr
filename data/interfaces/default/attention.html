@@ -52,6 +52,7 @@
             year: ['place', 'The year doesn\'t match that issue.'],
             issue: ['place', 'That issue number isn\'t on the series.'],
             owned: ['owned', 'You already have this issue.'],
+            coverart: ['place', 'Its cover doesn\'t match the issue it was taken for.'],
             damaged: ['bad', 'The file is damaged or incomplete.'],
             cover: ['bad', 'Covers only, not the full issue.'],
             unclaimed: ['review', 'Nothing on your watchlist claimed it, so it was moved to review.']
@@ -64,6 +65,7 @@
             volume: 'with a different volume',
             year: 'with a different year',
             owned: 'already in your library',
+            coverart: 'whose cover didn\'t match',
             damaged: 'damaged',
             cover: 'covers only'
         };
@@ -102,7 +104,18 @@
                 cell('Year', p.year, m && m.issue_year, m ? a.year : null) +
                 cell('Volume', p.volume, m && m.volume, m ? a.volume : null) +
                 cell('Format', p.collected ? 'Collected edition' : 'Single issue', m && m.format, m ? a.format : null, m ? 'not known' : '') +
+                coverCell(m) +
                 '</div>';
+        }
+
+        /* The file's front cover against the issue's on ComicVine: the distance between their hashes, 0 for the same picture. */
+        var COVER = { match: 'matches', unsure: 'close, not a match', mismatch: 'different' };
+        function coverCell(m) {
+            var c = m && m.cover;
+            if (!c) return m && m.issueid ? cell('Cover', 'Front cover', '', null, 'not compared yet') : '';
+            if (c.distance == null) return cell('Cover', 'Front cover', '', null, 'no cover to compare');
+            var agree = c.verdict === 'match' ? true : c.verdict === 'mismatch' ? false : null;
+            return cell('Cover', 'Front cover', COVER[c.verdict] + ' (' + c.distance + ' apart)', agree);
         }
 
         function actions(i) {
@@ -352,7 +365,7 @@
 
         /* By folder: a collection or download as one row, with one action for all its files. */
         var GROUP_REASON = { owned: 'Already have', series: 'Couldn\'t place', issue: 'Issue not on the series', volume: 'Wrong volume',
-                             year: 'Wrong year', unclaimed: 'Unclaimed', damaged: 'Damaged', cover: 'Covers only' };
+                             year: 'Wrong year', coverart: 'Cover didn\'t match', unclaimed: 'Unclaimed', damaged: 'Damaged', cover: 'Covers only' };
         function drawGroups() {
             if (!groupList.length) { list.innerHTML = '<p class="empty-state">Nothing needs attention.</p>'; return; }
             list.innerHTML = groupList.map(function (g) {

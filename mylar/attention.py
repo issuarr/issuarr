@@ -37,12 +37,12 @@ import threading
 import time
 
 import mylar
-from mylar import db, logger, editions, cvlink
+from mylar import db, logger, editions, cvlink, covermatch
 
 COMIC_EXT = ('.cbz', '.cbr', '.cb7', '.pdf')
 # Most telling first: a file that failed on volume for one series and on name for the rest
 # failed on volume.
-REASONS = ('damaged', 'cover', 'owned', 'volume', 'year', 'issue', 'series', 'unclaimed')
+REASONS = ('damaged', 'cover', 'owned', 'coverart', 'volume', 'year', 'issue', 'series', 'unclaimed')
 CACHE_SECONDS = 60
 _COUNT = [0.0, 0]          # (counted at, count) for the nav badge
 _COMICS = [0.0, []]        # (loaded at, watchlist rows) for suggestions
@@ -103,6 +103,18 @@ def record(path, reason, detail='', comicid=None):
         _COUNT[0] = 0
     except Exception as e:
         logger.warn('[ATTENTION] Could not note %s: %s' % (path, e))
+
+
+def held(path):
+    """Whether filing held this file back because its cover didn't match: it's a wanted issue, so
+    clearing up leftovers keeps it."""
+    try:
+        myDB = db.DBConnection()
+        ensure(myDB)
+        row = myDB.selectone('SELECT reason FROM attention WHERE path=?', [path]).fetchone()
+        return bool(row) and row['reason'] == 'coverart'
+    except Exception:
+        return False
 
 
 def moved(old, new):
@@ -476,7 +488,7 @@ def items():
             parsed = parse(path)
             hit = (parsed, [] if library else suggest(parsed, comicid=row.get('comicid')), time.time())
             _SUGGESTED[key] = hit
-        parsed, matches = hit[0], hit[1]
+        parsed, matches = hit[0], covermatch.annotate(path, hit[1])
         job = JOBS.get(path)
         if job is None and row.get('status') == 'queued':
             job = {'state': 'waiting', 'note': 'Waiting to file'}
@@ -1109,6 +1121,9 @@ def _refile_run(folders, lookup=None):
                 except Exception as e:
                     logger.warn('[ATTENTION] Filing %s again failed: %s' % (folder, e))
             REFILE['done'] = n + 1
+        if not REFILE.get('stop'):
+            REFILE['current'] = 'Comparing covers'
+            cover_pass(wait=True)
     finally:
         _COUNT[0] = 0
         try:
@@ -1122,6 +1137,48 @@ def _refile_run(folders, lookup=None):
                           waiting=False, finished=time.time())
         logger.info('[ATTENTION] Finished trying again: %s of %s file(s) still need attention%s.'
                     % ('?' if left is None else left, REFILE.get('before'), ' (%s)' % ', '.join('%s %s' % (n, r) for r, n in why) if why else ''))
+
+
+COVER_PASS = threading.Lock()
+
+
+def cover_pass(paths=None, wait=False):
+    """Compare each listed file's cover with the covers of the issues suggested for it, and file it
+    when exactly one of them clearly matches, before it waits on the user. paths: only these
+    files (the ones a filing run just listed); otherwise every file here. Runs in the background
+    unless wait; one pass at a time, a pass already running covers the files."""
+    def run():
+        if not COVER_PASS.acquire(blocking=wait):
+            return
+        try:
+            filed = 0
+            rows = _open_paths(db.DBConnection())
+            for path in (paths if paths is not None else list(rows)):
+                row = rows.get(path)
+                if row is None or row.get('status') == 'queued' or JOBS.get(path) or in_library(path):
+                    continue
+                try:
+                    scored = covermatch.annotate(path, suggest(parse(path), comicid=row.get('comicid')), fetch=True)
+                except Exception as e:
+                    logger.fdebug('[ATTENTION] Could not compare the covers for %s: %s' % (path, e))
+                    continue
+                win = covermatch.winner(scored)
+                if win is None or win.get('owned'):
+                    continue
+                logger.info('[ATTENTION] The cover of %s matches %s #%s (distance %s), so it\'s being filed as that.'
+                            % (os.path.basename(path), win['name'], win['number'], win['cover']['distance']))
+                if file_as(path, win['comicid'], win['issueid']).get('ok'):
+                    filed += 1
+            if filed:
+                logger.info('[ATTENTION] Filed %s file(s) by their covers.' % filed)
+        finally:
+            COVER_PASS.release()
+            _COUNT[0] = 0
+
+    if wait:
+        run()
+    else:
+        threading.Thread(target=run, name='ATTENTION-COVERS', daemon=True).start()
 
 
 def _version_key():
