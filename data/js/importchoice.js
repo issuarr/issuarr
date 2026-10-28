@@ -47,8 +47,7 @@
     var best = -1;
     s.files.forEach(function (f, i) {
       if (f.missing) return;
-      var v = parseFloat(f.number);
-      if (best < 0 && v >= 1 && v === Math.floor(v)) best = i;
+      if (best < 0 && /^\d+(\.0+)?$/.test(String(f.number || '').trim()) && parseFloat(f.number) >= 1) best = i;
     });
     if (best < 0) best = s.files.findIndex(function (f) { return !f.missing; });
     return best;
@@ -76,14 +75,15 @@
     var meta = [c.year, c.publisher].filter(Boolean).map(esc);
     if (c.issues != null) meta.push(c.issues + (c.issues === 1 ? ' issue' : ' issues'));
     var warn = c.fits === false ? '<p class="match-meta choose-warn">Has ' + c.issues + (c.issues === 1 ? ' issue' : ' issues') + ', but your files go up to #' + esc(num(top)) + '.</p>' : '';
-    return '<li class="match-row choose-row">' +
+    return '<li class="match-row choose-row" data-cand="' + esc(c.comicid) + '">' +
       '<div class="match-covers">' + cover(c.thumb, 'Cover of ' + c.name, '') + '</div>' +
       '<div class="match-file">' +
         '<p class="choose-name">' + (c.url ? '<a href="' + esc(c.url) + '" target="_blank" rel="noopener" title="Open on ComicVine">' + esc(c.name) + '</a>' : esc(c.name)) +
           ' <span class="muted mono">4050-' + esc(c.comicid) + '</span>' +
           (c.watched ? ' <span class="match-hand">On your watchlist</span>' : '') +
           (c.samepub ? ' <span class="match-hand">Matches the folder</span>' : '') +
-          (c.type && c.type !== 'Print' ? ' <span class="match-hand">' + esc(c.type) + '</span>' : '') + '</p>' +
+          (c.type && c.type !== 'Print' ? ' <span class="match-hand">' + esc(c.type) + '</span>' : '') +
+          ' <span data-cover-badge></span></p>' +
         '<p class="match-meta">' + meta.join(' · ') + '</p>' + warn +
         (c.about ? '<p class="choose-about">' + esc(c.about) + '</p>' : '') +
         '<div class="match-do"><button type="button" class="btn btn-sm btn-primary" data-pick="' + esc(c.comicid) + '" data-name="' + esc(c.name) + '">Use this series</button></div>' +
@@ -104,6 +104,7 @@
         '<button type="submit" class="btn btn-sm">Search ComicVine</button></form>' +
       '<div data-choose-found></div>' +
       '<h3 class="match-h">Found by the import</h3>' +
+      '<p class="match-meta" data-cover-note></p>' +
       list(d.candidates, s.top, d.total, 'The import saved no possible series for this one. Search ComicVine above.');
   }
 
@@ -122,8 +123,41 @@
         if (!d.ok) { body.innerHTML = '<p class="match-meta">' + esc(d.note) + '</p>'; return; }
         cur.data = d;
         draw(d);
+        coverMatch(btn, d.series);
       })
       .catch(function () { body.innerHTML = '<p class="match-meta">Couldn\'t load this series. Check the log.</p>'; });
+  }
+
+  // The shown file's cover against that issue of each series found: one ComicVine call, so it
+  // fills in after the window opens. A single clear match moves to the top.
+  var COVER = { match: 'Cover matches', unsure: 'Cover is close', mismatch: 'Cover differs' };
+  function coverMatch(btn, s) {
+    var p = { DynamicName: s.dynamicname };
+    if (s.volume) p.Volume = s.volume;
+    var note = body.querySelector('[data-cover-note]');
+    if (note) note.textContent = 'Comparing covers with ComicVine…';
+    fetch('import_cover_match?' + q(p), { credentials: 'same-origin', cache: 'no-store' })
+      .then(json)
+      .then(function (r) {
+        if (cur !== btn) return;
+        if (!r.ok) { if (note) note.textContent = ''; return; }
+        var at = s.files.findIndex(function (f) { return f.id === r.file; });
+        if (at >= 0) {
+          body.querySelector('[data-file-cover]').innerHTML = fileCover(s.files[at]);
+          body.querySelectorAll('[data-file]').forEach(function (b) { b.classList.toggle('is-current', +b.getAttribute('data-file') === at); });
+        }
+        Object.keys(r.covers).forEach(function (cid) {
+          var c = r.covers[cid], li = body.querySelector('[data-cand="' + cid + '"]');
+          var badge = li && li.querySelector('[data-cover-badge]');
+          if (!badge) return;
+          badge.innerHTML = c.distance == null ? '<span class="match-hand faint">No #' + esc(num(r.number)) + ' cover to compare</span>' :
+            '<span class="match-hand cover-' + c.verdict + '" title="' + c.distance + ' apart; 0 is the same picture">' + COVER[c.verdict] + ' #' + esc(num(r.number)) + '</span>';
+        });
+        var win = r.winner && body.querySelector('[data-cand="' + r.winner + '"]');
+        if (win) win.parentNode.insertBefore(win, win.parentNode.firstChild);
+        if (note) note.textContent = win ? 'Its cover picks one series, now at the top.' : '';
+      })
+      .catch(function () { if (note && cur === btn) note.textContent = ''; });
   }
 
   // its files were deleted or moved since the scan: the server forgot it, so move on

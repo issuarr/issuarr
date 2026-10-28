@@ -318,3 +318,62 @@ def file_path(impid):
     """The scanned file behind an import result, for its cover."""
     row = db.DBConnection().selectone('SELECT ComicLocation FROM importresults WHERE impID=?', [impid]).fetchone()
     return _live(row['ComicLocation']) if row else None
+
+
+def reference_file(files):
+    """The file to compare covers by: #1, or the lowest whole number after it, since ComicVine
+    shows a series by its first issue; a #0 or #½ only when there's nothing else. files: dicts
+    with path and number, sorted by number."""
+    live = [f for f in files if f.get('path') and not f.get('missing')]
+    for f in live:
+        if re.match(r'^\d+(\.0+)?$', str(f.get('number') or '').strip()) and _number(f['number']) >= 1:
+            return f
+    return next((f for f in live if f.get('number') not in (None, '')), None)
+
+
+def _cover_result(path, number, comicids):
+    from mylar import covermatch
+    found = covermatch.series_distances(path, number, comicids)
+    scored = [{'comicid': str(c), 'cover': {'distance': found.get(str(c)), 'verdict': covermatch.verdict(found.get(str(c)))}}
+              for c in comicids]
+    win = covermatch.winner(scored)
+    return scored, (win['comicid'] if win else None)
+
+
+def cover_pick(candidates, dynamicname, volume):
+    """During an import, the one series the import found whose issue cover matches the scanned
+    files' (one ComicVine call), so the series doesn't wait for a choice. None otherwise."""
+    rows = _rows(db.DBConnection(), dynamicname, volume)
+    files = sorted(({'path': _live(r['ComicLocation']), 'number': r['IssueNumber']} for r in rows),
+                   key=lambda f: (_number(f['number']) is None, _number(f['number']) or 0))
+    ref = reference_file(files)
+    ids = [str(c['comicid']) for c in candidates][:20]
+    if ref is None or len(ids) < 2:
+        return None
+    try:
+        scored, win = _cover_result(ref['path'], ref['number'], ids)
+    except Exception as e:
+        logger.warn('[IMPORT] Comparing covers for %s failed: %s' % (dynamicname, e))
+        return None
+    if win is None:
+        logger.fdebug('[IMPORT] No single series\' cover matches %s: %s' % (os.path.basename(ref['path']), scored))
+        return None
+    d = next(s['cover']['distance'] for s in scored if s['comicid'] == win)
+    logger.info('[IMPORT] The cover of %s matches ComicVine series %s #%s (distance %s), so that series is used.'
+                % (os.path.basename(ref['path']), win, ref['number'], d))
+    return next(c for c in candidates if str(c['comicid']) == win)
+
+
+def covers(dynamicname, volume=None):
+    """For the Choose a match window: how the shown file's cover compares with that issue of each
+    series the import found. One ComicVine call."""
+    found = choice(dynamicname, volume)
+    if not found.get('ok'):
+        return found
+    ref = reference_file(found['series']['files'])
+    if ref is None:
+        return {'ok': False, 'note': 'No file with an issue number to compare.'}
+    ids = [c['comicid'] for c in found['candidates']][:20]
+    scored, win = _cover_result(ref['path'], ref['number'], ids)
+    return {'ok': True, 'file': ref['id'], 'number': ref['number'], 'winner': win,
+            'covers': {s['comicid']: s['cover'] for s in scored}}

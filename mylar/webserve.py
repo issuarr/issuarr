@@ -7291,6 +7291,16 @@ class WebInterface(object):
         return json.dumps(importchoice.choice(DynamicName, Volume))
     import_choice.exposed = True
 
+    def import_cover_match(self, DynamicName, Volume=None):
+        # Choose a match: how the shown file's cover compares with each series the import found
+        cherrypy.response.headers['Content-Type'] = 'application/json'
+        try:
+            return json.dumps(importchoice.covers(DynamicName, Volume))
+        except Exception as e:
+            logger.warn('[IMPORT] Comparing covers for %s failed: %s' % (DynamicName, e))
+            return json.dumps({'ok': False, 'note': 'Couldn\'t compare the covers. The log has why.'})
+    import_cover_match.exposed = True
+
     def import_cover(self, impid, r=None):   # r: a retry after the server was busy
         path = importchoice.file_path(impid)
         return self._attention_image(attention.cover_of(path) if path else None)
@@ -7726,6 +7736,12 @@ class WebInterface(object):
             else:
                 logger.info('[IMPORT] Returning results to Select option - there are %s possibilities, manual intervention required.' % len(search_matches))
                 resultset = 0
+
+        if sr is None and len(search_matches or sresults or []) > 1:
+            # several series could be it: the one whose issue cover matches the files' cover is
+            sr = importchoice.cover_pick(search_matches or sresults, DynamicName, volume)
+            if sr is not None:
+                resultset = 1
 
         #generate random Search Results ID to allow for easier access for viewing logs / search results.
 

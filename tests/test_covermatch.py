@@ -188,3 +188,85 @@ def test_the_cover_pass_files_a_single_clear_match(env, filing, monkeypatch):
     monkeypatch.setattr(attention, 'file_as', lambda p, c, i: filed.append((p, c, i)) or {'ok': True})
     attention.cover_pass(wait=True)
     assert filed == [(path, '10', '1')]
+
+
+class FakeResponse:
+    def __init__(self, data):
+        self.data = data
+
+    def json(self):
+        return self.data
+
+
+@pytest.fixture
+def cv(env, monkeypatch):
+    from mylar import cv as cvmod
+    monkeypatch.setattr(mylar.CONFIG, 'COMICVINE_API', 'key', raising=False)
+    monkeypatch.setattr(mylar, 'CVURL', 'https://cv/api/', raising=False)
+    monkeypatch.setattr(covermatch, '_CV_COVERS', {})
+    calls, results = [], []
+    monkeypatch.setattr(cvmod, 'cv_request', lambda url: calls.append(url) or FakeResponse({'results': results}))
+    urls = {}
+    monkeypatch.setattr(attention, 'url_cover', lambda name, url: urls.get(url))
+    return types.SimpleNamespace(calls=calls, results=results, urls=urls)
+
+
+def cv_issue(series, image, alts=()):
+    return {'id': 1, 'issue_number': '1', 'volume': {'id': int(series)}, 'image': {'super_url': image},
+            'associated_images': [{'original_url': a} for a in alts]}
+
+
+@pytest.mark.unit
+def test_issue_numbers_are_asked_for_as_comicvine_writes_them():
+    assert covermatch._cv_number('001') == '1' and covermatch._cv_number('1.0') == '1'
+    assert covermatch._cv_number('0') == '0' and covermatch._cv_number('½') == '½'
+
+
+@pytest.mark.unit
+def test_one_call_asks_for_the_issue_of_every_series(env, cv):
+    cv.results[:] = [cv_issue(11268, 'http://a/1.jpg', ['http://a/1b.jpg']), cv_issue(11269, 'http://a/2.jpg')]
+    found = covermatch.cv_covers(['11269', '11268'], '001')
+    assert found == {'11268': ('http://a/1.jpg', ['http://a/1b.jpg']), '11269': ('http://a/2.jpg', [])}
+    assert len(cv.calls) == 1 and 'filter=volume:11268|11269,issue_number:1&' in cv.calls[0]
+    covermatch.cv_covers(['11268', '11269'], '1')
+    assert len(cv.calls) == 1   # remembered
+
+
+@pytest.mark.unit
+def test_a_series_matches_by_an_alternate_cover_only_when_it_is_closer(env, cv):
+    path = comic(env, 'Brigade v1 #1.cbz', 'left')
+    cv.results[:] = [cv_issue(1, 'http://a/top.jpg', ['http://a/left.jpg']), cv_issue(2, 'http://a/right.jpg')]
+    cv.urls.update({'http://a/top.jpg': picture(env.root / 'top.jpg', 'top'), 'http://a/left.jpg': picture(env.root / 'l.jpg', 'left'),
+                    'http://a/right.jpg': picture(env.root / 'r.jpg', 'right')})
+    found = covermatch.series_distances(path, '1', ['1', '2'])
+    assert found['1'] == 0 and found['2'] > 16
+
+
+@pytest.mark.unit
+def test_the_file_compared_is_number_1_not_0_or_a_half():
+    from mylar import importchoice
+    files = [{'path': 'a', 'number': '0'}, {'path': 'b', 'number': '½'}, {'path': 'c', 'number': '1'}, {'path': 'd', 'number': '2'}]
+    assert importchoice.reference_file(files)['path'] == 'c'
+    assert importchoice.reference_file([{'path': 'a', 'number': '0'}, {'path': 'e', 'number': '3'}])['path'] == 'e'
+    assert importchoice.reference_file([{'path': 'a', 'number': '0'}])['path'] == 'a'
+    assert importchoice.reference_file([{'path': 'a', 'number': '1', 'missing': True}]) is None
+
+
+@pytest.mark.unit
+def test_an_import_picks_the_series_whose_cover_matches(env, cv, monkeypatch):
+    from mylar import importchoice
+    one = comic(env, 'Brigade v1 #1.cbz', 'left')
+    zero = comic(env, 'Brigade v1 #0.cbz', 'top')
+    monkeypatch.setattr(importchoice, '_rows', lambda myDB, d, v: [{'ComicLocation': zero, 'IssueNumber': '0'},
+                                                                   {'ComicLocation': one, 'IssueNumber': '1'}])
+    monkeypatch.setattr(importchoice, '_live', lambda p: p)
+    cv.results[:] = [cv_issue(11268, 'http://a/left.jpg'), cv_issue(11269, 'http://a/right.jpg')]
+    cv.urls.update({'http://a/left.jpg': picture(env.root / 'l.jpg', 'left'), 'http://a/right.jpg': picture(env.root / 'r.jpg', 'right')})
+    cands = [{'comicid': '11269', 'name': 'Brigade (1993)'}, {'comicid': '11268', 'name': 'Brigade (1992)'}]
+    assert importchoice.cover_pick(cands, 'brigade', 'v1')['comicid'] == '11268'
+    assert 'issue_number:1&' in cv.calls[0]
+    # both covers alike: left for the user
+    cv.urls['http://a/right.jpg'] = picture(env.root / 'l2.jpg', 'left', size=(300, 450))
+    monkeypatch.setattr(covermatch, '_CV_COVERS', {})
+    monkeypatch.setattr(covermatch, '_HASHES', {})
+    assert importchoice.cover_pick(cands, 'brigade', 'v1') is None

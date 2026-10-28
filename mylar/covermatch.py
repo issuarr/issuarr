@@ -24,8 +24,11 @@ cover URL stored with the series), so checking an issue Issuarr already picked c
 ComicVine API request, only the image download the first time.
 """
 
+import hashlib
 import os
+import re
 import threading
+from urllib.parse import quote
 
 import mylar
 from mylar import logger
@@ -211,3 +214,80 @@ def winner(matches):
     if any(m['cover']['distance'] <= best + GAP for m in scored[1:]):
         return None
     return scored[0]
+
+
+ALT_MARGIN = 4        # alternate covers are a wider net, so they must be this much closer
+_CV_COVERS = {}       # (comicids, issue number) -> {comicid: (cover url, [alternate urls])}
+MAX_SERIES = 20       # series asked about in one ComicVine call
+
+
+def _cv_number(number):
+    """An issue number as ComicVine writes it: "001" and "1.0" are "1"."""
+    n = str(number or '').strip()
+    m = re.match(r'^0*(\d+)(?:\.0+)?$', n)
+    return m.group(1) if m else n
+
+
+def cv_covers(comicids, number):
+    """Each series' issue #number cover and alternate covers on ComicVine, from one call for all
+    of them: ComicVine takes several series at once, but only one issue number (several come back
+    empty). {comicid: (url, [alternate urls])}; None when ComicVine couldn't be asked."""
+    from mylar import cv
+    ids = tuple(sorted({str(c) for c in comicids if str(c).isdigit()}))[:MAX_SERIES]
+    number = _cv_number(number)
+    if not ids or not number:
+        return {}
+    key = (ids, number)
+    if key in _CV_COVERS:
+        return _CV_COVERS[key]
+    api = getattr(mylar.CONFIG, 'COMICVINE_API', None)
+    if not api or api == 'None':
+        return None
+    url = mylar.CVURL + 'issues/?api_key=' + str(api) + '&format=json&filter=volume:' + '|'.join(ids) + \
+        ',issue_number:' + quote(number) + '&field_list=id,volume,issue_number,image,associated_images'
+    try:
+        found = (cv.cv_request(url).json() or {}).get('results') or []
+    except Exception as e:
+        logger.warn('[COVER-MATCH] Couldn\'t get the covers of #%s from ComicVine: %s' % (number, e))
+        return None
+    out = {}
+    for x in found:
+        cid = str((x.get('volume') or {}).get('id') or '')
+        image = (x.get('image') or {}).get('super_url') or (x.get('image') or {}).get('original_url')
+        if cid in ids and image and cid not in out:
+            out[cid] = (image, [a.get('original_url') for a in (x.get('associated_images') or []) if a.get('original_url')])
+    with _LOCK:
+        if len(_CV_COVERS) > 2000:
+            _CV_COVERS.clear()
+        _CV_COVERS[key] = out
+    return out
+
+
+def _url_hashes(url):
+    from mylar import attention
+    name = 'cv-%s' % hashlib.sha1(url.encode('utf-8')).hexdigest()[:20]
+    img = _wait(attention.url_cover, name, url)
+    return image_hashes(img) if img else []
+
+
+def series_distances(path, number, comicids):
+    """How far the file's cover is from issue #number of each ComicVine series: {comicid: distance},
+    leaving out series with no such issue. One ComicVine call; the images are cached. A series
+    whose main cover doesn't match is tried against its alternate covers, which must be closer."""
+    from mylar import attention
+    mine = _wait(attention.cover_of, path)
+    local = image_hashes(mine, local=True) if mine else []
+    found = cv_covers(comicids, number) if local else None
+    out = {}
+    for cid, (main, alts) in (found or {}).items():
+        remote = _url_hashes(main)
+        d = min((distance(a, b) for a in local for b in remote), default=None)
+        if (d is None or d > pass_score()) and alts:
+            for alt in alts:
+                ad = min((distance(a, b) for a in local for b in _url_hashes(alt)), default=None)
+                if ad is not None and ad <= pass_score() - ALT_MARGIN and (d is None or ad < d):
+                    d = ad
+                    break
+        if d is not None:
+            out[cid] = d
+    return out

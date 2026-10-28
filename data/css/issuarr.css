@@ -1545,6 +1545,8 @@ a.w-where:hover { color: var(--text); text-decoration-color: currentColor; }
 .match-none { color: var(--wanted); }
 .match-wait { color: var(--snatched); }
 .match-hand { padding: 0 6px; border: 1px solid var(--line); border-radius: 999px; font-size: 11px; color: var(--text-2); white-space: nowrap; }
+.match-hand.cover-match { border-color: var(--have); color: var(--have); }
+.match-hand.cover-mismatch { border-color: var(--wanted); color: var(--wanted); }
 .match-do { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; margin-top: 4px; }
 .match-do select { max-width: 300px; min-height: 34px; }
 .match-issue { display: flex; gap: 16px; align-items: flex-start; margin-bottom: 6px; }
