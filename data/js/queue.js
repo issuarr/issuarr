@@ -19,7 +19,7 @@
                'Waiting to file': 'Downloaded. Waiting for post-processing to file it into your library.',
                Filing: 'Downloaded. Post-processing is filing it into your library now.',
                'Not filed': 'Downloaded, but post-processing didn\'t file it.',
-               'Needs a choice': 'Finished, but no issue on your watchlist matches it, so it waits here instead of being filed.' };
+               'Needs a choice': 'Finished, but no issue on your watchlist matches it, so it waits here instead of being filed. Use Choose match to pick its series.' };
   var st = { tab: 'active', q: '', col: null, start: 0, len: 50, items: [], stalled: 0, loaded: false };
 
   function $id(id) { return document.getElementById(id); }
@@ -81,6 +81,10 @@
 
   /* ---- rows ---- */
   function actionsFor(it) {
+    if (it.kind === 'watch') {
+      return it.choose ? '<button type="button" class="btn btn-sm' + (it.status === 'Needs a choice' ? ' btn-primary' : '') + '" data-client-choose="' +
+        esc(it.client) + '" data-jobid="' + esc(it.jobid) + '" title="Pick the series this download is, so Issuarr can file it">Choose match</button>' : '';
+    }
     if (it.kind !== 'ddl') return '';
     var id = it.queueid, out = [];
     // Nothing to do while filing has it; starting it again would download a second copy.
@@ -258,6 +262,7 @@
       .catch(function () { I().toast('Couldn\'t check your download clients. Check the log.', false); })
       .then(function () { b.disabled = false; b.textContent = 'Refresh'; load(true); });
   });
+  document.addEventListener('issuarr:queue-reload', function () { load(true); });
   $id('q-restart-queue').addEventListener('click', function () { requeue('restart_queue'); });
   document.addEventListener('click', function (e) { if (e.target.closest('[data-queue-restart]')) requeue('restart_queue'); });
   $id('q-clear-queue').addEventListener('click', function () {

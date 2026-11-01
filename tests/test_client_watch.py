@@ -33,6 +33,7 @@ def env(monkeypatch, tmp_path):
     for name in ('LAST', 'NOTES', 'FINISHED_AT', 'MATCHES'):
         monkeypatch.setattr(clientwatch, name, {})
     monkeypatch.setattr(clientwatch, 'WARNED', set())
+    monkeypatch.setattr(clientwatch, 'STUCK', set())
     monkeypatch.setattr(clientwatch, 'MISSING', [])
     monkeypatch.setattr(clientwatch, 'RUN', {'busy': False, 'last': 0.0})
     monkeypatch.setattr(clientwatch, 'SETTLE', 0)
@@ -263,3 +264,64 @@ def test_a_finished_deluge_download_you_added_is_filed(env, monkeypatch):
     monkeypatch.setitem(clientwatch.FETCHERS, 'deluge', lambda label: clientwatch.torrent_items('deluge', rows, label))
     clientwatch.check(force=True)
     assert env['filed'] == [('Foo 001 (2020).cbz', '1001')]
+
+
+# ---- Choose match (step 3) ----
+
+@pytest.mark.unit
+def test_the_chosen_series_number_picks_the_issue(env):
+    issue = clientwatch.chosen_issue(env['db'], '100', 'Foo 001 (2020).cbz')
+    assert issue and issue['IssueID'] == '1001'
+    assert clientwatch.chosen_issue(env['db'], '100', 'Foo 009 (2020).cbz') is None
+
+
+@pytest.mark.unit
+def test_choosing_a_series_marks_the_issue_snatched_and_files_it_when_done(env):
+    env['torrents'].append(torrent(env['tmp'], 'Bar 001.cbz', 'downloading', 0.5))
+    clientwatch.check(force=True)
+    rows = clientwatch.queue_rows(env['db'])
+    assert rows[0]['choose'] and rows[0]['client'] == 'qbittorrent' and rows[0]['jobid'] == 'abc'
+    out = clientwatch.choose('qbittorrent', 'abc', '4050-100')
+    assert out['ok'], out
+    assert env['db'].selectone("SELECT Status FROM issues WHERE IssueID='1001'").fetchone()['Status'] == 'Snatched'
+    assert 'Chosen' in clientwatch.queue_rows(env['db'])[0]['message']
+    env['torrents'][0].update(state='uploading', progress=1.0)
+    clientwatch.check(force=True)
+    assert env['filed'] == [('Bar 001.cbz', '1001')]
+    assert clientwatch.queue_rows(env['db']) == []
+
+
+@pytest.mark.unit
+def test_a_chosen_series_without_that_number_asks_again(env):
+    env['torrents'].append(torrent(env['tmp'], 'Bar 007.cbz'))
+    clientwatch.check(force=True)
+    assert clientwatch.choose('qbittorrent', 'abc', '100')['ok']
+    clientwatch.check(force=True)
+    assert env['filed'] == []
+    row = clientwatch.queue_rows(env['db'])[0]
+    assert row['status'] == 'Needs a choice' and 'Choose another series' in row['message']
+
+
+@pytest.mark.unit
+def test_issuarrs_own_grab_cant_be_chosen(env):
+    env['db'].action("CREATE TABLE IF NOT EXISTS client_jobs (IssueID TEXT, ComicID TEXT, Client TEXT, JobID TEXT)")
+    env['db'].action("INSERT INTO client_jobs (IssueID, ComicID, Client, JobID) VALUES ('1002', '100', 'qbittorrent', 'abc')")
+    env['torrents'].append(torrent(env['tmp'], 'Foo 002.cbz', 'downloading', 0.5))
+    clientwatch.check(force=True)
+    assert not clientwatch.choose('qbittorrent', 'abc', '100')['ok']
+
+
+@pytest.mark.unit
+def test_filing_that_didnt_finish_stays_in_the_queue_until_a_match_is_chosen(env, monkeypatch):
+    # 2026-11-01: a failed filing was marked done ("Filed 0 of 1 files") and dropped from the queue
+    tries = []
+    monkeypatch.setattr(clientwatch, 'file_as', lambda path, issue: tries.append(path) and False)
+    env['torrents'].append(torrent(env['tmp'], 'Foo 001 (2020).cbz'))
+    clientwatch.check(force=True)
+    clientwatch.check(force=True)
+    assert len(tries) == 1
+    row = clientwatch.queue_rows(env['db'])[0]
+    assert row['status'] == 'Not filed' and row['choose']
+    assert clientwatch.choose('qbittorrent', 'abc', '100')['ok']
+    clientwatch.check(force=True)
+    assert len(tries) == 2

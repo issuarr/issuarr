@@ -4280,6 +4280,18 @@ class WebInterface(object):
                            'clients': clientwatch.summary()})
     downloadQueue.exposed = True
 
+    def client_choice(self, client='', id='', **kwargs):
+        # Downloads > Choose match: the download and the series its name is closest to
+        from mylar import clientwatch
+        return self._attention_json(clientwatch.choice_info(client, id))
+    client_choice.exposed = True
+
+    def client_choose(self, client='', id='', comicid='', name=None, year=None, **kwargs):
+        self._attention_post()
+        from mylar import clientwatch
+        return self._attention_json(clientwatch.choose(client, id, comicid, name, year))
+    client_choose.exposed = True
+
     def checkDownloadClients(self, **kwargs):
         # Refresh on Downloads: ask the watched clients now, waiting a little for slow ones.
         cherrypy.response.headers['Content-Type'] = 'application/json'

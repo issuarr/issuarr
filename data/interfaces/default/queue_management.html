@@ -62,10 +62,21 @@
             </div>
         </section>
     </div>
+    <dialog id="client-choose" class="match-dialog choose-dialog" aria-labelledby="client-choose-title">
+        <div class="choose-top">
+            <h2 id="client-choose-title">Choose a match</h2>
+            <span class="muted" id="client-choose-src"></span>
+        </div>
+        <div id="client-choose-body" class="match-body"></div>
+        <div class="match-actions choose-actions">
+            <button type="button" class="btn btn-ghost" data-cc-close>Close</button>
+        </div>
+    </dialog>
 </%def>
 
 <%def name="javascriptIncludes()">
     <script>var queueShowPixeldrain = ${'true' if mylar.CONFIG.ENABLE_DDL else 'false'};</script>
     <script src="js/flow.js?v=${mylar.CURRENT_VERSION}"></script>
     <script src="js/queue.js?v=${mylar.CURRENT_VERSION}"></script>
+    <script src="js/clientchoice.js?v=${mylar.CURRENT_VERSION}"></script>
 </%def>

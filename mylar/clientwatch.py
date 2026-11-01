@@ -27,6 +27,7 @@ grabs are left to their completed download handling.
 import os
 import posixpath
 import queue
+import re
 import threading
 import time
 import xmlrpc.client
@@ -51,6 +52,7 @@ NOTES = {}            # (client, id) -> {'state': ..., 'note': ...} for download
 FINISHED_AT = {}      # (client, id) -> when it was first seen finished
 MATCHES = {}          # path or name -> (at, match or None)
 WARNED = set()
+STUCK = set()         # (client, id) whose filing didn't finish: not tried again until a match is chosen
 MISSING = []          # finished downloads first found missing during this check, logged once together
 RUN = {'busy': False, 'last': 0.0}
 _LOCK = threading.Lock()
@@ -460,6 +462,123 @@ def file_as(path, issue):
 def _ensure(myDB):
     myDB.action('CREATE TABLE IF NOT EXISTS client_watch (Client TEXT, JobID TEXT, Name TEXT, Handled TEXT, Note TEXT, '
                 'PRIMARY KEY (Client, JobID))')
+    myDB.action('CREATE TABLE IF NOT EXISTS client_watch_choice (Client TEXT, JobID TEXT, ComicID TEXT, ComicName TEXT, '
+                'Chosen TEXT, PRIMARY KEY (Client, JobID))')
+
+
+# ---- Choose match: the series a download you added belongs to ------------------
+
+def choices(myDB):
+    """{(client, job id): {'comicid', 'name'}} for downloads given a series with Choose match."""
+    try:
+        _ensure(myDB)
+        return {(r['Client'], r['JobID']): {'comicid': r['ComicID'], 'name': r['ComicName']}
+                for r in myDB.select('SELECT Client, JobID, ComicID, ComicName FROM client_watch_choice')}
+    except Exception as e:
+        logger.fdebug('[CLIENT-WATCH] Could not read the chosen matches: %s' % e)
+        return {}
+
+
+def find_item(client, jobid):
+    for item in (LAST.get(client) or {}).get('items') or []:
+        if item['id'].lower() == str(jobid).lower():
+            return item
+    return None
+
+
+def _ready(myDB, comicid):
+    row = myDB.selectone('SELECT Status, (SELECT COUNT(*) FROM issues WHERE ComicID=?) AS n FROM comics WHERE ComicID=?',
+                         [comicid, comicid]).fetchone()
+    return row is not None and row['Status'] != 'Loading' and row['n'] > 0
+
+
+def chosen_issue(myDB, comicid, name):
+    """The issue of the chosen series that a file or download name's number says, or None."""
+    from mylar import attention
+    try:
+        found = attention.suggest(attention.parse(name), limit=10, comicid=comicid)
+    except Exception as e:
+        logger.fdebug('[CLIENT-WATCH] Could not read the issue number of %s: %s' % (name, e))
+        return None
+    mine = [b for b in found if str(b.get('comicid')) == str(comicid) and b['agree'].get('issue') and b.get('issueid')]
+    return _issue(myDB, comicid, mine[0]['issueid']) if mine else None
+
+
+def _hold_issue(myDB, issue):
+    # a chosen download is on its way, so search doesn't grab the issue again
+    if issue and issue['Status'] == 'Wanted':
+        myDB.upsert('issues', {'Status': 'Snatched'}, {'IssueID': issue['IssueID']})
+        logger.info('[CLIENT-WATCH] Marked %s #%s Snatched: a download you chose it for is on its way.' % (issue['ComicName'], issue['Issue_Number']))
+
+
+def choose(client, jobid, comicid, name=None, year=None):
+    """Choose match: file this download you added as issues of a series, adding the series to the
+    watchlist first when it isn't there."""
+    from mylar import attention
+    item = find_item(client, jobid)
+    if item is None:
+        return {'ok': False, 'note': 'That download isn\'t in the client\'s list any more. Refresh and try again.'}
+    myDB = db.DBConnection()
+    if (client, item['id'].lower()) in own_jobs(myDB):
+        return {'ok': False, 'note': 'Issuarr grabbed this one itself, so it already knows which issue it is.'}
+    if (client, item['id'].lower()) in handled(myDB):
+        return {'ok': False, 'note': 'That download was already dealt with. Refresh to see the queue now.'}
+    comicid = re.sub(r'^4050-', '', str(comicid or '')).strip()
+    if not comicid.isdigit():
+        return {'ok': False, 'note': 'That isn\'t a ComicVine series.'}
+    added = attention.add_series(comicid, name, year)
+    if not added.get('ok'):
+        return added
+    row = myDB.selectone('SELECT ComicName, ComicYear FROM comics WHERE ComicID=?', [comicid]).fetchone()
+    label_ = name or (row['ComicName'] if row else comicid)
+    if row is not None and row['ComicYear'] and not name:
+        label_ = '%s (%s)' % (row['ComicName'], row['ComicYear'])
+    elif year and name:
+        label_ = '%s (%s)' % (name, year)
+    _ensure(myDB)
+    key = (client, item['id'].lower())
+    myDB.upsert('client_watch_choice', {'ComicID': comicid, 'ComicName': label_, 'Chosen': helpers.now()},
+                {'Client': client, 'JobID': key[1]})
+    MATCHES.clear()
+    issue = chosen_issue(myDB, comicid, item['name'] or '') if _ready(myDB, comicid) else None
+    _hold_issue(myDB, issue)
+    _note(key, 'Waiting to file' if item['state'] == 'Finished' else item['state'],
+          'Chosen: %s' % (('%s #%s' % (issue['ComicName'], issue['Issue_Number'])) if issue else label_))
+    logger.info('[CLIENT-WATCH] %s will be filed as %s.' % (item['name'], label_))
+    STUCK.discard(key)
+    FINISHED_AT.pop(key, None)
+    RUN['last'] = 0.0   # the next tick files it
+    if added.get('state') == 'adding':
+        return {'ok': True, 'note': 'Adding %s to your watchlist. %s is filed as its issues once they load.' % (label_, item['name'])}
+    return {'ok': True, 'note': '%s will be filed as %s.' % (item['name'], ('%s #%s' % (issue['ComicName'], issue['Issue_Number'])) if issue else label_)}
+
+
+def choice_info(client, jobid):
+    """What the Choose match window shows: the download, its files and the watchlist series its name is closest to."""
+    from mylar import attention
+    item = find_item(client, jobid)
+    if item is None:
+        return {'ok': False, 'note': 'That download isn\'t in the client\'s list any more. Refresh and try again.'}
+    myDB = db.DBConnection()
+    where = local_path(client, item['path']) if item.get('path') else None
+    files = [os.path.basename(f) for f in comic_files(where)] if where else []
+    parsed = attention.parse(item['name'] or '')
+    try:
+        near = attention.suggest(parsed, limit=5)
+    except Exception:
+        near = []
+    seen, cands = set(), []
+    for b in near:
+        if b['comicid'] in seen:
+            continue
+        seen.add(b['comicid'])
+        cands.append({'comicid': b['comicid'], 'name': b['name'], 'year': b['year'], 'watched': True,
+                      'issue': b.get('number') if b.get('issueid') else None})
+    pick = choices(myDB).get((client, item['id'].lower()))
+    return {'ok': True, 'download': {'client': client, 'id': item['id'], 'name': item['name'], 'source': CLIENT_NAMES[client],
+                                     'state': item['state'], 'files': files[:200], 'more': max(0, len(files) - 200),
+                                     'series': parsed.get('series'), 'issue': parsed.get('issue'), 'year': parsed.get('year')},
+            'candidates': cands, 'chosen': pick}
 
 
 def handled(myDB):
@@ -515,7 +634,43 @@ def _settled(key, now):
     return now - first >= SETTLE
 
 
-def _file_finished(myDB, item, own):
+def _file_chosen(myDB, item, pick, files):
+    """File a finished download as issues of the series chosen for it."""
+    key = (item['client'], item['id'].lower())
+    if not _ready(myDB, pick['comicid']):
+        _note(key, 'Waiting to file', 'Chosen: %s. Waiting for its issues to load from ComicVine.' % pick['name'])
+        return None
+    whole = chosen_issue(myDB, pick['comicid'], item['name'] or '') if len(files) == 1 else None
+    filed, missed, had = 0, [], 0
+    for f in files:
+        issue = whole or chosen_issue(myDB, pick['comicid'], os.path.basename(f))
+        if issue is None:
+            missed.append(os.path.basename(f))
+            continue
+        if issue['Status'] in ('Downloaded', 'Archived'):
+            had += 1
+            continue
+        _note(key, 'Filing', 'Filing as %s #%s' % (issue['ComicName'], issue['Issue_Number']))
+        try:
+            filed += 1 if file_as(f, issue) else 0
+        except Exception as e:
+            logger.warn('[CLIENT-WATCH] Filing %s as %s #%s failed: %s' % (f, issue['ComicName'], issue['Issue_Number'], e))
+    logger.info('[CLIENT-WATCH] %s finished %s (chosen as %s): filed %s of %s comic files.' % (
+        CLIENT_NAMES[item['client']], item['name'], pick['name'], filed, len(files)))
+    if not filed and not had:
+        if len(missed) < len(files):
+            STUCK.add(key)
+            _note(key, 'Not filed', 'Filing as %s didn\'t finish. The log has the details. Choose match tries again.' % pick['name'])
+            return None
+        _note(key, 'Needs a choice', 'No issue of %s matches the number in %s. Choose another series.' % (
+            pick['name'], 'its name' if len(files) == 1 else 'its file names'))
+        return None
+    if missed:
+        return 'Filed %s of %s files as %s. No issue matched: %s.' % (filed, len(files), pick['name'], ', '.join(missed[:5]) + (' and more' if len(missed) > 5 else ''))
+    return 'Filed as %s.' % pick['name'] if filed else 'Already in your library.'
+
+
+def _file_finished(myDB, item, own, pick=None):
     """File a finished download. Returns the note to keep once it's dealt with, or None to look again next time."""
     key = (item['client'], item['id'].lower())
     where = local_path(item['client'], item['path'])
@@ -532,6 +687,8 @@ def _file_finished(myDB, item, own):
     if not files:
         _note(key, 'Needs a choice', 'Finished, but it holds no comic files Issuarr can file (.cbz, .cbr, .cb7, .cbt or .pdf).')
         return None
+    if pick and not own:
+        return _file_chosen(myDB, item, pick, files)
 
     if own:
         issue = _issue(myDB, own['comicid'], own['issueid']) if own.get('issueid') and own.get('comicid') else None
@@ -574,6 +731,10 @@ def _file_finished(myDB, item, own):
     logger.info('[CLIENT-WATCH] %s finished %s: filed %s of %s comic files.%s' % (
         CLIENT_NAMES[item['client']], item['name'], filed, len(files),
         ' The rest matched nothing on the watchlist or were already in the library.' if left else ''))
+    if not filed:
+        STUCK.add(key)
+        _note(key, 'Not filed', 'Filing didn\'t finish. The log has the details. Choose match tries again.')
+        return None
     return 'Filed %s of %s files.' % (filed, len(files)) if left else 'Filed.'
 
 
@@ -593,6 +754,7 @@ def check(force=False):
         myDB = db.DBConnection()
         mine = own_jobs(myDB)
         done = handled(myDB)
+        picked = choices(myDB)
         for client, category in watched():
             try:
                 items = FETCHERS[client](category)
@@ -606,11 +768,16 @@ def check(force=False):
                 key = (client, item['id'].lower())
                 own = mine.get(key)
                 item['own'] = own is not None
-                if key in done or (own and not _ours_to_file(client)):
+                if key in done or key in STUCK or (own and not _ours_to_file(client)):
                     continue
+                pick = None if own else picked.get(key)
                 if item['state'] != 'Finished':
                     FINISHED_AT.pop(key, None)
-                    if not own and item['state'] not in ('Failed',):
+                    if pick and item['state'] not in ('Failed',):
+                        issue = chosen_issue(myDB, pick['comicid'], item['name'] or '') if _ready(myDB, pick['comicid']) else None
+                        _hold_issue(myDB, issue)
+                        _note(key, item['state'], 'Chosen: %s' % (('%s #%s' % (issue['ComicName'], issue['Issue_Number'])) if issue else pick['name']))
+                    elif not own and item['state'] not in ('Failed',):
                         m = identify(item['name'] or '')
                         _note(key, item['state'], 'Matches %s' % label(m) if m else None)
                     continue
@@ -618,7 +785,7 @@ def check(force=False):
                     _note(key, 'Waiting to file', 'Finished. Matched against your watchlist on the next check.')
                     continue
                 try:
-                    note = _file_finished(myDB, item, own)
+                    note = _file_finished(myDB, item, own, pick)
                 except Exception as e:
                     logger.warn('[CLIENT-WATCH] Could not file %s: %s' % (item['name'], e))
                     note = None
@@ -683,6 +850,7 @@ def queue_rows(myDB):
             rows.append({'key': 'watch-%s-%s' % (client, item['id']), 'kind': 'watch', 'queueid': None,
                          'title': item['name'] or item['id'], 'comicid': None, 'issueid': None,
                          'source': CLIENT_NAMES[client], 'via': 'Added by you', 'status': state,
+                         'client': client, 'jobid': item['id'], 'choose': state not in ('Failed', 'Filing'),
                          'percent': item['percent'],
                          'size': dq._human(item['total']) if item.get('total') else None,
                          'speed': '%s/s' % dq._human(item['speed']) if item.get('speed') else None,
