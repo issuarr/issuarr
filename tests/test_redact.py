@@ -81,3 +81,15 @@ def test_new_keys_are_masked_after_settings_are_saved():
     mylar.CONFIG.SAB_APIKEY = 'brandnewkey99'
     redact.forget()
     assert redact.redact('brandnewkey99') == 'REDACTED'
+
+
+def test_init_logger_uses_module_sys():
+    # a local "import sys" in initLogger made the console handler's sys unbound at startup
+    import symtable
+    from pathlib import Path
+    src = Path(__file__).resolve().parent.parent / 'mylar' / 'logger.py'
+    top = symtable.symtable(src.read_text(), str(src), 'exec')
+    found = [t for t in top.get_children() if t.get_name() == 'initLogger']
+    assert found
+    for table in found:
+        assert not table.lookup('sys').is_local()

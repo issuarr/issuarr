@@ -212,7 +212,6 @@ else:
         #since this only happens on windows boxes, if it's nix/mac use the default logger.
         if platform.system() == 'Windows':
             #set the path to the lib here - just to make sure it can detect cloghandler & portalocker.
-            import sys
             sys.path.append(os.path.join(mylar.PROG_DIR, 'lib'))
 
             try:
