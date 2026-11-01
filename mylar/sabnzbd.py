@@ -335,7 +335,8 @@ class SABnzbd(object):
                            'output': 'json',
                            'apikey': mylar.CONFIG.SAB_APIKEY}
 
-            if mylar.CONFIG.SAB_REMOVE_FAILED:
+            # only a failed job's files: a finished job's files haven't been filed yet
+            if status == 'Failed' and mylar.CONFIG.SAB_REMOVE_FAILED:
                 hist_params['del_files'] = 1
 
             try:
