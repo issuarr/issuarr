@@ -417,6 +417,8 @@ _CONFIG_DEFINITIONS = OrderedDict({
     'ENABLE_TORRENTS': (bool, 'Torrents', False),
     'TORRENT_REMOVE_COMPLETED': (bool, 'Torrents', False),
     'TORRENT_POST_IMPORT_LABEL': (str, 'Torrents', None),
+    'TORRENT_REMOVE_FAILED': (bool, 'Torrents', False),
+    'TORRENT_STALLED_TIMEOUT': (int, 'Torrents', 0),
     'ENABLE_TORRENT_SEARCH': (bool, 'Torrents', False),
     'MINSEEDS': (int, 'Torrents', 0),
     'ENABLE_PUBLIC': (bool, 'Torrents', False),

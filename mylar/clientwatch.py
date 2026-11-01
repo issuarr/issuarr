@@ -53,6 +53,9 @@ NOTES = {}            # (client, id) -> {'state': ..., 'note': ...} for download
 FINISHED_AT = {}      # (client, id) -> when it was first seen finished
 MATCHES = {}          # path or name -> (at, match or None)
 WARNED = set()
+STALL = {}            # (client, id) -> [bytes done, since when] for torrents still downloading
+STALLED = {}          # (client, id) -> minutes without progress, once that's STALL_WARN or more
+STALL_WARN = 30
 STUCK = set()         # (client, id) whose filing didn't finish: not tried again until a match is chosen
 MISSING = []          # finished downloads first found missing during this check, logged once together
 RUN = {'busy': False, 'last': 0.0}
@@ -790,6 +793,113 @@ def _remove(client, item, keep):
             _delete_local(client, item['path'])
 
 
+# ---- failed and stalled downloads -----------------------------------------------
+
+def stall_note(minutes):
+    t = stall_timeout()
+    return 'No download progress for %s minutes.%s' % (minutes, ' Issuarr gives up on its own grabs at %s.' % t if t else '')
+
+
+def stall_for(client, jobid):
+    """Minutes a torrent has been stalled, for the Downloads queue, or None."""
+    return STALLED.get((client, str(jobid).lower()))
+
+
+def stall_timeout():
+    try:
+        return max(0, int(getattr(mylar.CONFIG, 'TORRENT_STALLED_TIMEOUT', 0) or 0))
+    except (TypeError, ValueError):
+        return 0
+
+
+def _stalled(key, item, now):
+    """Minutes a downloading torrent has made no progress, or 0."""
+    if item['client'] not in TORRENT_CLIENTS or item['state'] != 'Downloading':
+        STALL.pop(key, None)
+        STALLED.pop(key, None)
+        return 0
+    done = item.get('done') or 0
+    seen = STALL.get(key)
+    if seen is None or done > seen[0]:
+        STALL[key] = [done, now]
+        STALLED.pop(key, None)
+        return 0
+    minutes = int((now - seen[1]) / 60)
+    if minutes >= STALL_WARN:
+        STALLED[key] = minutes
+    return minutes
+
+
+def _fail_own(myDB, item, own, reason):
+    """A torrent Issuarr grabbed failed: block that release, search again when that's on, and
+    remove it from the client when that's on. Returns the note to keep."""
+    from mylar import search
+    client = item['client']
+    if getattr(mylar.CONFIG, 'FAILED_DOWNLOAD_HANDLING', False) and own.get('issueid'):
+        log = myDB.selectone('SELECT PROVIDER, ID, NZBName FROM nzblog WHERE IssueID=? ORDER BY rowid DESC', [own['issueid']]).fetchone()
+        try:
+            search.FailedMark(own['issueid'], own.get('comicid'), log['ID'] if log else item['id'], log['NZBName'] if log else item['name'],
+                              log['PROVIDER'] if log else CLIENT_NAMES[client], retry=True, reason=reason)
+        except Exception as e:
+            logger.warn('[CLIENT-WATCH] Could not mark %s as failed: %s' % (item['name'], e))
+    note = 'Failed: %s' % reason
+    if getattr(mylar.CONFIG, 'TORRENT_REMOVE_FAILED', False):
+        try:
+            _remove(client, item, False)
+            note += ' Removed from %s.' % CLIENT_NAMES[client]
+        except Exception as e:
+            logger.warn('[CLIENT-WATCH] Could not remove failed %s from %s: %s' % (item['name'], CLIENT_NAMES[client], e))
+    logger.info('[CLIENT-WATCH] %s in %s: %s' % (item['name'], CLIENT_NAMES[client], note))
+    return note
+
+
+def remove_download(client, jobid, files=True, blocklist=False, skip=False, relabel=False):
+    """Remove from the Downloads queue: take it out of the client (or move it to the post-import
+    label instead), and for a grab Issuarr sent, block the release and/or skip the issue."""
+    if client not in CLIENT_NAMES or not jobid:
+        return {'ok': False, 'note': 'That download can\'t be removed from here.'}
+    myDB = db.DBConnection()
+    key = (client, str(jobid).lower())
+    item = find_item(client, jobid) or {'client': client, 'id': str(jobid), 'name': str(jobid), 'path': None}
+    item = dict(item, client=client)
+    own = own_jobs(myDB).get(key)
+    name = item['name']
+    label_ = post_import_label(client) if relabel else None
+    try:
+        if label_:
+            _relabel(client, item, label_)
+            done = 'Moved %s to the %s label.' % (name, label_)
+        else:
+            keep = not files or _keep_data()
+            _remove(client, item, keep)
+            done = 'Removed %s from %s%s.' % (name, CLIENT_NAMES[client], '' if keep else ' with its files')
+    except Exception as e:
+        logger.warn('[CLIENT-WATCH] Could not remove %s from %s: %s' % (name, CLIENT_NAMES[client], e))
+        return {'ok': False, 'note': 'Couldn\'t reach %s: %s' % (CLIENT_NAMES[client], e)}
+    if own and own.get('issueid'):
+        from mylar import search
+        issue = myDB.selectone('SELECT ComicName, Issue_Number, Status FROM issues WHERE IssueID=?', [own['issueid']]).fetchone()
+        if blocklist:
+            log = myDB.selectone('SELECT PROVIDER, ID, NZBName FROM nzblog WHERE IssueID=? ORDER BY rowid DESC', [own['issueid']]).fetchone()
+            search.FailedMark(own['issueid'], own.get('comicid'), log['ID'] if log else item['id'], log['NZBName'] if log else name,
+                              log['PROVIDER'] if log else CLIENT_NAMES[client], retry=not skip, reason='You removed it from the Downloads queue.')
+            done += ' The release is blocked.'
+        if issue is not None and issue['Status'] not in ('Downloaded', 'Archived'):
+            status = 'Skipped' if skip else ('Wanted' if not blocklist else None)
+            if status:
+                myDB.upsert('issues', {'Status': status}, {'IssueID': own['issueid']})
+            done += ' %s #%s is %s.' % (issue['ComicName'], issue['Issue_Number'], 'skipped' if skip else 'wanted again')
+    _done(myDB, item, 'Removed by you.')
+    myDB.upsert('client_watch', {'Cleared': done}, {'Client': client, 'JobID': key[1]})
+    NOTES.pop(key, None)
+    STALL.pop(key, None)
+    STALLED.pop(key, None)
+    for c in LAST.values():
+        c['items'] = [i for i in c.get('items') or [] if (i['client'], i['id'].lower()) != key]
+    logger.info('[CLIENT-WATCH] %s' % done)
+    return {'ok': True, 'note': done}
+
+
 def _filed_by_cdh(myDB, own):
     # an NZBGet grab Issuarr sent is filed by completed download handling; once its issue is in the library it's done
     if not own.get('issueid'):
@@ -1015,7 +1125,22 @@ def check(force=False):
                     done.add(key)
                     clear.add(key)
                     continue
-                if key in done or key in STUCK or (own and not _ours_to_file(client)):
+                if key in done:
+                    continue
+                stuck_for = _stalled(key, item, time.time())
+                if own and client in TORRENT_CLIENTS:
+                    reason = None
+                    if item['state'] == 'Failed':
+                        reason = item.get('message') or '%s reported an error.' % CLIENT_NAMES[client]
+                    elif stall_timeout() and stuck_for >= stall_timeout():
+                        reason = 'No download progress for %s minutes.' % stuck_for
+                    if reason:
+                        _done(myDB, item, _fail_own(myDB, item, own, reason))
+                        done.add(key)
+                        STALL.pop(key, None)
+                        STALLED.pop(key, None)
+                        continue
+                if key in STUCK or (own and not _ours_to_file(client)):
                     continue
                 pick = None if own else picked.get(key)
                 if item['state'] != 'Finished':
@@ -1027,6 +1152,9 @@ def check(force=False):
                     elif not own and item['state'] not in ('Failed',):
                         m = identify(item['name'] or '')
                         _note(key, item['state'], 'Matches %s' % label(m) if m else None)
+                    if key in STALLED and not own:
+                        n = NOTES.get(key) or {}
+                        _note(key, 'Stalled', ('%s. ' % n['note'] if n.get('note') else '') + stall_note(STALLED[key]))
                     continue
                 if not _settled(key, time.time()):
                     _note(key, 'Waiting to file', 'Finished. Matched against your watchlist on the next check.')

@@ -4292,6 +4292,13 @@ class WebInterface(object):
         return self._attention_json(clientwatch.choose(client, id, comicid, name, year))
     client_choose.exposed = True
 
+    def client_remove(self, client='', id='', files='1', blocklist='0', skip='0', relabel='0', **kwargs):
+        self._attention_post()
+        from mylar import clientwatch
+        on = lambda v: str(v).lower() in ('1', 'true', 'on', 'yes')
+        return self._attention_json(clientwatch.remove_download(client, id, files=on(files), blocklist=on(blocklist), skip=on(skip), relabel=on(relabel)))
+    client_remove.exposed = True
+
     def checkDownloadClients(self, **kwargs):
         # Refresh on Downloads: ask the watched clients now, waiting a little for slow ones.
         cherrypy.response.headers['Content-Type'] = 'application/json'
@@ -4770,10 +4777,38 @@ class WebInterface(object):
                             "Link":          link,
                             "ID":            f['ID'],
                             "FileName":      f['NZBName'],
+                            "Reason":        f['Reason'] if 'Reason' in f.keys() else None,
                             "DateFailed":    datefailed})
 
         return serve_template(templatename="managefailed.html", title="Failed DB Management", failed=results)
     manageFailed.exposed = True
+
+    def failed_issue(self, IssueID='', action='', **kwargs):
+        # Downloads > Failed: search again for the issue (the failed release stays blocked), or skip it
+        self._attention_post()
+        myDB = db.DBConnection()
+        table = 'issues'
+        row = myDB.selectone('SELECT ComicID, ComicName, Issue_Number, Status FROM issues WHERE IssueID=?', [IssueID]).fetchone()
+        if row is None:
+            table = 'annuals'
+            row = myDB.selectone('SELECT ComicID, ReleaseComicName AS ComicName, Issue_Number, Status FROM annuals WHERE IssueID=? AND NOT Deleted', [IssueID]).fetchone()
+        if row is None:
+            return self._attention_json({'ok': False, 'note': 'That issue isn\'t on your watchlist any more.'})
+        label = '%s #%s' % (row['ComicName'], row['Issue_Number'])
+        if row['Status'] in ('Downloaded', 'Archived'):
+            return self._attention_json({'ok': False, 'note': '%s is already in your library.' % label})
+        if action == 'skip':
+            myDB.upsert(table, {'Status': 'Skipped'}, {'IssueID': IssueID})
+            logger.info('[FAILED] Skipped %s from Downloads > Failed.' % label)
+            return self._attention_json({'ok': True, 'note': 'Skipped %s. It won\'t be searched for.' % label})
+        if action == 'retry':
+            myDB.upsert(table, {'Status': 'Wanted'}, {'IssueID': IssueID})
+            self.queueit(mode='want' if table == 'issues' else 'want_ann', ComicName=row['ComicName'], ComicIssue=row['Issue_Number'],
+                         ComicID=row['ComicID'], IssueID=IssueID, manualsearch=True)
+            logger.info('[FAILED] Searching again for %s from Downloads > Failed.' % label)
+            return self._attention_json({'ok': True, 'note': 'Searching again for %s. The release that failed stays blocked.' % label})
+        return self._attention_json({'ok': False, 'note': 'Unknown action.'})
+    failed_issue.exposed = True
 
     def discover(self):
         return serve_template(templatename="discover.html", title="Discover", weeks=discover.WEEK_CHOICES, default_weeks=discover.DEFAULT_WEEKS)
@@ -8114,6 +8149,8 @@ class WebInterface(object):
                     "sab_remove_completed": helpers.checked(mylar.CONFIG.SAB_REMOVE_COMPLETED),
                     "nzbget_remove_completed": helpers.checked(mylar.CONFIG.NZBGET_REMOVE_COMPLETED),
                     "torrent_remove_completed": helpers.checked(mylar.CONFIG.TORRENT_REMOVE_COMPLETED),
+                    "torrent_remove_failed": helpers.checked(mylar.CONFIG.TORRENT_REMOVE_FAILED),
+                    "torrent_stalled_timeout": mylar.CONFIG.TORRENT_STALLED_TIMEOUT or 0,
                     "torrent_post_import_label": '' if mylar.CONFIG.TORRENT_POST_IMPORT_LABEL in (None, 'None') else mylar.CONFIG.TORRENT_POST_IMPORT_LABEL,
                     "sab_remove_failed": helpers.checked(mylar.CONFIG.SAB_REMOVE_FAILED),
                     "nzbget_host": mylar.CONFIG.NZBGET_HOST,
@@ -8706,7 +8743,7 @@ class WebInterface(object):
                            'newznab', 'use_minsize', 'use_maxsize', 'ddump', 'failed_download_handling', 'sab_client_post_processing', 'nzbget_client_post_processing',
                            'failed_auto', 'post_processing', 'enable_check_folder', 'client_watch', 'archive_delete', 'archive_auto_add', 'cover_match_strict', 'webp_on_import', 'enable_pre_scripts', 'enable_snatch_script', 'enable_extra_scripts',
                            'enable_meta', 'cbr2cbz_only', 'ct_tag_cr', 'cmtag_start_year_as_volume', 'cmtag_volume', 'setdefaultvolume',
-                           'rename_files', 'replace_spaces', 'zero_level', 'sab_remove_completed', 'sab_remove_failed', 'nzbget_remove_completed', 'torrent_remove_completed',
+                           'rename_files', 'replace_spaces', 'zero_level', 'sab_remove_completed', 'sab_remove_failed', 'nzbget_remove_completed', 'torrent_remove_completed', 'torrent_remove_failed',
                            'lowercase_filenames', 'autowant_upcoming', 'autowant_all', 'comic_cover_local', 'cover_folder_local', 'series_metadata_local', 'alternate_latest_series_covers', 'cvinfo', 'snatchedtorrent_notify', 'notify_on_download', 'notify_on_added',
                            'notify_on_task_start', 'notify_on_task_done', 'notify_on_attention', 'notify_on_match_needed', 'notify_on_action', 'notify_on_disk_low',
                            'prowl_enabled', 'prowl_onsnatch', 'pushover_enabled', 'pushover_onsnatch', 'pushover_image', 'mattermost_enabled', 'mattermost_onsnatch', 'boxcar_enabled',

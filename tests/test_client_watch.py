@@ -445,3 +445,85 @@ def test_local_delete_never_removes_a_folder_issuarr_uses(env, monkeypatch, tmp_
     assert clientwatch._delete_local('rtorrent', str(root)) is False
     assert clientwatch._delete_local('rtorrent', str(tmp_path)) is False
     assert root.exists()
+
+
+# ---- failed and stalled (step 5) ----
+
+def _own(env, h='abc', issueid='1002'):
+    env['db'].action("INSERT INTO client_jobs (IssueID, ComicID, Client, JobID) VALUES (?, '100', 'qbittorrent', ?)", [issueid, h])
+
+
+@pytest.mark.unit
+def test_a_failed_grab_is_blocked_searched_again_and_removed(env, monkeypatch):
+    from mylar import search
+    marked, removed = [], []
+    monkeypatch.setattr(search, 'FailedMark', lambda *a, **k: marked.append((a, k)))
+    monkeypatch.setattr(clientwatch, '_remove', lambda client, item, keep: removed.append((item['id'], keep)))
+    monkeypatch.setattr(mylar.CONFIG, 'FAILED_DOWNLOAD_HANDLING', True)
+    monkeypatch.setattr(mylar.CONFIG, 'TORRENT_REMOVE_FAILED', True)
+    _own(env)
+    env['torrents'].append(torrent(env['tmp'], 'Foo 002.cbz', state='missingFiles', progress=0.3))
+    clientwatch.check(force=True)
+    assert len(marked) == 1 and marked[0][1]['retry'] is True and 'find its files' in marked[0][1]['reason']
+    assert removed == [('abc', False)]
+    clientwatch.check(force=True)
+    assert len(marked) == 1
+
+
+@pytest.mark.unit
+def test_a_stalled_torrent_warns_then_fails_after_the_limit(env, monkeypatch):
+    from mylar import search
+    marked = []
+    monkeypatch.setattr(search, 'FailedMark', lambda *a, **k: marked.append(k))
+    monkeypatch.setattr(mylar.CONFIG, 'FAILED_DOWNLOAD_HANDLING', True)
+    monkeypatch.setattr(mylar.CONFIG, 'TORRENT_STALLED_TIMEOUT', 60)
+    monkeypatch.setattr(clientwatch, 'STALL', {})
+    monkeypatch.setattr(clientwatch, 'STALLED', {})
+    _own(env)
+    env['torrents'].append(torrent(env['tmp'], 'Foo 002.cbz', state='stalledDL', progress=0.3))
+    now = [1000.0]
+    monkeypatch.setattr(clientwatch.time, 'time', lambda: now[0])
+    clientwatch.check(force=True)
+    now[0] += 31 * 60
+    clientwatch.check(force=True)
+    assert clientwatch.stall_for('qbittorrent', 'ABC') == 31 and marked == []
+    now[0] += 30 * 60
+    clientwatch.check(force=True)
+    assert len(marked) == 1 and '61 minutes' in marked[0]['reason']
+    assert clientwatch.stall_for('qbittorrent', 'abc') is None
+
+
+@pytest.mark.unit
+def test_a_download_you_added_that_stalls_only_shows_a_warning(env, monkeypatch):
+    monkeypatch.setattr(mylar.CONFIG, 'TORRENT_STALLED_TIMEOUT', 5)
+    monkeypatch.setattr(clientwatch, 'STALL', {})
+    monkeypatch.setattr(clientwatch, 'STALLED', {})
+    env['torrents'].append(torrent(env['tmp'], 'Bar 001.cbz', state='stalledDL', progress=0.3))
+    now = [1000.0]
+    monkeypatch.setattr(clientwatch.time, 'time', lambda: now[0])
+    clientwatch.check(force=True)
+    now[0] += 45 * 60
+    clientwatch.check(force=True)
+    row = clientwatch.queue_rows(env['db'])[0]
+    assert row['status'] == 'Stalled' and '45 minutes' in row['message']
+
+
+@pytest.mark.unit
+def test_removing_your_own_grab_can_block_it_and_skip_the_issue(env, monkeypatch):
+    from mylar import search
+    marked, removed = [], []
+    monkeypatch.setattr(search, 'FailedMark', lambda *a, **k: marked.append(k))
+    monkeypatch.setattr(clientwatch, '_remove', lambda client, item, keep: removed.append(keep))
+    _own(env)
+    out = clientwatch.remove_download('qbittorrent', 'abc', files=True, blocklist=True, skip=True)
+    assert out['ok'], out
+    assert removed == [False] and marked[0]['retry'] is False
+    assert env['db'].selectone("SELECT Status FROM issues WHERE IssueID='1002'").fetchone()['Status'] == 'Skipped'
+
+
+@pytest.mark.unit
+def test_removing_without_blocking_makes_the_issue_wanted_again(env, monkeypatch):
+    monkeypatch.setattr(clientwatch, '_remove', lambda client, item, keep: None)
+    _own(env)
+    assert clientwatch.remove_download('qbittorrent', 'abc', files=False)['ok']
+    assert env['db'].selectone("SELECT Status FROM issues WHERE IssueID='1002'").fetchone()['Status'] == 'Wanted'

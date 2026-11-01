@@ -711,6 +711,16 @@ def ddl_source(d, at_jd2=()):
     return builtin_source(d), HOSTS.get(d['linktype'], d['linktype'])
 
 
+def _stalled_for(job):
+    if not job:
+        return None
+    try:
+        from mylar import clientwatch
+        return clientwatch.stall_for(job['client'], job['id'])
+    except Exception:
+        return None
+
+
 def build(myDB, active=None, rate=None):
     """One list of every download: direct ones and the ones at a download client.
 
@@ -783,16 +793,23 @@ def build(myDB, active=None, rate=None):
         issue = w['issue']
         title = '%s %s' % (w['series'], ('#%s' % issue) if issue and str(issue)[:1].isdigit() else issue) if issue else w['series']
         client = info['client'] if info else (CLIENT_NAMES.get(job['client'], job['client']) if job else _configured_client(w['provider']))
+        status = info['state'] if info else 'Sent'
+        message = info.get('message') if info else None
+        stalled = _stalled_for(job)
+        if stalled and status == 'Downloading':
+            from mylar import clientwatch
+            status, message = 'Stalled', clientwatch.stall_note(stalled)
         rows.append({'key': 'client-%s' % iid, 'kind': 'client', 'queueid': None, 'title': title,
                      'comicid': w['comicid'] if '_' not in iid else None, 'issueid': iid, 'source': client,
-                     'via': w['provider'], 'status': info['state'] if info else 'Sent',
+                     'client': job['client'] if job else None, 'jobid': job['id'] if job else None,
+                     'via': w['provider'], 'status': status,
                      'percent': info['percent'] if info else None,
                      'size': _human(info['total']) if info and info.get('total') else None,
                      'speed': '%s/s' % _human(info['speed']) if info and info.get('speed') else None,
                      'eta': _eta(info['eta']) if info and info.get('eta') is not None else None,
                      'progress': '%s of %s' % (_human(info['done'] or 0), _human(info['total']))
                                  if info and info.get('total') and info['state'] in ('Downloading', 'Paused') else None,
-                     'message': info.get('message') if info else None, 'detail': info.get('name') if info else None,
+                     'message': message, 'detail': info.get('name') if info else None,
                      'updated': w['sent']})
     try:
         from mylar import clientwatch

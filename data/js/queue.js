@@ -6,19 +6,20 @@
 
   // Tab order. "Active" is everything not finished; Completed only applies to direct downloads, and only
   // once they're filed: until then they're Waiting to file, Filing, or Not filed.
-  var TABS = [['active', 'Active'], ['Downloading', 'Downloading'], ['Queued', 'Queued'], ['Processing', 'Processing'],
+  var TABS = [['active', 'Active'], ['Downloading', 'Downloading'], ['Stalled', 'Stalled'], ['Queued', 'Queued'], ['Processing', 'Processing'],
               ['Filing', 'Filing'], ['Needs a choice', 'Needs a choice'], ['Sent', 'Sent'], ['Paused', 'Paused'], ['Incomplete', 'Incomplete'], ['Failed', 'Failed'],
               ['Not filed', 'Not filed'], ['Completed', 'Finished'], ['', 'All']];
   var CLASS = { Completed: 'is-have', Downloading: 'is-snatched is-running', Processing: 'is-snatched is-running',
                 Checking: 'is-snatched', Queued: 'is-idle', Sent: 'is-idle', Paused: 'is-idle',
                 Incomplete: 'is-snatched', Failed: 'is-failed', 'Waiting to file': 'is-snatched', Filing: 'is-snatched is-running',
-                'Not filed': 'is-failed', 'Needs a choice': 'is-wanted' };
+                'Not filed': 'is-failed', 'Needs a choice': 'is-wanted', Stalled: 'is-wanted' };
   var LABEL = { Completed: 'Finished', Sent: 'Waiting on client', Processing: 'Processing' };
   var HELP = { Sent: 'Sent to the download client. Its progress shows here when the client can be reached.',
                Processing: 'Downloaded. Waiting for the client to unpack it or for Issuarr to file it.',
                'Waiting to file': 'Downloaded. Waiting for post-processing to file it into your library.',
                Filing: 'Downloaded. Post-processing is filing it into your library now.',
                'Not filed': 'Downloaded, but post-processing didn\'t file it.',
+               Stalled: 'The torrent has made no progress for a while, usually because nobody is seeding it.',
                'Needs a choice': 'Finished, but no issue on your watchlist matches it, so it waits here instead of being filed. Use Choose match to pick its series.' };
   var st = { tab: 'active', q: '', col: null, start: 0, len: 50, items: [], stalled: 0, loaded: false };
 
@@ -81,10 +82,13 @@
 
   /* ---- rows ---- */
   function actionsFor(it) {
+    var rm = it.client && it.jobid && it.status !== 'Filing' ? '<button type="button" class="btn btn-sm btn-ghost" data-client-remove="' + esc(it.client) +
+      '" data-jobid="' + esc(it.jobid) + '" data-own="' + (it.kind === 'client' ? '1' : '') + '" data-name="' + esc(it.title) + '" data-source="' + esc(it.source) + '">Remove</button>' : '';
     if (it.kind === 'watch') {
-      return it.choose ? '<button type="button" class="btn btn-sm' + (it.status === 'Needs a choice' ? ' btn-primary' : '') + '" data-client-choose="' +
-        esc(it.client) + '" data-jobid="' + esc(it.jobid) + '" title="Pick the series this download is, so Issuarr can file it">Choose match</button>' : '';
+      return (it.choose ? '<button type="button" class="btn btn-sm' + (it.status === 'Needs a choice' ? ' btn-primary' : '') + '" data-client-choose="' +
+        esc(it.client) + '" data-jobid="' + esc(it.jobid) + '" title="Pick the series this download is, so Issuarr can file it">Choose match</button>' : '') + rm;
     }
+    if (it.kind === 'client') return rm;
     if (it.kind !== 'ddl') return '';
     var id = it.queueid, out = [];
     // Nothing to do while filing has it; starting it again would download a second copy.

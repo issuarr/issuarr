@@ -130,4 +130,45 @@
     });
   }
   if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', init); else init();
+
+  /* Remove: take a download out of its client, and for Issuarr's own grabs block the release or skip the issue. */
+  function initRemove() {
+    var rd = document.getElementById('client-remove');
+    if (!rd) return;
+    var target = null;
+    var TORRENT = ['qbittorrent', 'deluge', 'transmission', 'rtorrent', 'utorrent'];
+    document.addEventListener('click', function (e) {
+      var b = e.target.closest('[data-client-remove]');
+      if (b) {
+        e.preventDefault();
+        target = { client: b.getAttribute('data-client-remove'), id: b.getAttribute('data-jobid'), own: !!b.getAttribute('data-own') };
+        document.getElementById('client-remove-name').textContent = b.getAttribute('data-name') + ' in ' + b.getAttribute('data-source');
+        rd.querySelectorAll('[data-own-only]').forEach(function (el) { el.hidden = !target.own; });
+        rd.querySelectorAll('[data-torrent-only]').forEach(function (el) { el.hidden = TORRENT.indexOf(target.client) < 0 || target.client === 'transmission'; });
+        ['cr-block', 'cr-skip', 'cr-relabel'].forEach(function (id) { var x = document.getElementById(id); if (x) x.checked = false; });
+        document.getElementById('cr-files').checked = true;
+        rd.showModal();
+        return;
+      }
+      if (rd.contains(e.target) && e.target.closest('[data-cr-close]')) rd.close();
+    });
+    document.getElementById('cr-go').addEventListener('click', function () {
+      if (!target) return;
+      var btn = this;
+      var relabel = document.getElementById('cr-relabel');
+      var p = new URLSearchParams({ client: target.client, id: target.id, files: document.getElementById('cr-files').checked ? '1' : '0',
+        blocklist: target.own && document.getElementById('cr-block').checked ? '1' : '0', skip: target.own && document.getElementById('cr-skip').checked ? '1' : '0',
+        relabel: relabel && !relabel.closest('[hidden]') && relabel.checked ? '1' : '0' });
+      btn.disabled = true;
+      fetch('client_remove', { method: 'POST', credentials: 'same-origin', body: p })
+        .then(json)
+        .then(function (d) {
+          btn.disabled = false;
+          I().toast(d.note, d.ok);
+          if (d.ok) { rd.close(); document.dispatchEvent(new CustomEvent('issuarr:queue-reload')); }
+        })
+        .catch(function () { btn.disabled = false; I().toast('That didn\'t work. Check the log.', false); });
+    });
+  }
+  if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', initRemove); else initRemove();
 })();

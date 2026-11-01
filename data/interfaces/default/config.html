@@ -379,6 +379,10 @@
                          help='A torrent is removed, with its files (kept when filing uses soft links), only after every comic in it is filed and your client has stopped it for reaching its seed ratio or time limit. Includes torrents you added yourself with Issuarr\'s label.')}
                 ${field('torrent_post_import_label', 'Label after filing', config['torrent_post_import_label'], placeholder='keep Issuarr\'s label',
                         help='Once every comic in a torrent is filed, it moves to this label (or category) so your client can treat it differently, for example to seed longer. Issuarr then stops watching it, so it isn\'t removed. Not for Transmission, which has no labels.')}
+                ${toggle('torrent_remove_failed', 'Remove failed torrents', config['torrent_remove_failed'], id='torrent_remove_failed',
+                         help='When a torrent Issuarr grabbed fails (the client reports an error, or it stalls past the limit below), it\'s removed from the client with its files. With Handle failed downloads on, the release is blocked and, with retrying on, the issue is searched again either way.')}
+                ${field('torrent_stalled_timeout', 'Give up on stalled torrents after', config['torrent_stalled_timeout'], attrs='inputmode="numeric" class="set-num"', suffix='<span class="set-unit">minutes</span>',
+                        help='A torrent with no download progress for 30 minutes shows as Stalled in Downloads. Set a limit to treat Issuarr\'s own grabs as failed after that long. 0 never gives up.')}
             </div>
         </section>
 
