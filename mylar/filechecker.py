@@ -389,6 +389,8 @@ class FileChecker(object):
         # A cover gallery, 'Age of Ultron 007 03 of 03 covers': the issue number comes first and
         # 'N of M covers' only counts the covers, so drop the count before it's read as the issue.
         modfilename = re.sub(r'(\d)\s+\d+\s+of\s+\d+\s+(?:variant\s+)?covers?\b', r'\1 ', modfilename, flags=re.I).strip()
+        # 'Legend Of Supreme #1 of 3', 'Stone #1of4': the issue count reads like the usual '(of 3)'
+        modfilename = re.sub(r'(?<![a-z0-9\[\(])(#?\d+)\s*of\s*(\d+)(?![a-z0-9])', r'\1 (of \2)', modfilename, flags=re.I)
         # A cover date in square brackets, '[2013-07]', reads like the usual '(2013-07)'.
         modfilename = re.sub(r'\[((?:19|20)\d{2}(?:-\d{2}){0,2})\]', r' (\1)', modfilename).strip()
         modfilename = re.sub(r'\(([^()]+)\)', self._year_apart, modfilename)
@@ -1113,10 +1115,12 @@ class FileChecker(object):
         else:
             logger.fdebug('issue verified as : %s' % issue_number)
         issue_volume = None
+        volume_moved = False   # the volume label now follows the issue number, not the series' name
         if len(volume_found) > 0:
             issue_volume = 'v' + str(volume_found['volume'])
             if all([highest_series_pos + 1 != volume_found['position'], highest_series_pos != volume_found['position'] + 1, sep_volume == False, booktype == 'issue', len(possible_issuenumbers) > 0]):
                 logger.fdebug('Extra item(s) are present between the volume label and the issue number. Checking..')
+                volume_moved = volume_found['position'] < issue_number_position
                 split_file.insert(int(issue_number_position), split_file.pop(volume_found['position'])) #highest_series_pos-1, split_file.pop(volume_found['position']))
                 logger.fdebug('new split: %s' % split_file)
                 highest_series_pos = volume_found['position'] -1
@@ -1125,10 +1129,8 @@ class FileChecker(object):
                     issue_number_position -=1
             else:
                 if highest_series_pos > volume_found['position']:
-                    if sep_volume:
-                        highest_series_pos = volume_found['position'] - 1
-                    else:
-                        highest_series_pos = volume_found['position']
+                    # the position is the volume label's ("Vol" of "Saga Vol. 2") even when its number is apart
+                    highest_series_pos = volume_found['position']
             logger.fdebug('Volume detected as : %s' % issue_volume)
 
         if all([len(volume_found) == 0, booktype != 'issue']) or all([len(volume_found) == 0, issue_number_position == len(split_file)]):
@@ -1145,6 +1147,9 @@ class FileChecker(object):
                     highest_series_pos = issue_number_position -2
                 else:
                     if split_file[issue_number_position -1].lower() == 'annual' or split_file[issue_number_position -1].lower() == 'special':
+                        highest_series_pos = issue_number_position
+                    elif volume_moved:
+                        # "Supreme v1 - Glory Days #1": everything before the issue number is the name
                         highest_series_pos = issue_number_position
                     else:
                         highest_series_pos = issue_number_position - 1
@@ -1353,6 +1358,9 @@ class FileChecker(object):
                 tidy = re.sub(r'(?<=\S)\s*\((?:19|20)\d\d\)\s*$', '', tidy)
             tidy = re.sub(r'(\s*\[[^\]]*\])+\s*$', '', tidy).strip()
             tidy = re.sub(r'\s+O?GN$', '', tidy, flags=re.I).strip()
+            # "Lady Pendragon - V2 - 00", "Stone Volume 1 Issue 1": a dash or label left before the number
+            tidy = re.sub(r'(?<=\S)(?:\s+(?:-|issue|no\.?))+$', '', tidy, flags=re.I)
+            tidy = re.sub(r'\s{2,}', ' ', tidy).strip()
             if tidy and tidy != series_name:
                 logger.fdebug('series title tidied: %s' % tidy)
                 series_name = tidy
