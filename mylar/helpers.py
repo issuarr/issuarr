@@ -2344,9 +2344,14 @@ def issue_find_ids(ComicName, ComicID, pack, IssueNumber, pack_id):
     valid = False
 
     ignores = []
+    grabbed = []
     for iss in pack_issues:
        int_iss = issue_number_parser(str(iss)).asInt
        for xb in issuelist:
+           # already grabbed elsewhere: claimed by this pack, a failed pack download would mark it Skipped
+           if xb['Status'] == 'Snatched' and xb['Int_IssueNumber'] == int_iss and Int_IssueNumber != int_iss:
+               grabbed.append(iss)
+               break
            if xb['Status'] != 'Downloaded':
                if xb['Int_IssueNumber'] == int_iss:
                    if Int_IssueNumber == xb['Int_IssueNumber']:
@@ -2364,6 +2369,9 @@ def issue_find_ids(ComicName, ComicID, pack, IssueNumber, pack_id):
 
     if ignores:
         logger.info('[PACK] Already have %s of %s from this pack; those files are kept.' % (', '.join('#%s' % x for x in ignores), ComicName))
+    if grabbed:
+        logger.info('[PACK] %s of %s from this pack %s already grabbed; not marking %s again.' % (
+            ', '.join('#%s' % x for x in grabbed), ComicName, 'is' if len(grabbed) == 1 else 'are', 'it' if len(grabbed) == 1 else 'them'))
 
     if valid:
         for wv in write_valids:
