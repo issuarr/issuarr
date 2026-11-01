@@ -918,6 +918,11 @@ def dbcheck():
         c.execute('ALTER TABLE comics ADD COLUMN LastUpdated TEXT')
 
     try:
+        c.execute('SELECT Reason from failed')
+    except sqlite3.OperationalError:
+        c.execute('ALTER TABLE failed ADD COLUMN Reason TEXT')
+
+    try:
         c.execute('SELECT QUALalt_vers from comics')
     except sqlite3.OperationalError:
         c.execute('ALTER TABLE comics ADD COLUMN QUALalt_vers TEXT')

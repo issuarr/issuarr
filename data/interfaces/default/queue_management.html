@@ -62,6 +62,34 @@
             </div>
         </section>
     </div>
+    <dialog id="client-remove" class="match-dialog" aria-labelledby="client-remove-title" style="max-width: 520px">
+        <form method="dialog" id="client-remove-form">
+            <h2 id="client-remove-title">Remove download</h2>
+            <p class="match-meta" id="client-remove-name"></p>
+            %if mylar.CONFIG.TORRENT_POST_IMPORT_LABEL not in (None, '', 'None'):
+            <div class="set-row set-tog" data-torrent-only>
+                <label class="set-label" for="cr-relabel"><b>Move it to the ${mylar.CONFIG.TORRENT_POST_IMPORT_LABEL | h} label instead</b><span>It stays in the client, out of Issuarr's label.</span></label>
+                <input type="checkbox" class="switch" id="cr-relabel" />
+            </div>
+            %endif
+            <div class="set-row set-tog">
+                <label class="set-label" for="cr-files"><b>Delete its files too</b><span id="cr-files-help">Otherwise only the client's entry is removed.</span></label>
+                <input type="checkbox" class="switch" id="cr-files" checked />
+            </div>
+            <div class="set-row set-tog" data-own-only>
+                <label class="set-label" for="cr-block"><b>Block this release</b><span>It's added to Downloads › Failed so it isn't grabbed again.</span></label>
+                <input type="checkbox" class="switch" id="cr-block" />
+            </div>
+            <div class="set-row set-tog" data-own-only>
+                <label class="set-label" for="cr-skip"><b>Skip the issue</b><span>Marks it Skipped so it isn't searched for. Otherwise it's wanted again.</span></label>
+                <input type="checkbox" class="switch" id="cr-skip" />
+            </div>
+            <div class="match-actions">
+                <button type="button" class="btn btn-danger" id="cr-go">Remove</button>
+                <button type="button" class="btn btn-ghost" data-cr-close>Cancel</button>
+            </div>
+        </form>
+    </dialog>
     <dialog id="client-choose" class="match-dialog choose-dialog" aria-labelledby="client-choose-title">
         <div class="choose-top">
             <h2 id="client-choose-title">Choose a match</h2>

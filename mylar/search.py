@@ -4020,7 +4020,7 @@ def notify_snatch(sent_to, comicname, comyear, IssueNumber, nzbprov, pack, comic
     return
 
 
-def FailedMark(IssueID, ComicID, id, nzbname, prov, oneoffinfo=None, retry=False):
+def FailedMark(IssueID, ComicID, id, nzbname, prov, oneoffinfo=None, retry=False, reason='It couldn\'t be sent to the download client.'):
     # Used to pass a failed attempt at sending a download to a client, to the failed
     # handler, and then back again to continue searching.
 
@@ -4033,6 +4033,7 @@ def FailedMark(IssueID, ComicID, id, nzbname, prov, oneoffinfo=None, retry=False
         nzb_name=nzbname,
         prov=prov,
         oneoffinfo=oneoffinfo,
+        reason=reason,
     )
     FailProcess.markFailed()
 

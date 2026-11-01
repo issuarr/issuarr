@@ -12,7 +12,7 @@
         <div class="page-head">
             <div class="head-text">
                 <h1><span class="page-crumb">Downloads › </span>Failed</h1>
-                <p class="page-sub">Releases that failed once, so Issuarr won't grab them again. Allow one again to let the next search pick it up.</p>
+                <p class="page-sub">Releases that failed once, so Issuarr won't grab them again, and why. Search again to look for another release of the issue, Skip issue to stop looking, or Allow again to let the next search pick the same release.</p>
             </div>
         </div>
 
@@ -39,7 +39,7 @@
                             <th scope="col">Series</th>
                             <th scope="col">Issue</th>
                             <th scope="col">Provider</th>
-                            <th scope="col">File</th>
+                            <th scope="col">File and why</th>
                             <th scope="col">Failed</th>
                             <th scope="col"><span class="sr-only">Actions</span></th>
                         </tr>
@@ -56,9 +56,19 @@
                             <td><a href="comicDetails?ComicID=${f['ComicID'] | u}">${f['Series'] | h}</a></td>
                             <td class="mono nowrap">#${f['Issue_Number'] | h}</td>
                             <td class="nowrap">${f['Provider'] | h}</td>
-                            <td class="mono muted" style="overflow-wrap: anywhere">${f['FileName'] | h}</td>
+                            <td style="overflow-wrap: anywhere"><span class="mono muted">${f['FileName'] | h}</span>
+                                %if f.get('Reason'):
+                                <br><span class="muted">${f['Reason'] | h}</span>
+                                %endif
+                            </td>
                             <td class="mono muted nowrap">${str(f['DateFailed'])[:16] | h}</td>
-                            <td class="actions"><button type="button" class="btn btn-sm" data-allow>Allow again</button></td>
+                            <td class="actions">
+                                %if f['IssueID']:
+                                <button type="button" class="btn btn-sm" data-issue="${f['IssueID'] | h}" data-do="retry" title="Search for another release of this issue">Search again</button>
+                                <button type="button" class="btn btn-sm btn-ghost" data-issue="${f['IssueID'] | h}" data-do="skip" title="Mark the issue Skipped so it isn't searched for">Skip issue</button>
+                                %endif
+                                <button type="button" class="btn btn-sm btn-ghost" data-allow>Allow again</button>
+                            </td>
                         </tr>
                     %endfor
                     %if not rows:
@@ -105,7 +115,14 @@
         });
         table.addEventListener('click', function (e) {
             var b = e.target.closest('[data-allow]');
-            if (b) allow([b.closest('tr')]);
+            if (b) { allow([b.closest('tr')]); return; }
+            var d = e.target.closest('[data-issue]');
+            if (!d) return;
+            d.disabled = true;
+            fetch('failed_issue', { method: 'POST', credentials: 'same-origin', body: new URLSearchParams({ IssueID: d.getAttribute('data-issue'), action: d.getAttribute('data-do') }) })
+                .then(function (r) { if (!r.ok) throw new Error(r.status); return r.json(); })
+                .then(function (r) { window.Issuarr.toast(r.note, r.ok); if (!r.ok) d.disabled = false; })
+                .catch(function () { d.disabled = false; window.Issuarr.toast('That didn\'t work. Check the log.', false); });
         });
         document.getElementById('f-allow').addEventListener('click', function () { allow(picked()); });
         document.getElementById('f-none').addEventListener('click', function () {
