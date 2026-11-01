@@ -2256,26 +2256,20 @@ def humanize_time(amount, units = 'seconds'):
     return buf
 
 def issue_status(IssueID):
-    #import db
+    """True when the issue is already Downloaded or Snatched. An annual can be listed both under its
+    series and as an issue of a separate "Annual" series; either copy counts, so it isn't grabbed twice."""
     myDB = db.DBConnection()
-
     IssueID = str(IssueID)
-
-#    logger.fdebug('[ISSUE-STATUS] Issue Status Check for %s' % IssueID)
-
-    isschk = myDB.selectone("SELECT * FROM issues WHERE IssueID=?", [IssueID]).fetchone()
-    if isschk is None:
-        isschk = myDB.selectone("SELECT * FROM annuals WHERE IssueID=? AND NOT Deleted", [IssueID]).fetchone()
-        if isschk is None:
-            isschk = myDB.selectone("SELECT * FROM storyarcs WHERE IssueArcID=?", [IssueID]).fetchone()
-            if isschk is None:
-                logger.warn('Unable to retrieve IssueID from db. This is a problem. Aborting.')
-                return False
-
-    if any([isschk['Status'] == 'Downloaded', isschk['Status'] == 'Snatched']):
-        return True
-    else:
-        return False
+    rows = [r for r in (myDB.selectone("SELECT Status FROM issues WHERE IssueID=?", [IssueID]).fetchone(),
+                        myDB.selectone("SELECT Status FROM annuals WHERE IssueID=? AND NOT Deleted", [IssueID]).fetchone())
+            if r is not None]
+    if not rows:
+        r = myDB.selectone("SELECT Status FROM storyarcs WHERE IssueArcID=?", [IssueID]).fetchone()
+        if r is None:
+            logger.warn('Unable to retrieve IssueID from db. This is a problem. Aborting.')
+            return False
+        rows = [r]
+    return any(r['Status'] in ('Downloaded', 'Snatched') for r in rows)
 
 def crc(filename):
     #memory in lieu of speed (line by line)
