@@ -526,6 +526,12 @@ def start():
             SCHED.add_job(func=downloadqueue.clear_stuck_tick, id='snatched', name='Stuck Snatched', max_instances=1, coalesce=True,
                           trigger=IntervalTrigger(hours=0, minutes=downloadqueue.CLEAR_EVERY, timezone='UTC'))
 
+            # Downloads in Issuarr's category at qBittorrent, SABnzbd and NZBGet, including ones added by hand
+            from mylar import clientwatch
+            SCHED.add_job(func=clientwatch.tick, id='clientwatch', name='Check download clients', max_instances=1, coalesce=True,
+                          next_run_time=datetime.datetime.utcnow() + datetime.timedelta(minutes=1),
+                          trigger=IntervalTrigger(hours=0, minutes=clientwatch.TICK, timezone='UTC'))
+
             # Indexers from Prowlarr, while Keep in sync is on (does nothing otherwise)
             from mylar import prowlarr
             SCHED.add_job(func=prowlarr.sync, id='prowlarr', name='Prowlarr Sync', max_instances=1, coalesce=True,
