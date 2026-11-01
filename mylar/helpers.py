@@ -2256,26 +2256,20 @@ def humanize_time(amount, units = 'seconds'):
     return buf
 
 def issue_status(IssueID):
-    #import db
+    """True when the issue is already Downloaded or Snatched. An annual can be listed both under its
+    series and as an issue of a separate "Annual" series; either copy counts, so it isn't grabbed twice."""
     myDB = db.DBConnection()
-
     IssueID = str(IssueID)
-
-#    logger.fdebug('[ISSUE-STATUS] Issue Status Check for %s' % IssueID)
-
-    isschk = myDB.selectone("SELECT * FROM issues WHERE IssueID=?", [IssueID]).fetchone()
-    if isschk is None:
-        isschk = myDB.selectone("SELECT * FROM annuals WHERE IssueID=? AND NOT Deleted", [IssueID]).fetchone()
-        if isschk is None:
-            isschk = myDB.selectone("SELECT * FROM storyarcs WHERE IssueArcID=?", [IssueID]).fetchone()
-            if isschk is None:
-                logger.warn('Unable to retrieve IssueID from db. This is a problem. Aborting.')
-                return False
-
-    if any([isschk['Status'] == 'Downloaded', isschk['Status'] == 'Snatched']):
-        return True
-    else:
-        return False
+    rows = [r for r in (myDB.selectone("SELECT Status FROM issues WHERE IssueID=?", [IssueID]).fetchone(),
+                        myDB.selectone("SELECT Status FROM annuals WHERE IssueID=? AND NOT Deleted", [IssueID]).fetchone())
+            if r is not None]
+    if not rows:
+        r = myDB.selectone("SELECT Status FROM storyarcs WHERE IssueArcID=?", [IssueID]).fetchone()
+        if r is None:
+            logger.warn('Unable to retrieve IssueID from db. This is a problem. Aborting.')
+            return False
+        rows = [r]
+    return any(r['Status'] in ('Downloaded', 'Snatched') for r in rows)
 
 def crc(filename):
     #memory in lieu of speed (line by line)
@@ -2350,9 +2344,14 @@ def issue_find_ids(ComicName, ComicID, pack, IssueNumber, pack_id):
     valid = False
 
     ignores = []
+    grabbed = []
     for iss in pack_issues:
        int_iss = issue_number_parser(str(iss)).asInt
        for xb in issuelist:
+           # already grabbed elsewhere: claimed by this pack, a failed pack download would mark it Skipped
+           if xb['Status'] == 'Snatched' and xb['Int_IssueNumber'] == int_iss and Int_IssueNumber != int_iss:
+               grabbed.append(iss)
+               break
            if xb['Status'] != 'Downloaded':
                if xb['Int_IssueNumber'] == int_iss:
                    if Int_IssueNumber == xb['Int_IssueNumber']:
@@ -2370,6 +2369,9 @@ def issue_find_ids(ComicName, ComicID, pack, IssueNumber, pack_id):
 
     if ignores:
         logger.info('[PACK] Already have %s of %s from this pack; those files are kept.' % (', '.join('#%s' % x for x in ignores), ComicName))
+    if grabbed:
+        logger.info('[PACK] %s of %s from this pack %s already grabbed; not marking %s again.' % (
+            ', '.join('#%s' % x for x in grabbed), ComicName, 'is' if len(grabbed) == 1 else 'are', 'it' if len(grabbed) == 1 else 'them'))
 
     if valid:
         for wv in write_valids:
