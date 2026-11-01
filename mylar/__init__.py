@@ -525,6 +525,9 @@ def start():
             from mylar import downloadqueue
             SCHED.add_job(func=downloadqueue.clear_stuck_tick, id='snatched', name='Stuck Snatched', max_instances=1, coalesce=True,
                           trigger=IntervalTrigger(hours=0, minutes=downloadqueue.CLEAR_EVERY, timezone='UTC'))
+            # Grabs SABnzbd, NZBGet or a torrent client no longer has (history cleared, removed there)
+            SCHED.add_job(func=downloadqueue.clear_vanished_tick, id='client_gone', name='Grabs the client no longer has', max_instances=1,
+                          coalesce=True, trigger=IntervalTrigger(hours=0, minutes=downloadqueue.VANISH_EVERY, timezone='UTC'))
 
             # Downloads in Issuarr's category at qBittorrent, SABnzbd and NZBGet, including ones added by hand
             from mylar import clientwatch

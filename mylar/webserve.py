@@ -4314,6 +4314,42 @@ class WebInterface(object):
                            'message': 'Checked your download clients.' if not t.is_alive() else 'Still checking. The list updates when it\'s done.'})
     checkDownloadClients.exposed = True
 
+    def clearVanishedGrabs(self, **kwargs):
+        # Queue button: grabs SABnzbd, NZBGet or a torrent client no longer has go back to Wanted.
+        if cherrypy.request.method != 'POST':
+            raise cherrypy.HTTPError(405)
+        cherrypy.response.headers['Content-Type'] = 'application/json'
+        r = downloadqueue.clear_vanished(force=True)
+        if r['busy']:
+            return json.dumps({'ok': False, 'message': 'Issuarr is filing downloads right now. Try again when that\'s done.'})
+        parts = []
+        if r['wanted']:
+            parts.append('%s back to Wanted' % ('1 issue is' if len(r['wanted']) == 1 else '%s issues are' % len(r['wanted'])))
+        if r['filed']:
+            parts.append('%s already in your library' % ('1 was' if r['filed'] == 1 else '%s were' % r['filed']))
+        msg = ('Your download clients no longer had %s %s: %s.' % (r['gone'], 'grab' if r['gone'] == 1 else 'grabs', ', '.join(parts))
+               if parts else 'Your download clients still have every grab Issuarr could check.')
+        if r['unchecked']:
+            msg += (' %s couldn\'t be checked (no job id was recorded, or the client didn\'t answer). Use Forget on those rows if they\'re gone.'
+                    % r['unchecked'])
+        return json.dumps({'ok': True, 'message': msg})
+    clearVanishedGrabs.exposed = True
+
+    def forgetGrab(self, issueid=None, **kwargs):
+        # Forget on one "Waiting on client" row: the owner says the client no longer has it.
+        if cherrypy.request.method != 'POST':
+            raise cherrypy.HTTPError(405)
+        cherrypy.response.headers['Content-Type'] = 'application/json'
+        if not issueid:
+            return json.dumps({'ok': False, 'message': 'No issue given.'})
+        done = downloadqueue.forget_grab(db.DBConnection(), issueid)
+        if done == 'filed':
+            return json.dumps({'ok': True, 'message': 'That issue is already in your library.'})
+        if done == 'wanted':
+            return json.dumps({'ok': True, 'message': 'Forgot the grab. The issue is Wanted again.'})
+        return json.dumps({'ok': False, 'message': 'That grab isn\'t waiting any more.'})
+    forgetGrab.exposed = True
+
     def previewRename(self, **args): #comicid=None, comicidlist=None):
         file_format = mylar.CONFIG.FILE_FORMAT
         myDB = db.DBConnection()
