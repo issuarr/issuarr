@@ -6,6 +6,7 @@ Releases come from the `main` branch and are the `latest` Docker image. Changes 
 
 ## Unreleased (on dev)
 
+- [fix] With both "Remove finished downloads from SABnzbd" and "Remove failed downloads from SABnzbd" on, SABnzbd no longer deletes a finished download's files before Issuarr has filed them. Only failed downloads have their files deleted. ([`b173408`](https://github.com/issuarr/issuarr/commit/b173408))
 - [fix] Indexer API keys, passwords and tokens no longer appear in the log file, the console or the Logs page. Search URLs show `apikey=REDACTED`, and the values of every key, password and token setting are masked wherever they would be written, including in error tracebacks. ([`d712be4`](https://github.com/issuarr/issuarr/commit/d712be4))
 - [feat] When an import finds several ComicVine series that could be the one, it compares the cover of the series' #1 file with issue #1 of each, using one ComicVine request for all of them, and imports the series whose cover clearly matches instead of leaving it under Needs a choice. In the Choose a match window, each series shows whether its cover matches, and a single match moves to the top. ([`16f30be`](https://github.com/issuarr/issuarr/commit/16f30be))
 - [fix] In Import results' Choose a match window, the file whose cover is shown first is now #1 (or the lowest whole number after it), the issue ComicVine shows each series by, instead of a #0 or #½ that sorts ahead of it. ([`36e1d9d`](https://github.com/issuarr/issuarr/commit/36e1d9d))
