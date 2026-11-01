@@ -588,6 +588,8 @@ class GC(object):
 
         title = os.path.join(mylar.CONFIG.CACHE_DIR, 'html_cache', 'getcomics-' + id)
         logger.fdebug('now loading info from local html to resolve via url: %s' % link)
+        # the folder is only made at startup when direct downloads are on, and can be gone since
+        os.makedirs(os.path.dirname(title), exist_ok=True)
 
         self.cookie_receipt()
         #logger.fdebug('session cookies: %s' % (self.session.cookies,))
