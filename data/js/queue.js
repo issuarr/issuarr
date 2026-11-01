@@ -7,18 +7,19 @@
   // Tab order. "Active" is everything not finished; Completed only applies to direct downloads, and only
   // once they're filed: until then they're Waiting to file, Filing, or Not filed.
   var TABS = [['active', 'Active'], ['Downloading', 'Downloading'], ['Queued', 'Queued'], ['Processing', 'Processing'],
-              ['Filing', 'Filing'], ['Sent', 'Sent'], ['Paused', 'Paused'], ['Incomplete', 'Incomplete'], ['Failed', 'Failed'],
+              ['Filing', 'Filing'], ['Needs a choice', 'Needs a choice'], ['Sent', 'Sent'], ['Paused', 'Paused'], ['Incomplete', 'Incomplete'], ['Failed', 'Failed'],
               ['Not filed', 'Not filed'], ['Completed', 'Finished'], ['', 'All']];
   var CLASS = { Completed: 'is-have', Downloading: 'is-snatched is-running', Processing: 'is-snatched is-running',
                 Checking: 'is-snatched', Queued: 'is-idle', Sent: 'is-idle', Paused: 'is-idle',
                 Incomplete: 'is-snatched', Failed: 'is-failed', 'Waiting to file': 'is-snatched', Filing: 'is-snatched is-running',
-                'Not filed': 'is-failed' };
+                'Not filed': 'is-failed', 'Needs a choice': 'is-wanted' };
   var LABEL = { Completed: 'Finished', Sent: 'Waiting on client', Processing: 'Processing' };
   var HELP = { Sent: 'Sent to the download client. Its progress shows here when the client can be reached.',
                Processing: 'Downloaded. Waiting for the client to unpack it or for Issuarr to file it.',
                'Waiting to file': 'Downloaded. Waiting for post-processing to file it into your library.',
                Filing: 'Downloaded. Post-processing is filing it into your library now.',
-               'Not filed': 'Downloaded, but post-processing didn\'t file it.' };
+               'Not filed': 'Downloaded, but post-processing didn\'t file it.',
+               'Needs a choice': 'Finished, but no issue on your watchlist matches it, so it waits here instead of being filed.' };
   var st = { tab: 'active', q: '', col: null, start: 0, len: 50, items: [], stalled: 0, loaded: false };
 
   function $id(id) { return document.getElementById(id); }
@@ -196,7 +197,9 @@
       .then(function (d) {
         st.items = d.items || [];
         st.stalled = d.stalled || 0;
+        st.clients = d.clients || [];
         st.loaded = true;
+        renderClients();
         renderTabs();
         renderRows();
         renderStalled();
@@ -206,6 +209,18 @@
         if (!st.loaded) $id('q-table').tBodies[0].innerHTML = '<tr><td colspan="6" class="empty-state">Couldn\'t load the queue. Check the log.</td></tr>';
       })
       .then(function () { loading = false; });
+  }
+
+  // When each watched download client was last asked what it holds, for downloads added by hand.
+  function renderClients() {
+    var el = $id('q-clients'), list = st.clients || [];
+    $id('q-refresh').hidden = !list.length;
+    el.hidden = !list.length;
+    if (!list.length) return;
+    el.innerHTML = list.map(function (c) {
+      var when = c.at ? 'checked ' + esc(I().relTime(c.at)) : 'not checked yet';
+      return '<b>' + esc(c.name) + '</b> ' + (c.error ? '<span class="set-warn-inline" title="' + esc(c.error) + '">couldn\'t be reached</span>' : when);
+    }).join(' · ');
   }
 
   function pixeldrain() {
@@ -233,6 +248,15 @@
       'If it hadn\'t finished, its issues go back to Wanted to be searched again.');
     else if (act === 'abort') requeue('abort', id, 'Stop downloading ' + name + '? The download is marked Failed and its issues go back to Wanted to be searched again.');
     else requeue(act, id);
+  });
+  $id('q-refresh').addEventListener('click', function () {
+    var b = this;
+    b.disabled = true;
+    b.textContent = 'Checking…';
+    post('checkDownloadClients')
+      .then(function (r) { I().toast(r.message || 'Done', r.ok !== false); })
+      .catch(function () { I().toast('Couldn\'t check your download clients. Check the log.', false); })
+      .then(function () { b.disabled = false; b.textContent = 'Refresh'; load(true); });
   });
   $id('q-restart-queue').addEventListener('click', function () { requeue('restart_queue'); });
   document.addEventListener('click', function (e) { if (e.target.closest('[data-queue-restart]')) requeue('restart_queue'); });

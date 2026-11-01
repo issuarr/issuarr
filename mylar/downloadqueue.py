@@ -794,6 +794,11 @@ def build(myDB, active=None, rate=None):
                                  if info and info.get('total') and info['state'] in ('Downloading', 'Paused') else None,
                      'message': info.get('message') if info else None, 'detail': info.get('name') if info else None,
                      'updated': w['sent']})
+    try:
+        from mylar import clientwatch
+        rows += clientwatch.queue_rows(myDB)
+    except Exception as e:
+        logger.fdebug('[QUEUE] Could not list the downloads you added to your clients: %s' % e)
     rows.sort(key=lambda r: str(r['updated'] or ''), reverse=True)
     return rows
 

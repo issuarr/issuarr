@@ -4273,9 +4273,26 @@ class WebInterface(object):
         # Everything on its way: direct downloads plus grabs at SABnzbd, NZBGet or a torrent client.
         myDB = db.DBConnection()
         # stalled follows the flow line's rule, so rows JD2 is holding never count as stuck
+        from mylar import clientwatch
         return json.dumps({'items': downloadqueue.build(myDB, rate=downloadqueue.download_rate),
-                           'stalled': activity.stalled_downloads(myDB)})
+                           'stalled': activity.stalled_downloads(myDB),
+                           'clients': clientwatch.summary()})
     downloadQueue.exposed = True
+
+    def checkDownloadClients(self, **kwargs):
+        # Refresh on Downloads: ask the watched clients now, waiting a little for slow ones.
+        cherrypy.response.headers['Content-Type'] = 'application/json'
+        from mylar import clientwatch
+        if not clientwatch.enabled():
+            return json.dumps({'ok': False, 'message': 'Watching download clients is off in Settings > Files & post-processing.'})
+        if not clientwatch.watched():
+            return json.dumps({'ok': False, 'message': 'No download client has a category for Issuarr. Set one for qBittorrent, SABnzbd or NZBGet in Settings > Download clients.'})
+        t = threading.Thread(target=clientwatch.check, kwargs={'force': True}, name='CLIENT-WATCH', daemon=True)
+        t.start()
+        t.join(20)
+        return json.dumps({'ok': True, 'clients': clientwatch.summary(),
+                           'message': 'Checked your download clients.' if not t.is_alive() else 'Still checking. The list updates when it\'s done.'})
+    checkDownloadClients.exposed = True
 
     def previewRename(self, **args): #comicid=None, comicidlist=None):
         file_format = mylar.CONFIG.FILE_FORMAT
@@ -4407,8 +4424,8 @@ class WebInterface(object):
         return serve_template(templatename="manage.html", title="Manage", mylarRoot=mylarRoot, scan_info=scan_info)
     manage.exposed = True
 
-    JOB_ORDER = ('Auto-Search', 'RSS Feeds', 'Folder Monitor', 'Weekly Pullist', 'DB Updater', 'Check Version')
-    JOB_FORCE_IDS = {'Auto-Search': 'search', 'RSS Feeds': 'rss', 'Folder Monitor': 'monitor',
+    JOB_ORDER = ('Auto-Search', 'RSS Feeds', 'Folder Monitor', 'Check download clients', 'Weekly Pullist', 'DB Updater', 'Check Version')
+    JOB_FORCE_IDS = {'Auto-Search': 'search', 'RSS Feeds': 'rss', 'Folder Monitor': 'monitor', 'Check download clients': 'clientwatch',
                      'Weekly Pullist': 'weekly', 'DB Updater': 'updater', 'Check Version': 'version'}
 
     @staticmethod
@@ -4447,6 +4464,11 @@ class WebInterface(object):
             next_ts = None if status == 'Paused' else self._job_epoch(jb['next_run_datetime'])
             rows.append({'jobname': name, 'status': status, 'interval': interval,
                          'prev_ts': self._job_epoch(jb['prev_run_datetime']), 'next_ts': next_ts})
+        from mylar import clientwatch
+        if clientwatch.enabled():
+            rows.append({'jobname': clientwatch.JOB_NAME, 'status': 'Running' if clientwatch.RUN['busy'] else 'Waiting',
+                         'interval': '%s mins' % clientwatch.interval(), 'prev_ts': clientwatch.RUN['last'] or None,
+                         'next_ts': clientwatch.next_run()})
         order = {n: i for i, n in enumerate(self.JOB_ORDER)}
         rows.sort(key=lambda r: (order.get(r['jobname'], len(order)), r['jobname']))
         return rows
@@ -4624,6 +4646,10 @@ class WebInterface(object):
 
     def schedulerForceCheck(self, jobid):
         from apscheduler.triggers.date import DateTrigger
+        if jobid == 'clientwatch':
+            from mylar import clientwatch
+            threading.Thread(target=clientwatch.check, kwargs={'force': True}, name='CLIENT-WATCH', daemon=True).start()
+            return
         for jb in mylar.SCHED.get_jobs():
             if jobid.lower() in str(jb).lower():
                 logger.info('[%s] Now force submitting job for jobid %s' % (jb, jobid))
@@ -8053,6 +8079,8 @@ class WebInterface(object):
                     "webp_available": webp.available(),
                     "check_folder": mylar.CONFIG.CHECK_FOLDER,
                     "download_scan_interval": mylar.CONFIG.DOWNLOAD_SCAN_INTERVAL,
+                    "client_watch": helpers.checked(mylar.CONFIG.CLIENT_WATCH),
+                    "client_watch_interval": mylar.CONFIG.CLIENT_WATCH_INTERVAL,
                     "search_interval": mylar.CONFIG.SEARCH_INTERVAL,
                     "nzb_startup_search": helpers.checked(mylar.CONFIG.NZB_STARTUP_SEARCH),
                     "search_delay": mylar.CONFIG.SEARCH_DELAY,
@@ -8659,7 +8687,7 @@ class WebInterface(object):
                            'enforce_perms', 'sab_to_mylar', 'torrent_local', 'torrent_seedbox', 'rtorrent_ssl', 'rtorrent_verify', 'rtorrent_startonload', 'qbittorrent_ignore_ssl',
                            'enable_torrents', 'enable_rss', 'experimental', 'enable_32p', 'enable_torznab',
                            'newznab', 'use_minsize', 'use_maxsize', 'ddump', 'failed_download_handling', 'sab_client_post_processing', 'nzbget_client_post_processing',
-                           'failed_auto', 'post_processing', 'enable_check_folder', 'archive_delete', 'archive_auto_add', 'cover_match_strict', 'webp_on_import', 'enable_pre_scripts', 'enable_snatch_script', 'enable_extra_scripts',
+                           'failed_auto', 'post_processing', 'enable_check_folder', 'client_watch', 'archive_delete', 'archive_auto_add', 'cover_match_strict', 'webp_on_import', 'enable_pre_scripts', 'enable_snatch_script', 'enable_extra_scripts',
                            'enable_meta', 'cbr2cbz_only', 'ct_tag_cr', 'ct_tag_cbl', 'ct_cbz_overwrite', 'cmtag_start_year_as_volume', 'cmtag_volume', 'setdefaultvolume',
                            'rename_files', 'replace_spaces', 'zero_level', 'sab_remove_completed', 'sab_remove_failed',
                            'lowercase_filenames', 'autowant_upcoming', 'autowant_all', 'comic_cover_local', 'cover_folder_local', 'series_metadata_local', 'alternate_latest_series_covers', 'cvinfo', 'snatchedtorrent_notify', 'notify_on_download', 'notify_on_added',

@@ -320,6 +320,8 @@ _CONFIG_DEFINITIONS = OrderedDict({
     'WEBP_WINDOW_END': (str, 'WebP', '07:00'),
     'WEBP_BACKUP_DIR': (str, 'WebP', None),
     'CHECK_FOLDER': (str, 'PostProcess', None),
+    'CLIENT_WATCH': (bool, 'PostProcess', True),
+    'CLIENT_WATCH_INTERVAL': (int, 'PostProcess', 1),
     'MANUAL_PP_FOLDER': (str, 'PostProcess', None),
     'FOLDER_CACHE_LOCATION': (str, 'PostProcess', None),
 
