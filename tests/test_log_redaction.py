@@ -74,3 +74,28 @@ def test_filter_masks_message_args_and_traceback(config):
     text = '\n'.join(records)
     assert 'zzzzzzzz' not in text and 'yyyyyyyy' not in text and 'sabkey1234567' not in text
     assert 'apikey=***' in text and 'ValueError' in text
+
+
+def test_init_logger_console_goes_to_stdout_masked(config, tmp_path, capsys, monkeypatch):
+    from mylar import logger
+    monkeypatch.setattr(mylar, 'LOGLIST', [], raising=False)
+    monkeypatch.setattr(mylar, 'LOG_LEVEL', 1, raising=False)
+    monkeypatch.setattr(mylar, 'OS_DETECT', 'Linux', raising=False)
+    lg = logging.getLogger('mylar')
+    before = list(lg.handlers)
+    try:
+        if hasattr(logger, 'initLogger'):
+            logger.initLogger(console=True, log_dir=str(tmp_path), loglevel=1)
+        else:
+            logger.mylar_log.initLogger(loglevel=1, log_dir=str(tmp_path), max_logsize=100000, max_logfiles=1)
+        logger.info('get https://h/api?t=get&apikey=qqqqqqqq sab %s' % config.SAB_APIKEY)
+    finally:
+        for h in list(lg.handlers):
+            if h not in before:
+                lg.removeHandler(h)
+                h.close()
+    out, err = capsys.readouterr()
+    assert 'apikey=***' in out and 'qqqqqqqq' not in out and 'sabkey1234567' not in out
+    assert err == ''
+    text = (tmp_path / 'mylar.log').read_text()
+    assert 'apikey=***' in text and 'qqqqqqqq' not in text

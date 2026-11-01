@@ -15,6 +15,7 @@
 
 import os
 import sys
+import sys as _sys
 import inspect
 import traceback
 import threading
@@ -115,7 +116,7 @@ if not LOG_LANG.startswith('en'):
                 self.filehandler = filehandler
 
             if loglevel:
-                consolehandler = logging.StreamHandler(sys.stdout)
+                consolehandler = logging.StreamHandler(_sys.stdout)
                 if loglevel == 1:
                     consolehandler.setLevel(logging.INFO)
                 if loglevel >= 2:
@@ -291,7 +292,7 @@ else:
         # Setup console logger
         if console:
             console_formatter = logging.Formatter('%(asctime)s - %(levelname)s :: %(name)s.%(funcName)s.%(lineno)s : %(threadName)s : %(message)s', '%d-%b-%Y %H:%M:%S')
-            console_handler = logging.StreamHandler(sys.stdout)
+            console_handler = logging.StreamHandler(_sys.stdout)
             console_handler.setFormatter(console_formatter)
             if loglevel == 1:  #normal
                 console_handler.setLevel(logging.INFO)
