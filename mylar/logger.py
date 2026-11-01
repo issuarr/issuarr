@@ -22,6 +22,7 @@ import platform
 import locale
 import mylar
 from mylar import helpers
+from mylar.logredact import RedactFilter, redact
 import logging
 from logging import getLogger, WARN, ERROR, INFO, DEBUG, StreamHandler, Formatter, Handler
 from six import PY2
@@ -77,6 +78,8 @@ if not LOG_LANG.startswith('en'):
             logging.getLogger('cherrypy').propagate = False
             lg = logging.getLogger('mylar')
             lg.setLevel(logging.DEBUG)
+            if not any(isinstance(f, RedactFilter) for f in lg.filters):
+                lg.addFilter(RedactFilter())
 
             if log_dir is not None:
                 self.filename = os.path.join(log_dir, self.filename)
@@ -112,7 +115,7 @@ if not LOG_LANG.startswith('en'):
                 self.filehandler = filehandler
 
             if loglevel:
-                consolehandler = logging.StreamHandler()
+                consolehandler = logging.StreamHandler(sys.stdout)
                 if loglevel == 1:
                     consolehandler.setLevel(logging.INFO)
                 if loglevel >= 2:
@@ -143,7 +146,7 @@ if not LOG_LANG.startswith('en'):
                 message = safe_unicode(message)
                 message = message.encode(mylar.SYS_ENCODING)
             if level != 'DEBUG' or mylar.LOG_LEVEL >= 2:
-                mylar.LOGLIST.insert(0, (helpers.now(), message, level, threadname))
+                mylar.LOGLIST.insert(0, (helpers.now(), redact(message), level, threadname))
                 if len(mylar.LOGLIST) > 2500:
                     del mylar.LOGLIST[-1]
 
@@ -255,6 +258,10 @@ else:
         # Configure the logger to accept all messages
         logger.propagate = False
 
+        # Mask API keys, passwords and tokens for every handler
+        if not any(isinstance(f, RedactFilter) for f in logger.filters):
+            logger.addFilter(RedactFilter())
+
         if init is True:
             logger.setLevel(logging.INFO)
         else:
@@ -284,7 +291,7 @@ else:
         # Setup console logger
         if console:
             console_formatter = logging.Formatter('%(asctime)s - %(levelname)s :: %(name)s.%(funcName)s.%(lineno)s : %(threadName)s : %(message)s', '%d-%b-%Y %H:%M:%S')
-            console_handler = logging.StreamHandler()
+            console_handler = logging.StreamHandler(sys.stdout)
             console_handler.setFormatter(console_formatter)
             if loglevel == 1:  #normal
                 console_handler.setLevel(logging.INFO)

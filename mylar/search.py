@@ -1044,7 +1044,9 @@ def NZB_SEARCH(
                     ComicVersion,
                     oneoff,
                 )
-            logger.info('bb: %s' % (bb,))
+            if isinstance(bb, dict):
+                found = [e.get('title') for e in bb.get('entries') or [] if isinstance(e, dict)]
+                logger.fdebug('%s results: %s' % (len(found), found))
             if any([bb is None, bb == 'no results']):
                 verified_matches = 'no results'
             else:
