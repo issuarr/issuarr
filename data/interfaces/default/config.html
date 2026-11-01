@@ -251,9 +251,10 @@
                 ${toggle('sab_client_post_processing', 'Completed download handling', config['sab_client_post_processing'], id='sab_client_post_processing',
                          help='Issuarr checks SABnzbd for finished downloads and files them itself.')}
                 <div class="set-sub">
-                    ${toggle('sab_remove_completed', 'Remove finished downloads from SABnzbd', config['sab_remove_completed'], id='sab_remove_completed')}
                     ${toggle('sab_remove_failed', 'Remove failed downloads from SABnzbd', config['sab_remove_failed'], id='sab_remove_failed', help='Their files are deleted too.')}
                 </div>
+                ${toggle('sab_remove_completed', 'Remove downloads from SABnzbd once they\'re filed', config['sab_remove_completed'], id='sab_remove_completed',
+                         help='Clears them from SABnzbd\'s history, including downloads you added yourself in Issuarr\'s category. Once every comic in a download is filed, what\'s left of it is deleted (kept when filing uses soft links).')}
                 ${toggle('sab_to_mylar', 'SABnzbd runs on another machine', config['sab_to_mylar'], id='sab_to_mylar')}
                 <div class="set-sub">
                     ${field('sab_directory', 'SABnzbd download folder', config['sab_directory'], help='Where SABnzbd puts finished downloads.')}
@@ -275,6 +276,8 @@
                 ${select('nzbget_priority', 'Priority', [(p, p) for p in ['Default', 'Low', 'Normal', 'High', 'Force', 'Paused']], config['nzbget_priority'])}
                 ${toggle('nzbget_client_post_processing', 'Completed download handling', config['nzbget_client_post_processing'], id='nzbget_client_post_processing',
                          help='Issuarr checks NZBGet for finished downloads and files them itself.')}
+                ${toggle('nzbget_remove_completed', 'Remove downloads from NZBGet once they\'re filed', config['nzbget_remove_completed'], id='nzbget_remove_completed',
+                         help='Clears them from NZBGet\'s history, including downloads you added yourself in Issuarr\'s category. Once every comic in a download is filed, what\'s left of it is deleted (kept when filing uses soft links).')}
                 ${tester('test_nzbget', 'Test NZBGet', 'nzbget_statusicon', 'nzbgetstatus')}
             </div>
 
@@ -372,6 +375,10 @@
                     ${select('qbittorrent_loadaction', 'When a torrent is added', [('default', 'Use qBittorrent\'s default'), ('force_start', 'Force start'), ('pause', 'Add paused')], config['qbittorrent_loadaction'])}
                     ${tester('qbittorrent_test', 'Test qBittorrent', 'qbittorrent_statusicon')}
                 </div>
+                ${toggle('torrent_remove_completed', 'Remove torrents once they\'re filed and done seeding', config['torrent_remove_completed'], id='torrent_remove_completed',
+                         help='A torrent is removed, with its files (kept when filing uses soft links), only after every comic in it is filed and your client has stopped it for reaching its seed ratio or time limit. Includes torrents you added yourself with Issuarr\'s label.')}
+                ${field('torrent_post_import_label', 'Label after filing', config['torrent_post_import_label'], placeholder='keep Issuarr\'s label',
+                        help='Once every comic in a torrent is filed, it moves to this label (or category) so your client can treat it differently, for example to seed longer. Issuarr then stops watching it, so it isn\'t removed. Not for Transmission, which has no labels.')}
             </div>
         </section>
 

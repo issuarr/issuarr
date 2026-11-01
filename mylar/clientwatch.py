@@ -28,6 +28,7 @@ import os
 import posixpath
 import queue
 import re
+import shutil
 import threading
 import time
 import xmlrpc.client
@@ -96,12 +97,13 @@ def watched():
 
 # ---- what each client holds ------------------------------------------------
 
-def _item(client, jobid, name, state, done=None, total=None, speed=None, eta=None, path=None, message=None):
+def _item(client, jobid, name, state, done=None, total=None, speed=None, eta=None, path=None, message=None, stopped=False):
     pct = None
     if total:
         pct = max(0, min(100, int(round(float(done or 0) * 100 / float(total)))))
     return {'client': client, 'id': str(jobid), 'name': name, 'state': state, 'percent': pct, 'done': done,
-            'total': total, 'speed': speed, 'eta': eta, 'path': path or None, 'message': message}
+            'total': total, 'speed': speed, 'eta': eta, 'path': path or None, 'message': message,
+            'stopped': bool(stopped) and state == 'Finished'}
 
 
 def _same(a, b):
@@ -188,7 +190,8 @@ def qbit_items(torrents, category):
         out.append(_item('qbittorrent', str(t.get('hash', '')).lower(), t.get('name'), state,
                          (total or 0) * progress if total else None, total,
                          t.get('dlspeed') if state == 'Downloading' else None, eta, path,
-                         'qBittorrent can\'t find its files' if st == 'missingFiles' else None))
+                         'qBittorrent can\'t find its files' if st == 'missingFiles' else None,
+                         stopped=st.startswith('paused') or st.startswith('stopped')))
     return out
 
 
@@ -224,7 +227,7 @@ def torrent_items(client, rows, category, by_folder=False):
         out.append(_item(client, str(t.get('hash', '')).lower(), t.get('name'), state,
                          total * progress if total else None, total,
                          t.get('speed') if state == 'Downloading' else None, eta, t.get('path'),
-                         t.get('error') if isinstance(t.get('error'), str) else None))
+                         t.get('error') if isinstance(t.get('error'), str) else None, stopped=t.get('stopped')))
     return out
 
 
@@ -247,7 +250,8 @@ def _fetch_deluge(label):
                      'total': t.get('total_wanted'), 'speed': t.get('download_payload_rate'), 'eta': t.get('eta'),
                      'path': posixpath.join(t['save_path'], t['name']) if t.get('save_path') and t.get('name') else None,
                      'paused': st == 'Paused', 'queued': st == 'Queued', 'checking': st in ('Checking', 'Allocating', 'Moving'),
-                     'seeding': st == 'Seeding', 'error': (t.get('message') or 'Deluge reported an error') if st == 'Error' else None})
+                     'seeding': st == 'Seeding', 'stopped': st == 'Paused',
+                     'error': (t.get('message') or 'Deluge reported an error') if st == 'Error' else None})
     return torrent_items('deluge', rows, label)
 
 
@@ -269,7 +273,7 @@ def _fetch_transmission(folder):
                      'total': getattr(t, 'sizeWhenDone', None), 'speed': getattr(t, 'rateDownload', None), 'eta': eta,
                      'path': posixpath.join(t.downloadDir, t.name), 'paused': st == 'stopped',
                      'queued': st in ('download pending', 'check pending'), 'checking': st == 'checking',
-                     'seeding': st in ('seeding', 'seed pending'), 'error': err or None})
+                     'seeding': st in ('seeding', 'seed pending'), 'stopped': st == 'stopped', 'error': err or None})
     return torrent_items('transmission', rows, folder, by_folder=True)
 
 
@@ -297,7 +301,7 @@ def _fetch_rtorrent(label):
                      'progress': done / float(total) if total else 0, 'total': total, 'speed': speed,
                      'eta': int((total - done) / speed) if speed else None,
                      'path': _rt(t, 'base_path') or None, 'paused': not _rt(t, 'active'),
-                     'checking': bool(_rt(t, 'hashing')), 'seeding': bool(_rt(t, 'complete'))})
+                     'checking': bool(_rt(t, 'hashing')), 'seeding': bool(_rt(t, 'complete')), 'stopped': not _rt(t, 'active')})
     return torrent_items('rtorrent', rows, label)
 
 
@@ -313,6 +317,7 @@ def _fetch_utorrent(label):
         rows.append({'hash': t[0], 'name': t[2], 'label': t[11], 'progress': (t[4] or 0) / 1000.0, 'total': t[3],
                      'speed': t[9], 'eta': t[10], 'path': t[26] if len(t) > 26 else None,
                      'paused': bool(bits & 32), 'queued': not bits & 1, 'checking': bool(bits & 2),
+                     'stopped': bool(bits & 32) or not bits & 1,
                      'error': 'uTorrent reported an error' if bits & 16 else None})
     return torrent_items('utorrent', rows, label)
 
@@ -481,7 +486,11 @@ def _auto_add(files):
 
 def _ensure(myDB):
     myDB.action('CREATE TABLE IF NOT EXISTS client_watch (Client TEXT, JobID TEXT, Name TEXT, Handled TEXT, Note TEXT, '
-                'PRIMARY KEY (Client, JobID))')
+                'Complete INTEGER, Cleared TEXT, PRIMARY KEY (Client, JobID))')
+    have = {r['name'] for r in myDB.select('PRAGMA table_info(client_watch)')}
+    for col, kind in (('Complete', 'INTEGER'), ('Cleared', 'TEXT')):
+        if col not in have:
+            myDB.action('ALTER TABLE client_watch ADD COLUMN %s %s' % (col, kind))
     myDB.action('CREATE TABLE IF NOT EXISTS client_watch_choice (Client TEXT, JobID TEXT, ComicID TEXT, ComicName TEXT, '
                 'Chosen TEXT, PRIMARY KEY (Client, JobID))')
 
@@ -610,13 +619,210 @@ def handled(myDB):
         return set()
 
 
+def _complete(note):
+    """Every comic in the download is in the library, so the client may let go of it."""
+    return note in ('Filed.', 'Already in your library.', 'Already filed.', 'Filed by completed download handling.') or \
+        (note.startswith('Filed as ') and 'No issue matched' not in note)
+
+
 def _done(myDB, item, note):
     try:
         _ensure(myDB)
-        myDB.upsert('client_watch', {'Name': item['name'], 'Handled': helpers.now(), 'Note': note},
+        myDB.upsert('client_watch', {'Name': item['name'], 'Handled': helpers.now(), 'Note': note, 'Complete': 1 if _complete(note) else 0},
                     {'Client': item['client'], 'JobID': item['id'].lower()})
     except Exception as e:
         logger.warn('[CLIENT-WATCH] Could not remember that %s was dealt with: %s' % (item['name'], e))
+
+
+def uncleared(myDB):
+    """Downloads filed in full that are still to be removed from their client or relabelled."""
+    try:
+        _ensure(myDB)
+        return {(r['Client'], r['JobID']) for r in myDB.select('SELECT Client, JobID FROM client_watch WHERE Complete=1 AND Cleared IS NULL')}
+    except Exception as e:
+        logger.fdebug('[CLIENT-WATCH] Could not read which downloads to clear: %s' % e)
+        return set()
+
+
+# ---- after import: remove from the client, or give it the post-import label ---------
+
+def _remove_wanted(client):
+    cfg = mylar.CONFIG
+    if client == 'sabnzbd':
+        return bool(getattr(cfg, 'SAB_REMOVE_COMPLETED', False))
+    if client == 'nzbget':
+        return bool(getattr(cfg, 'NZBGET_REMOVE_COMPLETED', False))
+    return bool(getattr(cfg, 'TORRENT_REMOVE_COMPLETED', False))
+
+
+def post_import_label(client):
+    """The label a filed torrent moves to (Settings > Torrents). Transmission has no labels."""
+    if client not in TORRENT_CLIENTS or client == 'transmission':
+        return None
+    v = getattr(mylar.CONFIG, 'TORRENT_POST_IMPORT_LABEL', None)
+    return v.strip() if _set(v) and v.strip() else None
+
+
+def _keep_data():
+    # soft links in the library point at the download, so its files have to stay
+    return (getattr(mylar.CONFIG, 'FILE_OPTS', None) or 'move') == 'softlink'
+
+
+def _protected():
+    cfg = mylar.CONFIG
+    names = ('SAB_DIRECTORY', 'NZBGET_DIRECTORY', 'QBITTORRENT_FOLDER', 'DELUGE_DONE_DIRECTORY', 'DELUGE_DOWNLOAD_DIRECTORY',
+             'TRANSMISSION_DIRECTORY', 'RTORRENT_DIRECTORY', 'CHECK_FOLDER', 'DDL_LOCATION', 'COMIC_DIR', 'DESTINATION_DIR')
+    return [os.path.normpath(getattr(cfg, n)) for n in names if _set(getattr(cfg, n, None))]
+
+
+def _delete_local(client, path):
+    """Delete a finished download's own file or folder, never a download or library folder itself."""
+    where = local_path(client, path)
+    if not where:
+        return False
+    where = os.path.normpath(where)
+    for root in _protected():
+        if where == root or root.startswith(where + os.sep):
+            logger.warn('[CLIENT-WATCH] Not deleting %s: it is (or holds) a folder Issuarr uses.' % where)
+            return False
+    if os.path.isdir(where):
+        shutil.rmtree(where)
+    elif os.path.isfile(where):
+        os.remove(where)
+    return True
+
+
+def _qbit():
+    from mylar.torrent.clients import qbittorrent
+    client = qbittorrent.TorrentClient().connect(mylar.CONFIG.QBITTORRENT_HOST, mylar.CONFIG.QBITTORRENT_USERNAME,
+                                                 mylar.CONFIG.QBITTORRENT_PASSWORD)
+    if isinstance(client, dict):
+        raise Exception(client.get('error'))
+    return client
+
+
+def _deluge():
+    from mylar.torrent.clients import deluge
+    client = deluge.TorrentClient().connect(mylar.CONFIG.DELUGE_HOST, mylar.CONFIG.DELUGE_USERNAME, mylar.CONFIG.DELUGE_PASSWORD)
+    if isinstance(client, dict):
+        raise Exception(client.get('error'))
+    return client
+
+
+def _rtorrent_find(h):
+    from mylar.torrent.clients import rtorrent
+    cfg = mylar.CONFIG
+    conn = rtorrent.TorrentClient().connect(cfg.RTORRENT_HOST, cfg.RTORRENT_USERNAME, cfg.RTORRENT_PASSWORD,
+                                            cfg.RTORRENT_AUTHENTICATION, cfg.RTORRENT_VERIFY, cfg.RTORRENT_RPC_URL,
+                                            cfg.RTORRENT_CA_BUNDLE)
+    if isinstance(conn, dict):
+        raise Exception(conn.get('error'))
+    for t in conn.get_torrents():
+        if str(t.info_hash).lower() == h:
+            return t
+    raise Exception('rTorrent no longer has it')
+
+
+def _utorrent():
+    from mylar.torrent.clients import utorrent
+    conn = utorrent.TorrentClient().connect(mylar.CONFIG.UTORRENT_HOST, mylar.CONFIG.UTORRENT_USERNAME, mylar.CONFIG.UTORRENT_PASSWORD)
+    if not conn:
+        raise Exception('could not connect')
+    return conn
+
+
+def _relabel(client, item, label_):
+    h = item['id'].lower()
+    if client == 'qbittorrent':
+        c = _qbit()
+        try:
+            c._post('api/v2/torrents/createCategory', data={'category': label_})
+        except Exception:
+            pass   # it's there already
+        c.set_category([h], label_)
+    elif client == 'deluge':
+        c = _deluge()
+        try:
+            c.call('label.add', label_.lower())
+        except Exception:
+            pass
+        c.call('label.set_torrent', h, label_.lower())
+    elif client == 'rtorrent':
+        _rtorrent_find(h).set_custom(1, label_)
+    elif client == 'utorrent':
+        _utorrent()._action([('action', 'setprops'), ('hash', item['id']), ('s', 'label'), ('v', label_)])
+
+
+def _remove(client, item, keep):
+    h = item['id'].lower()
+    if client == 'qbittorrent':
+        c = _qbit()
+        (c.delete if keep else c.delete_permanently)([h])
+    elif client == 'deluge':
+        _deluge().call('core.remove_torrent', h, not keep)
+    elif client == 'transmission':
+        from mylar.torrent.clients import transmission
+        conn = transmission.TorrentClient().connect(mylar.CONFIG.TRANSMISSION_HOST, mylar.CONFIG.TRANSMISSION_USERNAME,
+                                                    mylar.CONFIG.TRANSMISSION_PASSWORD)
+        conn.remove_torrent(h, delete_data=not keep)
+    elif client == 'utorrent':
+        c = _utorrent()
+        (c.remove if keep else c.removedata)(item['id'])
+    elif client == 'rtorrent':
+        _rtorrent_find(h).erase()
+        if not keep:
+            _delete_local(client, item['path'])
+    elif client == 'sabnzbd':
+        params = {'mode': 'history', 'name': 'delete', 'value': item['id'], 'output': 'json', 'apikey': mylar.CONFIG.SAB_APIKEY}
+        if not keep:
+            params['del_files'] = 1
+        base = mylar.CONFIG.SAB_HOST.rstrip('/') + '/api'
+        r = requests.get(base, params=params, timeout=10, verify=False).json()
+        if r.get('status') is not True:
+            raise Exception('SABnzbd said no')
+    elif client == 'nzbget':
+        from mylar import nzbget
+        url = nzbget.NZBGet().nzb_url
+        server = xmlrpc.client.ServerProxy(url, transport=_SafeTimeout() if url.startswith('https') else _Timeout())
+        if not server.editqueue('HistoryDelete', '', [int(item['id'])]):
+            raise Exception('NZBGet said no')
+        if not keep:
+            _delete_local(client, item['path'])
+
+
+def _filed_by_cdh(myDB, own):
+    # an NZBGet grab Issuarr sent is filed by completed download handling; once its issue is in the library it's done
+    if not own.get('issueid'):
+        return False
+    row = myDB.selectone('SELECT Status FROM issues WHERE IssueID=?', [own['issueid']]).fetchone()
+    return row is not None and row['Status'] in ('Downloaded', 'Archived')
+
+
+def after_import(myDB, item):
+    """Once a download is filed in full: give a torrent the post-import label, or remove the download
+    from its client when that's on. A torrent is only removed once the client has stopped it, which it
+    does when it reaches its seeding goal. Returns what was done, or None to look again next check."""
+    client = item['client']
+    label_ = post_import_label(client)
+    try:
+        if label_:
+            _relabel(client, item, label_)
+            done = 'Moved to the %s label.' % label_
+        elif not _remove_wanted(client):
+            done = 'Left in the client.'
+        elif client in TORRENT_CLIENTS and not item.get('stopped'):
+            return None   # still seeding
+        else:
+            keep = _keep_data()
+            _remove(client, item, keep)
+            done = 'Removed from %s%s.' % (CLIENT_NAMES[client], '' if keep else ' with its files')
+    except Exception as e:
+        logger.warn('[CLIENT-WATCH] Could not clear %s from %s: %s' % (item['name'], CLIENT_NAMES[client], e))
+        return None
+    myDB.upsert('client_watch', {'Cleared': done}, {'Client': client, 'JobID': item['id'].lower()})
+    if done != 'Left in the client.':
+        logger.info('[CLIENT-WATCH] %s: %s' % (item['name'], done))
+    return done
 
 
 def own_jobs(myDB):
@@ -786,6 +992,7 @@ def check(force=False):
         mine = own_jobs(myDB)
         done = handled(myDB)
         picked = choices(myDB)
+        clear = uncleared(myDB)
         for client, category in watched():
             try:
                 items = FETCHERS[client](category)
@@ -799,6 +1006,15 @@ def check(force=False):
                 key = (client, item['id'].lower())
                 own = mine.get(key)
                 item['own'] = own is not None
+                if key in clear:
+                    if after_import(myDB, item):
+                        clear.discard(key)
+                    continue
+                if own and client == 'nzbget' and key not in done and item['state'] == 'Finished' and _filed_by_cdh(myDB, own):
+                    _done(myDB, item, 'Filed by completed download handling.')
+                    done.add(key)
+                    clear.add(key)
+                    continue
                 if key in done or key in STUCK or (own and not _ours_to_file(client)):
                     continue
                 pick = None if own else picked.get(key)
@@ -825,6 +1041,8 @@ def check(force=False):
                     _done(myDB, item, note)
                     done.add(key)
                     NOTES.pop(key, None)
+                    if _complete(note) and after_import(myDB, item) is None:
+                        clear.add(key)
         if MISSING:
             logger.warn('[CLIENT-WATCH] %s finished %s in Issuarr\'s category can\'t be found from Issuarr: %s. Map the client\'s download folder into '
                         'Issuarr at the same path, or for SABnzbd and NZBGet set the download folder as Issuarr sees it in '

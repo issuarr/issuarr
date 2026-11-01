@@ -353,6 +353,7 @@ _CONFIG_DEFINITIONS = OrderedDict({
     'NZBGET_PASSWORD': (str, 'NZBGet', None),
     'NZBGET_PRIORITY': (str, 'NZBGet', None),
     'NZBGET_CATEGORY': (str, 'NZBGet', None),
+    'NZBGET_REMOVE_COMPLETED': (bool, 'NZBGet', False),
     'NZBGET_DIRECTORY': (str, 'NZBGet', None),
     'NZBGET_CLIENT_POST_PROCESSING': (bool, 'NZBGet', False),   #0/False: ComicRN.py, #1/True: Completed Download Handling
 
@@ -414,6 +415,8 @@ _CONFIG_DEFINITIONS = OrderedDict({
 
 
     'ENABLE_TORRENTS': (bool, 'Torrents', False),
+    'TORRENT_REMOVE_COMPLETED': (bool, 'Torrents', False),
+    'TORRENT_POST_IMPORT_LABEL': (str, 'Torrents', None),
     'ENABLE_TORRENT_SEARCH': (bool, 'Torrents', False),
     'MINSEEDS': (int, 'Torrents', 0),
     'ENABLE_PUBLIC': (bool, 'Torrents', False),
