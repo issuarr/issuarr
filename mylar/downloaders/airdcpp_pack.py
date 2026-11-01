@@ -39,7 +39,7 @@ LIST_WAIT = 60                 # seconds to wait for the peer's folder listing
 STALL_LIMIT = 30 * 60          # give up on the rest when nothing moves for this long
 POLL = 10
 
-NOT_ISSUES = re.compile(r'\b(tpb|hc|trade|trade paperback|omnibus|annual)\b')
+NOT_ISSUES = re.compile(r'\b(tpb|hc|hardcover|o?gn|graphic novel|trade|trade paperback|omnibus|annual)\b')
 
 
 def normalize(text):
