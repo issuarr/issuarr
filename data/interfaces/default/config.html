@@ -725,7 +725,7 @@
                     ${field('download_scan_interval', 'Check every', config['download_scan_interval'], attrs='inputmode="numeric" class="set-num"', suffix='<span class="set-unit">minutes</span>')}
                 </div>
                 ${toggle('client_watch', 'Watch download clients for downloads in Issuarr\'s category', config['client_watch'], id='client_watch',
-                         help='qBittorrent, SABnzbd and NZBGet are checked for everything in the category set for Issuarr, including downloads you add yourself. They show in the Downloads queue, and when one finishes, each comic whose name matches an issue on your watchlist is filed. One that matches nothing waits in the queue. Needs a category set for the client under Download clients.')}
+                         help='Your download clients are checked for everything in the category or label set for Issuarr (for Transmission, its download folder), including downloads you add yourself. They show in the Downloads queue, and when one finishes, each comic whose name matches an issue on your watchlist is filed. One that matches nothing waits in the queue. A client with no category, label or Transmission folder set under Download clients isn\'t watched.')}
                 <div class="set-sub">
                     ${field('client_watch_interval', 'Check every', config['client_watch_interval'], attrs='inputmode="numeric" class="set-num"', suffix='<span class="set-unit">minutes</span>')}
                 </div>
