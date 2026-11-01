@@ -251,3 +251,54 @@ def test_identify_asks_the_watchlist_and_needs_series_and_issue_to_agree(monkeyp
     assert clientwatch.identify('Foo 001 (1999).cbz') is None
     best['agree'].update(year=True, issue=False)
     assert clientwatch.identify('Foo 099 (2020).cbz') is None
+
+
+# ---- step 2: Deluge, Transmission, rTorrent, uTorrent ----
+
+@pytest.mark.unit
+def test_other_torrent_clients_are_read_by_label_or_transmission_folder():
+    rows = [{'hash': 'A', 'name': 'Foo 001.cbz', 'label': 'comics', 'progress': 1.0, 'path': '/dl/Foo 001.cbz'},
+            {'hash': 'B', 'name': 'Foo 002.cbz', 'label': 'Comics', 'progress': 0.25, 'total': 400, 'speed': 5, 'eta': 60},
+            {'hash': 'C', 'name': 'A movie', 'label': 'movies', 'progress': 1.0},
+            {'hash': 'D', 'name': 'Foo 003.cbz', 'label': 'comics', 'progress': 0.5, 'error': 'Tracker gone'},
+            {'hash': 'E', 'name': 'Foo 004.cbz', 'label': 'comics', 'progress': 0.9, 'seeding': True}]
+    items = {i['id']: i for i in clientwatch.torrent_items('deluge', rows, 'comics')}
+    assert {k: v['state'] for k, v in items.items()} == {'a': 'Finished', 'b': 'Downloading', 'd': 'Failed', 'e': 'Finished'}
+    assert items['b']['percent'] == 25 and items['d']['message'] == 'Tracker gone'
+    tr = [{'hash': 'F', 'name': 'Foo 005.cbz', 'folder': '/data/comics/', 'progress': 1.0},
+          {'hash': 'G', 'name': 'Other', 'folder': '/data/tv', 'progress': 1.0}]
+    assert [i['id'] for i in clientwatch.torrent_items('transmission', tr, '/data/comics', by_folder=True)] == ['f']
+
+
+@pytest.mark.unit
+def test_every_torrent_client_with_a_label_is_watched(env, monkeypatch):
+    for flag in ('USE_DELUGE', 'USE_TRANSMISSION', 'USE_RTORRENT', 'USE_UTORRENT'):
+        monkeypatch.setattr(mylar, flag, True, raising=False)
+    for k, v in dict(DELUGE_HOST='d:58846', DELUGE_LABEL='comics', TRANSMISSION_HOST='http://t:9091', TRANSMISSION_DIRECTORY='/data/comics',
+                     RTORRENT_HOST='r:5000', RTORRENT_LABEL='comics', UTORRENT_HOST='http://u:8080', UTORRENT_LABEL=None).items():
+        monkeypatch.setattr(mylar.CONFIG, k, v, raising=False)
+    assert [c for c, _ in clientwatch.watched()] == ['qbittorrent', 'deluge', 'transmission', 'rtorrent']
+
+
+@pytest.mark.unit
+def test_own_deluge_grab_is_left_to_auto_snatch_when_it_is_on(env, monkeypatch):
+    monkeypatch.setattr(mylar.CONFIG, 'AUTO_SNATCH', False, raising=False)
+    monkeypatch.setattr(mylar.CONFIG, 'LOCAL_TORRENT_PP', False, raising=False)
+    assert clientwatch._ours_to_file('deluge') and clientwatch._ours_to_file('transmission')
+    monkeypatch.setattr(mylar.CONFIG, 'AUTO_SNATCH', True, raising=False)
+    assert not clientwatch._ours_to_file('deluge') and not clientwatch._ours_to_file('rtorrent')
+    assert clientwatch._ours_to_file('utorrent') and not clientwatch._ours_to_file('sabnzbd')
+
+
+@pytest.mark.unit
+def test_a_finished_deluge_download_you_added_is_filed(env, monkeypatch):
+    monkeypatch.setattr(mylar, 'USE_DELUGE', True, raising=False)
+    monkeypatch.setattr(mylar.CONFIG, 'DELUGE_HOST', 'd:58846', raising=False)
+    monkeypatch.setattr(mylar.CONFIG, 'DELUGE_LABEL', 'comics', raising=False)
+    path = env['tmp'] / 'deluge' / 'Foo 001 (2020).cbz'
+    path.parent.mkdir()
+    path.write_bytes(b'x')
+    rows = [{'hash': 'DEL1', 'name': 'Foo 001 (2020).cbz', 'label': 'comics', 'progress': 1.0, 'path': str(path)}]
+    monkeypatch.setitem(clientwatch.FETCHERS, 'deluge', lambda label: clientwatch.torrent_items('deluge', rows, label))
+    clientwatch.check(force=True)
+    assert env['filed'] == [('Foo 001 (2020).cbz', '1001')]

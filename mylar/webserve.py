@@ -4287,7 +4287,7 @@ class WebInterface(object):
         if not clientwatch.enabled():
             return json.dumps({'ok': False, 'message': 'Watching download clients is off in Settings > Files & post-processing.'})
         if not clientwatch.watched():
-            return json.dumps({'ok': False, 'message': 'No download client has a category for Issuarr. Set one for qBittorrent, SABnzbd or NZBGet in Settings > Download clients.'})
+            return json.dumps({'ok': False, 'message': 'No download client has a category for Issuarr. Set a category or label (for Transmission, a download folder) in Settings > Download clients.'})
         t = threading.Thread(target=clientwatch.check, kwargs={'force': True}, name='CLIENT-WATCH', daemon=True)
         t.start()
         t.join(20)

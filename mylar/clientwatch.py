@@ -15,10 +15,11 @@
 
 """Watching download clients: everything in Issuarr's category, not only what Issuarr sent.
 
-Every minute (or on Refresh) qBittorrent, SABnzbd and NZBGet are asked what they hold in
-Issuarr's category. Downloads you added yourself show in the Downloads queue, and once they
+Every minute (or on Refresh) each download client is asked what it holds in Issuarr's
+category: qBittorrent, Deluge, rTorrent and uTorrent by their label, Transmission by its
+download folder, SABnzbd and NZBGet by their category. Downloads you added yourself show in the Downloads queue, and once they
 finish, each comic file whose name matches an issue on the watchlist is filed as that issue.
-A download nothing matches waits in the queue as "Needs a choice". qBittorrent grabs Issuarr
+A download nothing matches waits in the queue as "Needs a choice". Torrent grabs Issuarr
 sent itself are filed the same way, as the issue they were grabbed for; SABnzbd and NZBGet
 grabs are left to their completed download handling.
 """
@@ -41,7 +42,9 @@ SETTLE = 50           # seconds a finished download is left alone first, so a cl
 MATCH_TTL = 1800      # seconds a name's watchlist match is remembered
 COMIC_FILES = ('.cbz', '.cbr', '.cb7', '.cbt', '.pdf')
 
-CLIENT_NAMES = {'sabnzbd': 'SABnzbd', 'nzbget': 'NZBGet', 'qbittorrent': 'qBittorrent'}
+CLIENT_NAMES = {'sabnzbd': 'SABnzbd', 'nzbget': 'NZBGet', 'qbittorrent': 'qBittorrent', 'deluge': 'Deluge',
+                'transmission': 'Transmission', 'rtorrent': 'rTorrent', 'utorrent': 'uTorrent'}
+TORRENT_CLIENTS = ('qbittorrent', 'deluge', 'transmission', 'rtorrent', 'utorrent')
 
 LAST = {}             # client -> {'at': epoch, 'error': text or None, 'items': [item, ...]}
 NOTES = {}            # (client, id) -> {'state': ..., 'note': ...} for downloads you added
@@ -79,6 +82,13 @@ def watched():
     if getattr(cfg, 'ENABLE_TORRENTS', True) and getattr(mylar, 'USE_QBITTORRENT', False) and \
             _set(getattr(cfg, 'QBITTORRENT_HOST', None)) and _set(getattr(cfg, 'QBITTORRENT_LABEL', None)):
         out.append(('qbittorrent', cfg.QBITTORRENT_LABEL))
+    if getattr(cfg, 'ENABLE_TORRENTS', True):
+        for client, flag, host, label in (('deluge', 'USE_DELUGE', 'DELUGE_HOST', 'DELUGE_LABEL'),
+                                          ('transmission', 'USE_TRANSMISSION', 'TRANSMISSION_HOST', 'TRANSMISSION_DIRECTORY'),
+                                          ('rtorrent', 'USE_RTORRENT', 'RTORRENT_HOST', 'RTORRENT_LABEL'),
+                                          ('utorrent', 'USE_UTORRENT', 'UTORRENT_HOST', 'UTORRENT_LABEL')):
+            if getattr(mylar, flag, False) and _set(getattr(cfg, host, None)) and _set(getattr(cfg, label, None)):
+                out.append((client, getattr(cfg, label)))
     return out
 
 
@@ -180,6 +190,131 @@ def qbit_items(torrents, category):
     return out
 
 
+def _same_dir(a, b):
+    norm = lambda p: str(p or '').replace('\\', '/').rstrip('/').lower()
+    return bool(norm(a)) and norm(a) == norm(b)
+
+
+def torrent_items(client, rows, category, by_folder=False):
+    """Torrents read from Deluge, Transmission, rTorrent or uTorrent, already turned into plain
+    dicts (hash, name, label, folder, path, progress 0-1, total, speed, eta, paused, queued,
+    checking, error, seeding), -> items in Issuarr's label, or download folder for Transmission."""
+    out = []
+    for t in rows or []:
+        if not (_same_dir(t.get('folder'), category) if by_folder else _same(t.get('label'), category)):
+            continue
+        progress = float(t.get('progress') or 0)
+        if t.get('error'):
+            state = 'Failed'
+        elif progress >= 1 or t.get('seeding'):
+            state = 'Finished'
+        elif t.get('paused'):
+            state = 'Paused'
+        elif t.get('queued'):
+            state = 'Queued'
+        elif t.get('checking'):
+            state = 'Checking'
+        else:
+            state = 'Downloading'
+        total = t.get('total') or None
+        eta = t.get('eta')
+        eta = int(eta) if state == 'Downloading' and eta is not None and 0 <= int(eta) < 8640000 else None
+        out.append(_item(client, str(t.get('hash', '')).lower(), t.get('name'), state,
+                         total * progress if total else None, total,
+                         t.get('speed') if state == 'Downloading' else None, eta, t.get('path'),
+                         t.get('error') if isinstance(t.get('error'), str) else None))
+    return out
+
+
+def _dec(v):
+    return v.decode('utf-8', 'replace') if isinstance(v, bytes) else v
+
+
+def _fetch_deluge(label):
+    from mylar.torrent.clients import deluge
+    client = deluge.TorrentClient().connect(mylar.CONFIG.DELUGE_HOST, mylar.CONFIG.DELUGE_USERNAME, mylar.CONFIG.DELUGE_PASSWORD)
+    if isinstance(client, dict):
+        raise Exception(client.get('error'))
+    res = client.call('core.get_torrents_status', {'label': label},
+                      ['name', 'progress', 'state', 'total_wanted', 'download_payload_rate', 'eta', 'save_path', 'label', 'message'])
+    rows = []
+    for h, t in (res or {}).items():
+        t = {_dec(k): _dec(v) for k, v in t.items()}
+        st = str(t.get('state', ''))
+        rows.append({'hash': _dec(h), 'name': t.get('name'), 'label': t.get('label'), 'progress': float(t.get('progress') or 0) / 100.0,
+                     'total': t.get('total_wanted'), 'speed': t.get('download_payload_rate'), 'eta': t.get('eta'),
+                     'path': posixpath.join(t['save_path'], t['name']) if t.get('save_path') and t.get('name') else None,
+                     'paused': st == 'Paused', 'queued': st == 'Queued', 'checking': st in ('Checking', 'Allocating', 'Moving'),
+                     'seeding': st == 'Seeding', 'error': (t.get('message') or 'Deluge reported an error') if st == 'Error' else None})
+    return torrent_items('deluge', rows, label)
+
+
+def _fetch_transmission(folder):
+    from mylar.torrent.clients import transmission
+    conn = transmission.TorrentClient().connect(mylar.CONFIG.TRANSMISSION_HOST, mylar.CONFIG.TRANSMISSION_USERNAME,
+                                                mylar.CONFIG.TRANSMISSION_PASSWORD)
+    if not conn:
+        raise Exception('could not connect')
+    rows = []
+    for t in conn.get_torrents():
+        st = str(getattr(t, 'status', ''))
+        try:
+            eta = int(t.eta.total_seconds())
+        except Exception:
+            eta = None
+        err = getattr(t, 'errorString', '') if getattr(t, 'error', 0) else None
+        rows.append({'hash': t.hashString, 'name': t.name, 'folder': t.downloadDir, 'progress': float(t.progress or 0) / 100.0,
+                     'total': getattr(t, 'sizeWhenDone', None), 'speed': getattr(t, 'rateDownload', None), 'eta': eta,
+                     'path': posixpath.join(t.downloadDir, t.name), 'paused': st == 'stopped',
+                     'queued': st in ('download pending', 'check pending'), 'checking': st == 'checking',
+                     'seeding': st in ('seeding', 'seed pending'), 'error': err or None})
+    return torrent_items('transmission', rows, folder, by_folder=True)
+
+
+def _rt(t, name):
+    v = getattr(t, name, None)
+    if v is None and callable(getattr(t, 'get_' + name, None)):
+        v = getattr(t, 'get_' + name)()
+    return v
+
+
+def _fetch_rtorrent(label):
+    from mylar.torrent.clients import rtorrent
+    cfg = mylar.CONFIG
+    conn = rtorrent.TorrentClient().connect(cfg.RTORRENT_HOST, cfg.RTORRENT_USERNAME, cfg.RTORRENT_PASSWORD,
+                                            cfg.RTORRENT_AUTHENTICATION, cfg.RTORRENT_VERIFY, cfg.RTORRENT_RPC_URL,
+                                            cfg.RTORRENT_CA_BUNDLE)
+    if isinstance(conn, dict):
+        raise Exception(conn.get('error'))
+    rows = []
+    for t in conn.get_torrents():
+        total = _rt(t, 'size_bytes') or 0
+        done = _rt(t, 'completed_bytes') or 0
+        speed = _rt(t, 'down_rate') or 0
+        rows.append({'hash': t.info_hash, 'name': _rt(t, 'name'), 'label': _rt(t, 'custom1'),
+                     'progress': done / float(total) if total else 0, 'total': total, 'speed': speed,
+                     'eta': int((total - done) / speed) if speed else None,
+                     'path': _rt(t, 'base_path') or None, 'paused': not _rt(t, 'active'),
+                     'checking': bool(_rt(t, 'hashing')), 'seeding': bool(_rt(t, 'complete'))})
+    return torrent_items('rtorrent', rows, label)
+
+
+def _fetch_utorrent(label):
+    from mylar.torrent.clients import utorrent
+    conn = utorrent.TorrentClient().connect(mylar.CONFIG.UTORRENT_HOST, mylar.CONFIG.UTORRENT_USERNAME,
+                                            mylar.CONFIG.UTORRENT_PASSWORD)
+    if not conn:
+        raise Exception('could not connect')
+    rows = []
+    for t in conn.list()[1].get('torrents', []):
+        bits = int(t[1] or 0)
+        rows.append({'hash': t[0], 'name': t[2], 'label': t[11], 'progress': (t[4] or 0) / 1000.0, 'total': t[3],
+                     'speed': t[9], 'eta': t[10], 'path': t[26] if len(t) > 26 else None,
+                     'paused': bool(bits & 32), 'queued': not bits & 1, 'checking': bool(bits & 2),
+                     'error': 'uTorrent reported an error' if bits & 16 else None})
+    return torrent_items('utorrent', rows, label)
+
+
 class _Timeout(xmlrpc.client.Transport):
     def make_connection(self, host):
         conn = super().make_connection(host)
@@ -218,7 +353,8 @@ def _fetch_qbit(category):
     return qbit_items(client.torrents(category=category), category)
 
 
-FETCHERS = {'sabnzbd': _fetch_sab, 'nzbget': _fetch_nzbget, 'qbittorrent': _fetch_qbit}
+FETCHERS = {'sabnzbd': _fetch_sab, 'nzbget': _fetch_nzbget, 'qbittorrent': _fetch_qbit, 'deluge': _fetch_deluge,
+            'transmission': _fetch_transmission, 'rtorrent': _fetch_rtorrent, 'utorrent': _fetch_utorrent}
 
 
 # ---- finding the files -------------------------------------------------------
@@ -244,6 +380,12 @@ def local_path(client, path):
         roots.append(getattr(cfg, 'NZBGET_DIRECTORY', None))
     elif client == 'qbittorrent':
         roots.append(getattr(cfg, 'QBITTORRENT_FOLDER', None))
+    elif client == 'deluge':
+        roots += [getattr(cfg, 'DELUGE_DONE_DIRECTORY', None), getattr(cfg, 'DELUGE_DOWNLOAD_DIRECTORY', None)]
+    elif client == 'transmission':
+        roots.append(getattr(cfg, 'TRANSMISSION_DIRECTORY', None))
+    elif client == 'rtorrent':
+        roots.append(getattr(cfg, 'RTORRENT_DIRECTORY', None))
     roots += [getattr(cfg, 'CHECK_FOLDER', None), getattr(cfg, 'DDL_LOCATION', None)]
     parts = _parts(path)
     for root in [r for r in roots if _set(r) and os.path.isdir(r)]:
@@ -372,6 +514,18 @@ def own_jobs(myDB):
 
 # ---- the check ---------------------------------------------------------------
 
+def _ours_to_file(client):
+    """Whether Issuarr's own grabs at this client are filed here. SABnzbd and NZBGet have completed
+    download handling, and rTorrent and Deluge grabs are fetched by Auto-snatch or local torrent
+    post-processing when either is on."""
+    if client not in TORRENT_CLIENTS:
+        return False
+    if client in ('rtorrent', 'deluge'):
+        cfg = mylar.CONFIG
+        return not (getattr(cfg, 'AUTO_SNATCH', False) or getattr(cfg, 'LOCAL_TORRENT_PP', False))
+    return True
+
+
 def _note(key, state, note=None):
     NOTES[key] = {'state': state, 'note': note}
 
@@ -410,8 +564,8 @@ def _file_finished(myDB, item, own):
                 return 'Its cover doesn\'t match %s #%s. It\'s in Needs attention.' % (issue['ComicName'], issue['Issue_Number'])
             _note(key, 'Filing', 'Filing as %s #%s' % (issue['ComicName'], issue['Issue_Number']))
             ok = file_as(files[0], issue)
-            logger.info('[CLIENT-WATCH] qBittorrent finished %s: %s %s #%s.' % (
-                item['name'], 'filed it as' if ok else 'filing didn\'t finish for', issue['ComicName'], issue['Issue_Number']))
+            logger.info('[CLIENT-WATCH] %s finished %s: %s %s #%s.' % (
+                CLIENT_NAMES[item['client']], item['name'], 'filed it as' if ok else 'filing didn\'t finish for', issue['ComicName'], issue['Issue_Number']))
             return 'Filed.' if ok else 'Filing didn\'t finish. The log has the details.'
 
     picks, owned, unknown = [], 0, []
@@ -483,7 +637,7 @@ def check(force=False):
                 key = (client, item['id'].lower())
                 own = mine.get(key)
                 item['own'] = own is not None
-                if key in done or (own and client != 'qbittorrent'):
+                if key in done or (own and not _ours_to_file(client)):
                     continue
                 if item['state'] != 'Finished':
                     FINISHED_AT.pop(key, None)
