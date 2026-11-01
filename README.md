@@ -1,5 +1,7 @@
 <img width="571" height="571" alt="Issuarr logo" src="https://github.com/user-attachments/assets/ab2c575b-db53-489e-aba5-ffe01bc0debb" />
 
+[<img src="https://github.com/user-attachments/assets/2d889b1b-d810-42e5-834c-73a92b9e0966" width="25%">](https://buymeacoffee.com/hfaumogyb)   
+
 # Issuarr
 
 [![Build & Publish Docker Image](https://github.com/issuarr/issuarr/actions/workflows/docker_ghcr.yml/badge.svg?branch=main)](https://github.com/issuarr/issuarr/actions/workflows/docker_ghcr.yml)
