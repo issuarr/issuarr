@@ -899,6 +899,24 @@ def nzblog(IssueID, NZBName, ComicName, SARC=None, IssueArcID=None, id=None, pro
     myDB.upsert("nzblog", newValue, controlValue)
 
 
+REGRAB_MINUTES = 10   # a grab of the same issue from the same provider after this long is a new grab
+
+
+def _record_snatch(myDB, values, key):
+    """Add a grab to the snatched history. One grab can be recorded more than once within moments;
+    a later grab of the same issue from the same provider gets its own row instead of overwriting it."""
+    where = ' AND '.join('%s=?' % k for k in key)
+    row = myDB.selectone('SELECT rowid AS rid, DateAdded FROM snatched WHERE %s ORDER BY DateAdded DESC' % where,
+                         list(key.values())).fetchone()
+    cutoff = (datetime.datetime.now() - datetime.timedelta(minutes=REGRAB_MINUTES)).strftime('%Y-%m-%d %H:%M:%S')
+    if row is not None and (row['DateAdded'] or '') >= cutoff:
+        myDB.action('UPDATE snatched SET %s WHERE rowid=?' % ', '.join('%s=?' % k for k in values),
+                    list(values.values()) + [row['rid']])
+        return
+    cols = dict(key, **values)
+    myDB.action('INSERT INTO snatched (%s) VALUES (%s)' % (', '.join(cols), ', '.join('?' * len(cols))), list(cols.values()))
+
+
 def foundsearch(ComicID, IssueID, mode=None, down=None, provider=None, SARC=None, IssueArcID=None, module=None, hash=None, crc=None, comicname=None, issuenumber=None, pullinfo=None):
     # When doing a Force Search (Wanted tab), the resulting search calls this to update.
 
@@ -990,7 +1008,7 @@ def foundsearch(ComicID, IssueID, mode=None, down=None, provider=None, SARC=None
                                "Hash":            hash
                                }
 
-            myDB.upsert("snatched", newsnatchValues, snatchedupdate)
+            _record_snatch(myDB, newsnatchValues, snatchedupdate)
 
         elif mode != 'pullwant':
             if modcomicname:
@@ -1009,7 +1027,7 @@ def foundsearch(ComicID, IssueID, mode=None, down=None, provider=None, SARC=None
                                "Hash":            hash
                                }
 
-            myDB.upsert("snatched", newsnatchValues, snatchedupdate)
+            _record_snatch(myDB, newsnatchValues, snatchedupdate)
 
         else:
              #updating snatched table with one-off is abit difficult due to lack of complete information in some instances
@@ -1024,7 +1042,7 @@ def foundsearch(ComicID, IssueID, mode=None, down=None, provider=None, SARC=None
                                "Hash":            hash
                                }
 
-            myDB.upsert("snatched", newsnatchValues, snatchedupdate)
+            _record_snatch(myDB, newsnatchValues, snatchedupdate)
 
         #this will update the weeklypull list immediately after snatching to reflect the new status.
         #-is ugly, should be linked directly to other table (IssueID should be populated in weekly pull at this point hopefully).

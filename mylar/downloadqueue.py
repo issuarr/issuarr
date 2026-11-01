@@ -381,6 +381,9 @@ CLIENT_NAMES = {'sabnzbd': 'SABnzbd', 'nzbget': 'NZBGet', 'qbittorrent': 'qBitto
 def record_job(issueid, issuearcid, comicid, client, jobid, name=None):
     """Remember which client job a grab became, so the queue can show its progress."""
     if not client or jobid in (None, ''):
+        if client:
+            logger.warn('[QUEUE] %s gave no job id for %s, so the Queue can\'t follow that grab or notice if it leaves the client.'
+                        % (CLIENT_NAMES.get(client, client), name or issueid))
         return
     try:
         myDB = db.DBConnection()
@@ -404,7 +407,7 @@ def _latest_jobs(myDB):
     for r in rows:
         for key in (r['IssueID'], r['IssueArcID']):
             if key is not None:
-                jobs[str(key)] = {'client': r['Client'], 'id': str(r['JobID']), 'name': r['Name']}
+                jobs[str(key)] = {'client': r['Client'], 'id': str(r['JobID']), 'name': r['Name'], 'at': r['DateAdded']}
                 jobs[re.sub('^S', '', str(key))] = jobs[str(key)]
     return jobs
 
@@ -989,15 +992,17 @@ class Grabs(object):
         self.jd2_dirs = _listing(jdownloader2.local_folder())
         self.holds = archives.holds
 
-    def held(self, iid, comicid, skip=None):
-        """Whether something other than ddl_info row `skip` is still getting or filing this issue."""
+    def held(self, iid, comicid, skip=None, client_gone=False):
+        """Whether something other than ddl_info row `skip` is still getting or filing this issue.
+        client_gone: its latest grab was sent to a download client that no longer has the job."""
         iid = str(iid)
         if self.last is None:
             return True
         grab = self.last.get(iid)
-        if grab is not None and not grab['provider'].upper().startswith('DDL'):
+        by_client = grab is not None and not grab['provider'].upper().startswith('DDL')
+        if by_client != client_gone:
             return True   # last sent to SABnzbd, NZBGet or a torrent client, which can't be seen from here
-        if iid in self.jobs or self.holds(comicid, iid):
+        if (iid in self.jobs and not client_gone) or self.holds(comicid, iid):
             return True
         if any('[__%s__]' % iid in p for p in self.flagged):
             return True
@@ -1120,6 +1125,207 @@ def clear_stuck_tick():
         clear_stuck()
     except Exception as e:
         logger.warn('[SNATCHED-CHECK] Checking for stuck Snatched issues failed: %s' % e)
+
+
+# ---- grabs the download client no longer has --------------------------------
+# A SABnzbd, NZBGet or torrent grab stays Snatched until it's filed. When the job left the client
+# first (history cleared, removed there by hand), nothing changed it and the Queue showed it as
+# "Waiting on client" for good.
+
+VANISH_EVERY = 10       # minutes between the scheduler's looks for grabs the client no longer has
+VANISH_HOURS = 0.5      # the scheduled check leaves grabs newer than this alone
+FORCE_HOURS = 0.1       # and the Queue button, grabs newer than this
+VANISH_GAP = 9 * 60     # seconds between the two misses the scheduled check needs
+MISSED = {}             # (client, job id) -> when the scheduled check first missed it
+SAB_CHUNK = 50
+
+
+def _sab_has(ids):
+    """The SABnzbd job ids, of these, still in its queue or history. None when SABnzbd's answer
+    can't be trusted for that: an error, or a version that ignores nzo_ids and lists other jobs."""
+    base = (mylar.CONFIG.SAB_HOST or '').rstrip('/') + '/api'
+    params = {'apikey': mylar.CONFIG.SAB_APIKEY, 'output': 'json', 'limit': 1000}
+    have = set()
+    ids = list(ids)
+    for n in range(0, len(ids), SAB_CHUNK):
+        chunk = ids[n:n + SAB_CHUNK]
+        want = {i.lower() for i in chunk}
+        for mode in ('queue', 'history'):
+            r = requests.get(base, params=dict(params, mode=mode, nzo_ids=','.join(chunk)), timeout=15, verify=False)
+            r.raise_for_status()
+            data = r.json()
+            if not isinstance(data, dict) or not isinstance(data.get(mode), dict):
+                return None
+            got = {str(s.get('nzo_id') or '').lower() for s in data[mode].get('slots') or []}
+            if got - want:
+                return None
+            have |= got
+    return have
+
+
+def _nzbget_has(ids):
+    from mylar import nzbget
+    url = nzbget.NZBGet().nzb_url
+    server = xmlrpc.client.ServerProxy(url, transport=_TimeoutSafeTransport() if url.startswith('https') else _TimeoutTransport())
+    groups, history = server.listgroups(), server.history(False)
+    if not isinstance(groups, list) or not isinstance(history, list):
+        return None
+    return {str(g.get('NZBID')).lower() for g in groups + history}
+
+
+TORRENT_BY_CLIENT = {'qbittorrent': TORRENT_FETCHERS[0], 'deluge': TORRENT_FETCHERS[1], 'transmission': TORRENT_FETCHERS[2],
+                     'rtorrent': TORRENT_FETCHERS[3], 'utorrent': TORRENT_FETCHERS[4]}
+
+
+def client_has(client, ids):
+    """The job ids, of these, the client still holds. None when it can't be asked (watch folders,
+    a client that's off or unreachable)."""
+    try:
+        if client == 'sabnzbd':
+            return _sab_has(ids) if mylar.USE_SABNZBD and mylar.CONFIG.SAB_HOST else None
+        if client == 'nzbget':
+            return _nzbget_has(ids) if mylar.USE_NZBGET and mylar.CONFIG.NZBGET_HOST else None
+        if client in TORRENT_BY_CLIENT and getattr(mylar.CONFIG, 'ENABLE_TORRENTS', True):
+            flag, fn = TORRENT_BY_CLIENT[client]
+            if getattr(mylar, flag, False):
+                return {str(k).lower() for k in fn([i.lower() for i in ids])}
+    except Exception as e:
+        logger.fdebug('[CLIENT-CHECK] Could not ask %s about its jobs: %s' % (CLIENT_NAMES.get(client, client), e))
+    return None
+
+
+def _when(at):
+    try:
+        return datetime.datetime.strptime(str(at)[:19], '%Y-%m-%d %H:%M:%S')
+    except (TypeError, ValueError):
+        return None
+
+
+def vanished_grabs(myDB, hours=VANISH_HOURS, misses=2, ask=None, now=None):
+    """Grabs still Snatched whose job the download client no longer has in its queue or history.
+
+    Only a grab whose own job id was recorded is judged, and only when its client answered. With
+    misses=2 a job has to be missing on two checks at least VANISH_GAP apart. Returns (gone, unchecked):
+    the waiting rows, each with its 'job', and how many old enough grabs couldn't be checked.
+    """
+    now = now or datetime.datetime.now()
+    cutoff = (now - datetime.timedelta(hours=hours)).strftime('%Y-%m-%d %H:%M:%S')
+    ask = ask or client_has
+    jobs = _latest_jobs(myDB)
+    grabs = Grabs(myDB)
+    asking, unchecked = {}, 0
+    for w in client_snatches(myDB):
+        if (w['sent'] or '') > cutoff:
+            continue
+        job = jobs.get(str(w['issueid']))
+        sent, at = _when(w['sent']), _when(job and job.get('at'))
+        if not job or sent is None or at is None or at < sent - datetime.timedelta(minutes=15):
+            unchecked += 1   # no job id for this grab (only an older one), so it can't be looked up
+            continue
+        if grabs.held(w['issueid'], w['comicid'], client_gone=True):
+            continue
+        asking.setdefault(job['client'], []).append(dict(w, job=job))
+    gone, stamp, asked = [], time.mktime(now.timetuple()), set()
+    for client, rows in asking.items():
+        name = CLIENT_NAMES.get(client, client)
+        have = ask(client, list(dict.fromkeys(r['job']['id'] for r in rows)))
+        if have is None:
+            unchecked += len(rows)
+            logger.fdebug('[CLIENT-CHECK] Couldn\'t ask %s about %s waiting %s.' % (name, len(rows), 'grab' if len(rows) == 1 else 'grabs'))
+            continue
+        new = []
+        for r in rows:
+            key = (client, r['job']['id'].lower())
+            asked.add(key)
+            if key[1] in have:
+                MISSED.pop(key, None)
+                continue
+            first = MISSED.setdefault(key, stamp)
+            if misses <= 1 or stamp - first >= VANISH_GAP:
+                gone.append(r)
+            elif first == stamp:
+                new.append(r)
+        found = sum(1 for r in rows if r['job']['id'].lower() in have)
+        logger.fdebug('[CLIENT-CHECK] %s has %s of %s waiting %s.' % (name, found, len(rows), 'grab' if len(rows) == 1 else 'grabs'))
+        if new:
+            logger.info('[CLIENT-CHECK] %s no longer has %s %s Issuarr sent (%s). If %s still missing on the next check, %s back to Wanted.'
+                        % (name, len(new), 'grab' if len(new) == 1 else 'grabs',
+                           ', '.join('%s #%s [job %s]' % (r['series'], r['issue'], r['job']['id']) for r in new[:10]) + (' and more' if len(new) > 10 else ''),
+                           'it is' if len(new) == 1 else 'they are', 'it goes' if len(new) == 1 else 'they go'))
+    if unchecked:
+        logger.fdebug('[CLIENT-CHECK] %s waiting %s couldn\'t be checked: no job id was recorded for the grab, or the client didn\'t answer.'
+                      % (unchecked, 'grab' if unchecked == 1 else 'grabs'))
+    for key in [k for k in MISSED if k not in asked]:
+        MISSED.pop(key, None)
+    return gone, unchecked
+
+
+def clear_vanished(myDB=None, force=False, ask=None, rescan=None, now=None):
+    """Grabs the download client no longer has (vanished_grabs) stop being Snatched. Their series are
+    rechecked first, so an issue whose file did get filed becomes Downloaded; the rest go back to
+    Wanted to be searched again. force is the Queue button: one miss is enough, and newer grabs count.
+    Returns {'gone', 'filed', 'wanted', 'unchecked'}."""
+    from mylar import autoadd, updater
+    out = {'gone': 0, 'filed': 0, 'wanted': [], 'unchecked': 0, 'busy': False}
+    if autoadd.running():
+        out['busy'] = True
+        return out   # filing holds every series, so wait for it
+    myDB = myDB or db.DBConnection()
+    gone, out['unchecked'] = vanished_grabs(myDB, hours=FORCE_HOURS if force else VANISH_HOURS,
+                                            misses=1 if force else 2, ask=ask, now=now)
+    out['gone'] = len(gone)
+    if not gone:
+        return out
+    rescan = rescan or (lambda cid: updater.forceRescan(cid, module='[CLIENT-CHECK]'))
+    for cid in dict.fromkeys(str(g['comicid']) for g in gone if g['comicid'] and '_' not in str(g['issueid'])):
+        try:
+            rescan(cid)
+        except Exception as e:
+            logger.warn('[CLIENT-CHECK] Could not recheck the files of series %s: %s' % (cid, e))
+    still = {str(w['issueid']) for w in client_snatches(myDB)}
+    left = [g for g in gone if str(g['issueid']) in still]
+    out['filed'] = len(gone) - len(left)
+    out['wanted'] = unsnatch(myDB, [g['issueid'] for g in left])
+    for g in gone:
+        MISSED.pop((g['job']['client'], g['job']['id'].lower()), None)
+    if out['filed']:
+        logger.info('[CLIENT-CHECK] %s %s the download client no longer has %s already in the series folder.'
+                    % (out['filed'], 'grab' if out['filed'] == 1 else 'grabs', 'was' if out['filed'] == 1 else 'were'))
+    if out['wanted']:
+        names = {str(g['issueid']): '%s #%s' % (g['series'], g['issue']) for g in left}
+        logger.info('[CLIENT-CHECK] Put %s %s back to Wanted: the download client no longer has %s - %s'
+                    % (len(out['wanted']), 'issue' if len(out['wanted']) == 1 else 'issues',
+                       'its job' if len(out['wanted']) == 1 else 'their jobs', ', '.join(names.get(i, i) for i in out['wanted'])))
+    return out
+
+
+def clear_vanished_tick():
+    """The scheduler's look for grabs the download client no longer has."""
+    try:
+        clear_vanished()
+    except Exception as e:
+        logger.warn('[CLIENT-CHECK] Checking for grabs your download client no longer has failed: %s' % e)
+
+
+def forget_grab(myDB, issueid, rescan=None):
+    """One grab at a download client that the owner says is gone (Forget on the Queue): its series is
+    rechecked, and if the issue is still Snatched it goes back to Wanted. Returns 'filed', 'wanted' or None."""
+    from mylar import updater
+    iid = str(issueid)
+    row = next((w for w in client_snatches(myDB) if str(w['issueid']) == iid), None)
+    if row is None:
+        return None
+    if row['comicid'] and '_' not in iid:
+        try:
+            (rescan or (lambda cid: updater.forceRescan(cid, module='[CLIENT-CHECK]')))(str(row['comicid']))
+        except Exception as e:
+            logger.warn('[CLIENT-CHECK] Could not recheck the files of series %s: %s' % (row['comicid'], e))
+    if not any(str(w['issueid']) == iid for w in client_snatches(myDB)):
+        return 'filed'
+    if unsnatch(myDB, [iid]):
+        logger.info('[CLIENT-CHECK] %s #%s is back to Wanted: you forgot its grab on the Queue.' % (row['series'], row['issue']))
+        return 'wanted'
+    return None
 
 
 def _issue_key(n):
