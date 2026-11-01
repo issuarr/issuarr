@@ -364,3 +364,84 @@ def test_filing_that_didnt_finish_stays_in_the_queue_until_a_match_is_chosen(env
     assert clientwatch.choose('qbittorrent', 'abc', '100')['ok']
     clientwatch.check(force=True)
     assert len(tries) == 2
+
+
+# ---- after import (step 4) ----
+
+@pytest.fixture
+def cleared(env, monkeypatch):
+    calls = []
+    monkeypatch.setattr(clientwatch, '_remove', lambda client, item, keep: calls.append(('remove', item['id'], keep)))
+    monkeypatch.setattr(clientwatch, '_relabel', lambda client, item, label_: calls.append(('label', item['id'], label_)))
+    return calls
+
+
+@pytest.mark.unit
+def test_a_filed_torrent_is_left_alone_when_removing_is_off(env, cleared):
+    env['torrents'].append(torrent(env['tmp'], 'Foo 001 (2020).cbz', state='pausedUP'))
+    clientwatch.check(force=True)
+    clientwatch.check(force=True)
+    assert env['filed'] and cleared == []
+
+
+@pytest.mark.unit
+def test_a_filed_torrent_is_removed_only_once_the_client_stops_it(env, cleared, monkeypatch):
+    monkeypatch.setattr(mylar.CONFIG, 'TORRENT_REMOVE_COMPLETED', True)
+    env['torrents'].append(torrent(env['tmp'], 'Foo 001 (2020).cbz', state='uploading'))
+    clientwatch.check(force=True)
+    assert env['filed'] and cleared == []   # still seeding
+    env['torrents'][0]['state'] = 'stoppedUP'
+    clientwatch.check(force=True)
+    assert cleared == [('remove', 'abc', False)]
+    clientwatch.check(force=True)
+    assert len(cleared) == 1
+
+
+@pytest.mark.unit
+def test_soft_links_keep_the_torrents_files(env, cleared, monkeypatch):
+    monkeypatch.setattr(mylar.CONFIG, 'TORRENT_REMOVE_COMPLETED', True)
+    monkeypatch.setattr(mylar.CONFIG, 'FILE_OPTS', 'softlink')
+    env['torrents'].append(torrent(env['tmp'], 'Foo 001 (2020).cbz', state='pausedUP'))
+    clientwatch.check(force=True)
+    assert cleared == [('remove', 'abc', True)]
+
+
+@pytest.mark.unit
+def test_the_post_import_label_wins_over_removing(env, cleared, monkeypatch):
+    monkeypatch.setattr(mylar.CONFIG, 'TORRENT_REMOVE_COMPLETED', True)
+    monkeypatch.setattr(mylar.CONFIG, 'TORRENT_POST_IMPORT_LABEL', 'comics-done')
+    env['torrents'].append(torrent(env['tmp'], 'Foo 001 (2020).cbz', state='uploading'))
+    clientwatch.check(force=True)
+    assert cleared == [('label', 'abc', 'comics-done')]
+
+
+@pytest.mark.unit
+def test_a_partly_filed_download_is_never_removed(env, cleared, monkeypatch):
+    monkeypatch.setattr(mylar.CONFIG, 'TORRENT_REMOVE_COMPLETED', True)
+    folder = env['tmp'] / 'downloads' / 'Pack'
+    folder.mkdir(parents=True)
+    (folder / 'Foo 001 (2020).cbz').write_bytes(b'x')
+    (folder / 'Mystery 001.cbz').write_bytes(b'x')
+    t = torrent(env['tmp'], 'Pack', state='pausedUP', make=False)
+    env['torrents'].append(t)
+    clientwatch.check(force=True)
+    assert env['filed'] == [('Foo 001 (2020).cbz', '1001')]
+    assert cleared == []
+
+
+@pytest.mark.unit
+def test_stopped_is_read_from_each_client():
+    rows = [{'hash': 'A', 'label': 'c', 'progress': 1, 'stopped': True}, {'hash': 'B', 'label': 'c', 'progress': 1, 'seeding': True},
+            {'hash': 'C', 'label': 'c', 'progress': 0.5, 'paused': True, 'stopped': True}]
+    got = {i['id']: i['stopped'] for i in clientwatch.torrent_items('deluge', rows, 'c')}
+    assert got == {'a': True, 'b': False, 'c': False}
+
+
+@pytest.mark.unit
+def test_local_delete_never_removes_a_folder_issuarr_uses(env, monkeypatch, tmp_path):
+    root = tmp_path / 'downloads'
+    root.mkdir(exist_ok=True)
+    monkeypatch.setattr(mylar.CONFIG, 'RTORRENT_DIRECTORY', str(root))
+    assert clientwatch._delete_local('rtorrent', str(root)) is False
+    assert clientwatch._delete_local('rtorrent', str(tmp_path)) is False
+    assert root.exists()
