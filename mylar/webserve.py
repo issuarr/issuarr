@@ -57,6 +57,7 @@ from mylar.comicinfo import tag_mode as ct_tag_mode
 from mylar import (
     activity,
     alerts,
+    redact,
     attention,
     archives,
     webp,
@@ -8807,6 +8808,7 @@ class WebInterface(object):
                 mylar.CONFIG.EXTRA_TORZNABS.append((torznab_name, torznab_host, torznab_verify, torznab_api, torznab_category, torznab_enabled, int(torznab_number)))
 
         mylar.CONFIG.process_kwargs(kwargs)
+        redact.forget()   # new keys are masked from the next log line
 
         #this makes sure things are set to the default values if they're not appropriately set.
         mylar.CONFIG.configure(update=True, startup=False)
