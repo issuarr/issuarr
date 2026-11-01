@@ -1125,10 +1125,6 @@ def clear_stuck_tick():
         clear_stuck()
     except Exception as e:
         logger.warn('[SNATCHED-CHECK] Checking for stuck Snatched issues failed: %s' % e)
-    try:
-        clear_vanished()
-    except Exception as e:
-        logger.warn('[CLIENT-CHECK] Checking for grabs your download client no longer has failed: %s' % e)
 
 
 # ---- grabs the download client no longer has --------------------------------
@@ -1136,9 +1132,10 @@ def clear_stuck_tick():
 # first (history cleared, removed there by hand), nothing changed it and the Queue showed it as
 # "Waiting on client" for good.
 
-VANISH_HOURS = 3        # the scheduled check leaves grabs newer than this alone
-FORCE_HOURS = 0.25      # and the Queue button, grabs newer than this
-VANISH_GAP = 50 * 60    # seconds between the two misses the scheduled check needs
+VANISH_EVERY = 10       # minutes between the scheduler's looks for grabs the client no longer has
+VANISH_HOURS = 0.5      # the scheduled check leaves grabs newer than this alone
+FORCE_HOURS = 0.1       # and the Queue button, grabs newer than this
+VANISH_GAP = 9 * 60     # seconds between the two misses the scheduled check needs
 MISSED = {}             # (client, job id) -> when the scheduled check first missed it
 SAB_CHUNK = 50
 
@@ -1300,6 +1297,14 @@ def clear_vanished(myDB=None, force=False, ask=None, rescan=None, now=None):
                     % (len(out['wanted']), 'issue' if len(out['wanted']) == 1 else 'issues',
                        'its job' if len(out['wanted']) == 1 else 'their jobs', ', '.join(names.get(i, i) for i in out['wanted'])))
     return out
+
+
+def clear_vanished_tick():
+    """The scheduler's look for grabs the download client no longer has."""
+    try:
+        clear_vanished()
+    except Exception as e:
+        logger.warn('[CLIENT-CHECK] Checking for grabs your download client no longer has failed: %s' % e)
 
 
 def forget_grab(myDB, issueid, rescan=None):

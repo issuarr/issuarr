@@ -13,9 +13,9 @@ import requests
 import mylar
 from mylar import autoadd, downloadqueue
 from mylar.webserve import WebInterface
-from tests.test_snatched_reset import NOW, OLD, RECENT, issue, method, myDB, statuses  # noqa: F401  (fixtures)
+from tests.test_snatched_reset import NOW, OLD, issue, method, myDB, statuses  # noqa: F401  (fixtures)
 
-LATER = NOW + datetime.timedelta(hours=1)
+LATER = NOW + datetime.timedelta(minutes=10)
 
 
 @pytest.fixture(autouse=True)
@@ -49,10 +49,12 @@ def test_the_queue_button_puts_grabs_the_client_dropped_back_to_wanted(myDB):
 
 
 @pytest.mark.unit
-def test_the_scheduled_check_needs_two_misses_an_hour_apart(myDB):
+def test_the_scheduled_check_needs_two_misses_ten_minutes_apart(myDB):
     grab(myDB, '903447', 'SABnzbd_nzo_aaa')
     first = downloadqueue.clear_vanished(myDB, ask=holding(), rescan=lambda cid: None, now=NOW)
     assert first['gone'] == 0 and statuses(myDB) == {'903447': 'Snatched'}
+    downloadqueue.clear_vanished(myDB, ask=holding(), rescan=lambda cid: None, now=NOW + datetime.timedelta(minutes=5))
+    assert statuses(myDB) == {'903447': 'Snatched'}
     downloadqueue.clear_vanished(myDB, ask=holding(), rescan=lambda cid: None, now=LATER)
     assert statuses(myDB) == {'903447': 'Wanted'}
 
@@ -61,7 +63,7 @@ def test_the_scheduled_check_needs_two_misses_an_hour_apart(myDB):
 def test_a_job_seen_again_between_checks_starts_over(myDB):
     grab(myDB, '903447', 'SABnzbd_nzo_aaa')
     downloadqueue.clear_vanished(myDB, ask=holding(), rescan=lambda cid: None, now=NOW)
-    downloadqueue.clear_vanished(myDB, ask=holding('SABnzbd_nzo_aaa'), rescan=lambda cid: None, now=NOW + datetime.timedelta(minutes=30))
+    downloadqueue.clear_vanished(myDB, ask=holding('SABnzbd_nzo_aaa'), rescan=lambda cid: None, now=NOW + datetime.timedelta(minutes=5))
     downloadqueue.clear_vanished(myDB, ask=holding(), rescan=lambda cid: None, now=LATER)
     assert statuses(myDB) == {'903447': 'Snatched'}
 
@@ -85,9 +87,9 @@ def test_grabs_without_their_own_job_id_are_left_alone(myDB):
 
 @pytest.mark.unit
 def test_new_grabs_are_left_alone(myDB):
-    grab(myDB, '903447', 'SABnzbd_nzo_aaa', at=RECENT)
+    grab(myDB, '903447', 'SABnzbd_nzo_aaa', at=(NOW - datetime.timedelta(minutes=20)).strftime('%Y-%m-%d %H:%M:%S'))
     r = downloadqueue.clear_vanished(myDB, ask=holding(), rescan=lambda cid: None, now=NOW)
-    downloadqueue.clear_vanished(myDB, ask=holding(), rescan=lambda cid: None, now=NOW + datetime.timedelta(minutes=55))
+    downloadqueue.clear_vanished(myDB, ask=holding(), rescan=lambda cid: None, now=NOW + datetime.timedelta(minutes=5))
     assert r['gone'] == 0 and statuses(myDB) == {'903447': 'Snatched'}
 
 
