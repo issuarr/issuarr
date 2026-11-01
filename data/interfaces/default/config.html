@@ -688,7 +688,7 @@
                 <p class="set-warn" id="warningmeta"></p>
                 ${toggle('archive_delete', 'Delete .zip and .rar packs after unpacking them', config['archive_delete'])}
                 ${toggle('archive_auto_add', 'Add the series of comics nothing on the watchlist wants', config['archive_auto_add'],
-                         help='Finds each series on ComicVine (using the pack\'s release week when there is one), adds it, and files the issue on the next folder monitor pass. Anything it can\'t identify follows the option below.')}
+                         help='Finds each series on ComicVine (using the pack\'s release week when there is one), adds it, and files the issue on the next folder monitor pass, or the next check of a watched download client. Anything it can\'t identify follows the option below.')}
                 ${toggle('cover_match_strict', 'Issues must match by cover to get filed', config['cover_match_strict'],
                          help='Each issue\'s front cover is compared with its cover on ComicVine before it\'s filed. A clearly different cover always goes to Needs attention. With this on, so does any issue whose cover isn\'t a match, or that has no cover on ComicVine to compare with.')}
                 <div class="set-row">
@@ -696,7 +696,7 @@
                     <div class="set-ctl"><input type="number" name="cover_match_score" id="f_cover_match_score" value="${config['cover_match_score'] | h}" min="4" max="32" class="set-num" /></div>
                 </div>
                 ${select('archive_leftovers', 'Comics nothing on the watchlist wants', [('review', 'Move to a review folder'), ('delete', 'Delete them')], 'delete' if config['archive_leftovers'] == 'delete' else 'review',
-                         help='From packs and the monitored folder.')}
+                         help='From packs and the monitored folder. Downloads in a watched client are never moved or deleted: they wait in Downloads as Needs a choice.')}
                 ${field('archive_review_dir', 'Review folder', config['archive_review_dir'], placeholder=config['archive_review_default'] or '',
                         help='Leave empty to use %s. Keep it outside the monitored folder.' % (config['archive_review_default'] or ''))}
                 ${toggle('webp_on_import', 'Convert new downloads to WebP', config['webp_on_import'],

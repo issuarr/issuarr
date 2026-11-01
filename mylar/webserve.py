@@ -8684,18 +8684,19 @@ class WebInterface(object):
 
 
     def configUpdate(self, **kwargs):
-        checked_configs = ['enable_https', 'launch_browser', 'backup_on_start', 'keep_html_cache', 'syno_fix', 'auto_update', 'annuals_on', 'api_enabled', 'nzb_startup_search',
-                           'enforce_perms', 'sab_to_mylar', 'torrent_local', 'torrent_seedbox', 'rtorrent_ssl', 'rtorrent_verify', 'rtorrent_startonload', 'qbittorrent_ignore_ssl',
-                           'enable_torrents', 'enable_rss', 'experimental', 'enable_32p', 'enable_torznab',
+        intervals_before = {k: getattr(mylar.CONFIG, k, None) for k in ('SEARCH_INTERVAL', 'RSS_CHECKINTERVAL')}
+        checked_configs = ['enable_https', 'launch_browser', 'backup_on_start', 'syno_fix', 'annuals_on', 'api_enabled', 'nzb_startup_search',
+                           'enforce_perms', 'sab_to_mylar', 'torrent_local', 'torrent_seedbox', 'rtorrent_verify', 'rtorrent_startonload', 'qbittorrent_ignore_ssl',
+                           'enable_torrents', 'enable_rss', 'experimental', 'enable_torznab',
                            'newznab', 'use_minsize', 'use_maxsize', 'ddump', 'failed_download_handling', 'sab_client_post_processing', 'nzbget_client_post_processing',
                            'failed_auto', 'post_processing', 'enable_check_folder', 'client_watch', 'archive_delete', 'archive_auto_add', 'cover_match_strict', 'webp_on_import', 'enable_pre_scripts', 'enable_snatch_script', 'enable_extra_scripts',
-                           'enable_meta', 'cbr2cbz_only', 'ct_tag_cr', 'ct_tag_cbl', 'ct_cbz_overwrite', 'cmtag_start_year_as_volume', 'cmtag_volume', 'setdefaultvolume',
+                           'enable_meta', 'cbr2cbz_only', 'ct_tag_cr', 'cmtag_start_year_as_volume', 'cmtag_volume', 'setdefaultvolume',
                            'rename_files', 'replace_spaces', 'zero_level', 'sab_remove_completed', 'sab_remove_failed',
                            'lowercase_filenames', 'autowant_upcoming', 'autowant_all', 'comic_cover_local', 'cover_folder_local', 'series_metadata_local', 'alternate_latest_series_covers', 'cvinfo', 'snatchedtorrent_notify', 'notify_on_download', 'notify_on_added',
                            'notify_on_task_start', 'notify_on_task_done', 'notify_on_attention', 'notify_on_match_needed', 'notify_on_action', 'notify_on_disk_low',
                            'prowl_enabled', 'prowl_onsnatch', 'pushover_enabled', 'pushover_onsnatch', 'pushover_image', 'mattermost_enabled', 'mattermost_onsnatch', 'boxcar_enabled',
                            'boxcar_onsnatch', 'pushbullet_enabled', 'pushbullet_onsnatch', 'telegram_enabled', 'telegram_onsnatch', 'telegram_image', 'discord_enabled', 'discord_onsnatch', 'slack_enabled', 'slack_onsnatch',
-                           'email_enabled', 'email_enc', 'email_ongrab', 'email_onpost', 'gotify_enabled', 'gotify_server_url', 'gotify_token', 'gotify_onsnatch', 'ntfy_enabled', 'ntfy_onsnatch', 'webhook_enabled', 'webhook_onsnatch', 'opds_enable', 'opds_authentication', 'opds_metainfo', 'opds_pagesize', 'enable_ddl',
+                           'email_enabled', 'email_enc', 'email_ongrab', 'email_onpost', 'gotify_enabled', 'gotify_onsnatch', 'ntfy_enabled', 'ntfy_onsnatch', 'webhook_enabled', 'webhook_onsnatch', 'opds_enable', 'opds_authentication', 'opds_metainfo', 'enable_ddl',
                            'enable_getcomics', 'enable_flaresolverr', 'enable_airdcpp', 'airdcpp_folder_packs', 'jd2_enable', 'enable_external_server', 'ddl_prefer_upscaled', 'ddl_main_large_last', 'deluge_pause',
                            'custom_css_enabled', 'prowlarr_sync'] #enable_public
 
@@ -8824,8 +8825,33 @@ class WebInterface(object):
         logger.info('Now saving config...')
         mylar.CONFIG.writeconfig()
         self._sync_monitor()
+        self._sync_intervals(intervals_before)
 
     configUpdate.exposed = True
+
+    def _sync_intervals(self, before):
+        # a new search or RSS interval takes effect now, as it does from Tasks
+        from apscheduler.triggers.interval import IntervalTrigger
+        for key, jobid in (('SEARCH_INTERVAL', 'search'), ('RSS_CHECKINTERVAL', 'rss')):
+            now = getattr(mylar.CONFIG, key, None)
+            if now == before.get(key) or not now:
+                continue
+            try:
+                job = mylar.SCHED.get_job(jobid)
+                if job is None:
+                    continue
+                trigger = IntervalTrigger(minutes=int(now), timezone='UTC')
+                if job.next_run_time is None:
+                    mylar.SCHED.modify_job(jobid, trigger=trigger)
+                else:
+                    mylar.SCHED.reschedule_job(jobid, trigger=trigger)
+                logger.info('[SCHEDULER] %s now runs every %s minutes.' % (job.name, now))
+            except Exception as e:
+                logger.warn('[SCHEDULER] Saved %s = %s, but could not reschedule it now: %s' % (key.lower(), now, e))
+        try:
+            helpers.job_management(write=True)
+        except Exception:
+            pass
 
     def _sync_monitor(self):
         try:
