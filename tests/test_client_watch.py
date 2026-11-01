@@ -44,6 +44,7 @@ def env(monkeypatch, tmp_path):
     myDB.action("INSERT INTO issues (IssueID, ComicID, Issue_Number, Status) VALUES ('1002', '100', '2', 'Snatched')")
 
     filed = []
+    monkeypatch.setattr(clientwatch, 'cover_ok', lambda path, issue: True)
     monkeypatch.setattr(clientwatch, 'file_as', lambda path, issue: filed.append((os.path.basename(path), issue['IssueID'])) or True)
     matches = {'Foo 001 (2020).cbz': {'comicid': '100', 'issueid': '1001', 'series': 'Foo', 'year': '2020', 'number': '1', 'owned': False}}
     monkeypatch.setattr(clientwatch, 'identify', lambda name: matches.get(name))
@@ -128,6 +129,44 @@ def test_a_download_nothing_matches_waits_as_needs_a_choice(env):
     assert env['filed'] == []
     rows = clientwatch.queue_rows(env['db'])
     assert [(r['status'], r['source'], r['via']) for r in rows] == [('Needs a choice', 'qBittorrent', 'Added by you')]
+
+
+@pytest.mark.unit
+def test_a_file_whose_cover_doesnt_match_is_not_filed(env, monkeypatch):
+    # 2026-11-01: name matches skipped the cover check that folder monitor filing does
+    monkeypatch.setattr(clientwatch, 'cover_ok', lambda path, issue: False)
+    env['torrents'].append(torrent(env['tmp'], 'Foo 001 (2020).cbz'))
+    clientwatch.check(force=True)
+    assert env['filed'] == []
+    row = env['db'].selectone('SELECT Note FROM client_watch').fetchone()
+    assert 'cover' in row['Note']
+
+
+@pytest.mark.unit
+def test_auto_add_looks_up_unmatched_files_then_they_are_matched_again(env, monkeypatch):
+    # 2026-11-01: "Add the series of comics nothing on the watchlist wants" only covered packs and the monitored folder
+    from mylar import autoadd
+    sent, tried = [], set()
+    monkeypatch.setattr(autoadd, 'enabled', lambda: True)
+    monkeypatch.setattr(autoadd, 'attempted', lambda p: p in tried)
+    monkeypatch.setattr(autoadd, 'queue', lambda paths, refile=True: sent.append((paths, refile)) or tried.update(paths))
+    env['torrents'].append(torrent(env['tmp'], 'Mystery 001.cbz'))
+    clientwatch.check(force=True)
+    assert [(os.path.basename(p[0][0]), p[1]) for p in sent] == [('Mystery 001.cbz', False)]
+    assert [r['status'] for r in clientwatch.queue_rows(env['db'])] == ['Waiting to file']
+    clientwatch.check(force=True)
+    assert len(sent) == 1
+    assert [r['status'] for r in clientwatch.queue_rows(env['db'])] == ['Needs a choice']
+
+
+@pytest.mark.unit
+def test_auto_add_off_leaves_unmatched_files_as_needs_a_choice(env, monkeypatch):
+    from mylar import autoadd
+    monkeypatch.setattr(autoadd, 'enabled', lambda: False)
+    monkeypatch.setattr(autoadd, 'queue', lambda *a, **k: pytest.fail('auto-add is off'))
+    env['torrents'].append(torrent(env['tmp'], 'Mystery 001.cbz'))
+    clientwatch.check(force=True)
+    assert [r['status'] for r in clientwatch.queue_rows(env['db'])] == ['Needs a choice']
 
 
 @pytest.mark.unit

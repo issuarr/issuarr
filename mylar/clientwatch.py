@@ -457,6 +457,26 @@ def file_as(path, issue):
     return row is not None and row['Status'] in ('Downloaded', 'Archived')
 
 
+def cover_ok(path, issue):
+    """The cover check filing does for the monitored folder and client downloads (Settings >
+    Post-processing). A file that fails it is listed in Needs attention."""
+    from mylar import PostProcessor, attention
+    pp = PostProcessor.PostProcessor('Manual Run', os.path.dirname(path), queue=queue.Queue())
+    return pp._cover_ok(dict(attention.entry_for(path, issue), ForcedMatch=False))
+
+
+def _auto_add(files):
+    """Hand unmatched files to auto-add (Settings > Post-processing). True while that's under way."""
+    from mylar import autoadd
+    if not autoadd.enabled():
+        return False
+    fresh = [f for f in files if not autoadd.attempted(f)]
+    if not fresh:
+        return False
+    autoadd.queue(fresh, refile=False)
+    return True
+
+
 # ---- remembering what was filed ---------------------------------------------
 
 def _ensure(myDB):
@@ -697,30 +717,38 @@ def _file_finished(myDB, item, own, pick=None):
         if issue['Status'] != 'Snatched':
             return 'Already filed.'
         if len(files) == 1:
+            if not cover_ok(files[0], issue):
+                return 'Its cover doesn\'t match %s #%s. It\'s in Needs attention.' % (issue['ComicName'], issue['Issue_Number'])
             _note(key, 'Filing', 'Filing as %s #%s' % (issue['ComicName'], issue['Issue_Number']))
             ok = file_as(files[0], issue)
             logger.info('[CLIENT-WATCH] %s finished %s: %s %s #%s.' % (
                 CLIENT_NAMES[item['client']], item['name'], 'filed it as' if ok else 'filing didn\'t finish for', issue['ComicName'], issue['Issue_Number']))
             return 'Filed.' if ok else 'Filing didn\'t finish. The log has the details.'
 
-    picks, owned, unknown = [], 0, 0
+    picks, owned, unknown = [], 0, []
     for f in files:
         m = identify(os.path.basename(f))
         if m is None:
-            unknown += 1
+            unknown.append(f)
         elif m['owned']:
             owned += 1
         else:
             picks.append((f, m))
+    if unknown and _auto_add(unknown):
+        _note(key, 'Waiting to file', 'Auto-add is looking up the series of %s on ComicVine.' % ('it' if len(files) == 1 else '%s of its files' % len(unknown)))
+        return None
     if not picks:
         if owned and not unknown:
             return 'Already in your library.'
         _note(key, 'Needs a choice', 'No issue on your watchlist matches %s.' % ('this name' if len(files) == 1 else 'these files'))
         return None
-    filed = 0
+    filed, covers = 0, 0
     for f, m in picks:
         issue = _issue(myDB, m['comicid'], m['issueid'])
         if issue is None:
+            continue
+        if not cover_ok(f, issue):
+            covers += 1
             continue
         _note(key, 'Filing', 'Filing as %s' % label(m))
         try:
@@ -731,11 +759,14 @@ def _file_finished(myDB, item, own, pick=None):
     logger.info('[CLIENT-WATCH] %s finished %s: filed %s of %s comic files.%s' % (
         CLIENT_NAMES[item['client']], item['name'], filed, len(files),
         ' The rest matched nothing on the watchlist or were already in the library.' if left else ''))
-    if not filed:
+    cover = ' %s didn\'t match by cover and %s in Needs attention.' % (covers, 'is' if covers == 1 else 'are') if covers else ''
+    if len(files) == 1 and covers:
+        return 'Its cover doesn\'t match the issue it\'s named as. It\'s in Needs attention.'
+    if not filed and not covers:
         STUCK.add(key)
         _note(key, 'Not filed', 'Filing didn\'t finish. The log has the details. Choose match tries again.')
         return None
-    return 'Filed %s of %s files.' % (filed, len(files)) if left else 'Filed.'
+    return ('Filed %s of %s files.' % (filed, len(files)) if left else 'Filed.') + cover
 
 
 def check(force=False):

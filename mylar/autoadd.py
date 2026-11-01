@@ -172,10 +172,10 @@ def _find_volume(series, issue, year, packdate, name_year=False):
     return best[1] if best else None
 
 
-def queue(paths, force=False, folder=None):
+def queue(paths, force=False, folder=None, refile=True):
     """Find and add the series of these unclaimed files, in the background. force: the user asked,
     from Needs attention, so it runs with auto-add switched off and tries files tried before; then
-    files folder again. Returns why it couldn't start, or None."""
+    files folder again. refile=False leaves filing to the caller (the client watcher). Returns why it couldn't start, or None."""
     if not paths:
         return 'There are no files to look up.'
     if force:
@@ -191,7 +191,7 @@ def queue(paths, force=False, folder=None):
         return 'Those files were looked up already.'
     if _running.is_set():
         return 'Series are already being added. Try again when that finishes.'
-    threading.Thread(target=_run, args=(fresh, folder), name='AUTO-ADD', daemon=True).start()
+    threading.Thread(target=_run, args=(fresh, folder, refile), name='AUTO-ADD', daemon=True).start()
     return None
 
 
@@ -246,6 +246,8 @@ def _run(paths, folder=None, refile=True):
             _save(reg)
             if added:
                 archives.note('added %s series: %s' % (len(added), ', '.join(sorted(set(added)))))
+                from mylar import clientwatch
+                clientwatch.MATCHES.clear()   # client downloads are matched again against the new series
             if unknown:
                 archives.note('could not identify %s series' % len(set(unknown)))
             logger.info('[AUTO-ADD] Added %s series; %s could not be identified%s.' % (
