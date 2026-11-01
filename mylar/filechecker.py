@@ -879,8 +879,8 @@ class FileChecker(object):
                             logger.fdebug('MINI-SERIES DETECTED')
                         else:
                             edition = re.sub(r'[\(\)]', '', sf.lower()).strip()   # '(HC)' as well as 'HC'
-                            if edition in ('tpb', 'digital tpb', 'gn', 'graphic novel', 'hc', 'hardcover'):
-                                booktype = 'TPB' if 'tpb' in edition else 'GN' if edition in ('gn', 'graphic novel') else 'HC'
+                            if edition in ('tpb', 'digital tpb', 'gn', 'ogn', 'graphic novel', 'hc', 'hardcover'):
+                                booktype = 'TPB' if 'tpb' in edition else 'GN' if edition in ('gn', 'ogn', 'graphic novel') else 'HC'
                                 logger.fdebug('%s DETECTED. NOT DETECTING ISSUE NUMBER - ASSUMING VOLUME'
                                               % {'TPB': 'TRADE PAPERBACK', 'GN': 'GRAPHIC NOVEL', 'HC': 'HARDCOVER'}[booktype])
                                 if volume_found.get('volume') is not None:
@@ -958,7 +958,7 @@ class FileChecker(object):
                 if len(possible_issuenumbers) > 0:
                     for x in possible_years:
                         logger.fdebug('yearposition[%s] -- dc[position][%s]' % (yearposition, x['yearposition']))
-                        if yearposition < x['yearposition']:
+                        if yearposition is None or yearposition < x['yearposition']:
                             if all([len(possible_issuenumbers) == 1, possible_issuenumbers[0]['number'] == x['year'], x['yearposition'] != possible_issuenumbers[0]['position']]):
                                 logger.fdebug('issue2year is true')
                                 issue2year = True
@@ -1342,7 +1342,16 @@ class FileChecker(object):
         # "Silver Surfer Homecoming GN [Marvel]": a publisher in brackets and a GN label after the
         # title aren't part of the series' name
         if series_name:
-            tidy = re.sub(r'(\s*\[[^\]]*\])+\s*$', '', series_name).strip()
+            tidy = series_name
+            # "30 Days of Night (2011) v03 - Run Alice Run", "Batman (2016) v2 001": the series' year
+            # (and the volume read after it) end the name
+            if issue_volume is not None:
+                m = re.match(r'^(.+?)\s*\((?:19|20)\d\d\)\s+v(?:ol(?:ume)?\.?)?\s*0*(\d+)\b', tidy, flags=re.I)
+                if m and m.group(2) == re.sub(r'\D', '', issue_volume).lstrip('0'):
+                    tidy = m.group(1)
+            if not re.search(r'\((?:19|20)\d\d\)\s*$', self.watchcomic or ''):
+                tidy = re.sub(r'(?<=\S)\s*\((?:19|20)\d\d\)\s*$', '', tidy)
+            tidy = re.sub(r'(\s*\[[^\]]*\])+\s*$', '', tidy).strip()
             tidy = re.sub(r'\s+O?GN$', '', tidy, flags=re.I).strip()
             if tidy and tidy != series_name:
                 logger.fdebug('series title tidied: %s' % tidy)
