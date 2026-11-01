@@ -88,7 +88,8 @@
       return (it.choose ? '<button type="button" class="btn btn-sm' + (it.status === 'Needs a choice' ? ' btn-primary' : '') + '" data-client-choose="' +
         esc(it.client) + '" data-jobid="' + esc(it.jobid) + '" title="Pick the series this download is, so Issuarr can file it">Choose match</button>' : '') + rm;
     }
-    if (it.kind === 'client') return rm;
+    if (it.kind === 'client') return (it.status === 'Sent' ? '<button type="button" class="btn btn-sm btn-ghost" data-client-forget="' + esc(it.issueid) +
+      '" data-name="' + esc(it.title) + '" title="The download client no longer has this grab: search for the issue again">Forget</button>' : '') + rm;
     if (it.kind !== 'ddl') return '';
     var id = it.queueid, out = [];
     // Nothing to do while filing has it; starting it again would download a second copy.
@@ -193,6 +194,7 @@
   function renderClear() {
     $id('q-clear-finished').hidden = !ddlCount('Completed');
     $id('q-clear-failed').hidden = !ddlCount('Failed');
+    $id('q-clear-gone').hidden = !st.items.some(function (it) { return it.kind === 'client' && it.status === 'Sent'; });
   }
 
   /* ---- loading ---- */
@@ -305,6 +307,29 @@
     clearStatus('Failed', 'Remove ' + n + ' failed ' + (n === 1 ? 'download' : 'downloads') + ' from this list? ' +
       'The comics in your library stay, and issues still marked Snatched go back to Wanted to be searched again. ' +
       'The failures also leave the activity history, and you can\'t retry them from here or from the issue\'s history.');
+  });
+  // Grabs the client dropped (history cleared, removed there) would otherwise wait on it for good.
+  $id('q-clear-gone').addEventListener('click', function () {
+    var b = this;
+    I().ask('Ask your download clients about every grab waiting on them? Issues whose job the client no longer has go back to Wanted to be searched again, ' +
+      'unless the file is already in the series folder.', { ok: 'Check and clear' }, function () {
+      b.disabled = true;
+      post('clearVanishedGrabs')
+        .then(function (r) { I().toast(r.message || 'Done', r.ok !== false); })
+        .catch(function () { I().toast('That didn\'t work. Check the log.', false); })
+        .then(function () { b.disabled = false; load(true); });
+    });
+  });
+  document.addEventListener('click', function (e) {
+    var b = e.target.closest('[data-client-forget]');
+    if (!b) return;
+    I().ask('Forget the grab for ' + b.getAttribute('data-name') + '? Use this when your download client no longer has it. ' +
+      'The issue goes back to Wanted to be searched again, unless the file is already in the series folder.', { ok: 'Forget', danger: true }, function () {
+      post('forgetGrab', { issueid: b.getAttribute('data-client-forget') })
+        .then(function (r) { I().toast(r.message || 'Done', r.ok !== false); })
+        .catch(function () { I().toast('That didn\'t work. Check the log.', false); })
+        .then(function () { load(true); });
+    });
   });
   $id('q-prev').addEventListener('click', function () { st.start = Math.max(0, st.start - st.len); renderRows(); });
   $id('q-next').addEventListener('click', function () { st.start += st.len; renderRows(); });
