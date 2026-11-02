@@ -34,6 +34,14 @@ import mylar
 from mylar import logger, filers, helpers, db, mb, cv, parseit, filechecker, search, updater, moveit, comicbookdb, series_metadata, want_from, importchoice
 
 
+def strip_collected(description):
+    """The series description without its trailing "Collected" section; None when ComicVine had none."""
+    if description is None or description == 'None':
+        return None
+    cut = description.find('Collected')
+    return description[:cut] if cut != -1 else description
+
+
 def is_exists(comicid):
 
     myDB = db.DBConnection()
@@ -507,11 +515,7 @@ def addComictoDB(comicid, mismatch=None, pullupd=None, imported=None, ogcname=No
     #for description ...
     #Cdesc = helpers.cleanhtml(comic['ComicDescription'])
     Cdesc = comic['ComicDescription']
-    if Cdesc != 'None':
-        cdes_find = Cdesc.find('Collected')
-        cdes_removed = Cdesc[:cdes_find]
-    else:
-        cdes_removed = None
+    cdes_removed = strip_collected(Cdesc)
 
     #logger.fdebug('description: ' + cdes_removed)
 
