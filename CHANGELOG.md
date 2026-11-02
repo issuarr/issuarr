@@ -6,6 +6,7 @@ Releases come from the `main` branch and are the `latest` Docker image. Changes 
 
 ## Unreleased (on dev)
 
+- [fix] Grabs sent to SABnzbd or NZBGet before Issuarr restarts are filed again instead of sitting at "Finished downloading. Waiting to be filed" for good (issue #268). On start, Issuarr picks up its own grabs that are still Snatched and that the client still has. A grab that is still downloading no longer holds up the others, so a finished download is filed even while an earlier one is still coming in. ([`c8cb20c`](https://github.com/issuarr/issuarr/commit/c8cb20c))
 - [fix] Series descriptions no longer lose their last character when they have no "Collected" section (issue #266). Descriptions that were already cut short come back in full the next time the series is refreshed. ([`0371eb8`](https://github.com/issuarr/issuarr/commit/0371eb8))
 - [fix] An annual that is listed both under its series and as an issue of a separate "Annual" series (for example after Mass Import adds Fantastic Four Annual) is no longer grabbed twice: once either copy is Snatched or Downloaded, search skips the other. ([`211226b`](https://github.com/issuarr/issuarr/commit/211226b))
 - [fix] A pack download no longer takes over issues of the pack that another grab already has on the way (for example sent to SABnzbd): they stay with that grab instead of being marked Snatched again by the pack, and a failed pack download no longer marks them Skipped. ([`7a40c7a`](https://github.com/issuarr/issuarr/commit/7a40c7a))
