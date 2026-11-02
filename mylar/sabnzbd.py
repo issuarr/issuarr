@@ -80,77 +80,31 @@ class SABnzbd(object):
             return queue_params
 
     def processor(self):
-        sendresponse = self.params['nzo_id']
+        """One look at the job. A job still in SABnzbd's queue returns 'downloading' so the monitor can
+        check the other grabs and come back to it, instead of waiting here until it finishes."""
+        nzo_id = self.params['nzo_id']
+        params = {'mode': 'queue', 'nzo_ids': nzo_id, 'output': 'json', 'apikey': mylar.CONFIG.SAB_APIKEY}
+        if mylar.CONFIG.SAB_CATEGORY is not None:
+            params['category'] = mylar.CONFIG.SAB_CATEGORY
         try:
-            logger.fdebug('sending now to %s' % self.sab_url)
-            tmp_apikey = self.params['queue'].pop('apikey')
-            self.params['queue'].pop('search')
-            self.params['queue']['nzo_ids'] = self.params['nzo_id']
-            if mylar.CONFIG.SAB_CATEGORY is not None:
-                self.params['queue']['category'] = mylar.CONFIG.SAB_CATEGORY
-            logger.fdebug('[SAB-QUEUE] parameters set to %s' % self.params)
-            self.params['queue']['apikey'] = tmp_apikey
-            time.sleep(5)   #pause 5 seconds before monitoring just so it hits the queue
-            h = requests.get(self.sab_url, params=self.params['queue'], verify=False)
+            if not self.params.get('checked'):
+                time.sleep(5)   #pause 5 seconds before the first look just so it hits the queue
+            logger.fdebug('[SAB-QUEUE] checking %s at %s' % (nzo_id, self.sab_url))
+            queueresponse = requests.get(self.sab_url, params=params, verify=False).json()
         except Exception as e:
             logger.fdebug('uh-oh: %s' % e)
             return self.historycheck(self.params)
-        else:
-            queueresponse = h.json()
-            logger.fdebug('successfully queried the queue for status')
-            try:
-                # noofslots sits under "queue" in SABnzbd's reply; 1 means it matched one download.
-                if queueresponse['queue']['noofslots'] == 1:
-                    queueinfo = queueresponse['queue']['slots'][0]
-                    logger.info('monitoring ... detected download - %s [%s]' % (queueinfo['filename'], queueinfo['status']))
-                else:
-                    queueinfo = queueresponse['queue']
-            except Exception as e:
-                logger.warn('Unable to locate item within sabnzbd active queue - it could be finished already?')
-                queueinfo = queueresponse['queue']
-            try:
-                logger.fdebug('SABnzbd Queued item status : %s' % queueinfo['status'])
-                logger.fdebug('SABnzbd Queued item mbleft : %s' % queueinfo['mbleft'])
-                if str(queueinfo['status']) == 'Paused':
-                    logger.warn('[WARNING] SABnzbd has the active queue Paused. CDH will not work in this state.')
-                    return {'status': 'queue_paused', 'failed': False}
-                while any([str(queueinfo['status']) == 'Downloading', str(queueinfo['status']) == 'Idle', str(queueinfo['status']) == 'Queued']) and float(queueinfo['mbleft']) > 0:
-                    #if 'comicrn' in queueinfo['script'].lower():
-                    #    logger.warn('ComicRN has been detected as being active for this category & download. Completed Download Handling will NOT be performed due to this.')
-                    #    logger.warn('Either disable Completed Download Handling for SABnzbd within Mylar, or remove ComicRN from your category script in SABnzbd.')
-                    #    return {'status': 'double-pp', 'failed': False}
-                    no_findie = False
-                    tmp_queue = self.params['queue']
-                    try:
-                        tmp_queue.pop('nzo_ids')
-                    except Exception as e:
-                        # if this triggers than nzo_id is no longer in the active queue and we can assume it's finished
-                        logger.fdebug('unable to pop nzo_id - possibly already done/finished/does not exist')
-                        no_findie = True
-                    tmp_queue['nzo_ids'] = self.params['nzo_id'] # if it pops, still there - make sure we put it back
-                    queue_resp = requests.get(self.sab_url, params=tmp_queue, verify=False)
-                    queueresponse = queue_resp.json()
-                    try:
-                        queueinfo = queueresponse['queue']['slots'][0]
-                    except Exception as e:
-                        try:
-                            tmp_queue.pop('nzo_ids')
-                        except Exception as e:
-                            #logger.fdebug('unable to pop nzo_id - possibly already done/finished/does not exist')
-                            no_findie = True
-                        else:
-                            tmp_queue['nzo_ids'] = self.params['nzo_id']
-                            queueinfo = queueresponse['queue']
 
-                    logger.fdebug('status: %s -- mb_left: %s -- time_left: %s' % (queueinfo['status'], queueinfo['mbleft'], queueinfo['timeleft']))
-                    time.sleep(5)
-                    if no_findie:
-                        break
-            except Exception as e:
-                logger.warn('error: %s' % e)
-
-            logger.info('File has now downloaded!')
+        slots = (queueresponse.get('queue') or {}).get('slots') or []
+        slot = next((x for x in slots if x.get('nzo_id') == nzo_id), None)
+        if slot is None:
+            logger.fdebug('%s is no longer in the SABnzbd queue - checking history' % nzo_id)
             return self.historycheck(self.params)
+        if str(slot.get('status')) == 'Paused':
+            logger.warn('[WARNING] SABnzbd has %s Paused. CDH will not work in this state.' % slot.get('filename'))
+            return {'status': 'queue_paused', 'failed': False}
+        logger.fdebug('monitoring ... %s [%s] mb_left: %s' % (slot.get('filename'), slot.get('status'), slot.get('mbleft')))
+        return {'status': 'downloading', 'failed': False}
 
     def historycheck(self, nzbinfo, roundtwo=False, extract_counter=1):
         sendresponse = nzbinfo['nzo_id']
