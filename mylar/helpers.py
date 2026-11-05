@@ -1339,6 +1339,10 @@ def filesafe(comic):
         comicname_filesafe = re.sub(r'[\:\'\"\,\?\!\\\<\>]', '', u_comic.decode('utf-8'))
         comicname_filesafe = re.sub(r'[\/\*\|]', '-', comicname_filesafe)
 
+    # Removing characters like ":" and ">" can leave double spaces
+    # ("Style > Substance" -> "Style  Substance"); collapse them.
+    comicname_filesafe = re.sub(r'\s{2,}', ' ', comicname_filesafe).strip()
+
     return comicname_filesafe
 
 def IssueDetails(filelocation, IssueID=None, justinfo=False, comicname=None):
