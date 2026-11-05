@@ -2009,6 +2009,7 @@ def validateAndCreateDirectory(dir, create=False, module=None, dmode=None):
             if create:
                 if dir.strip():
                     logger.info('%s Creating %s directory (%s) : %s' % (module, dirmode, mylar.CONFIG.CHMOD_DIR, dir))
+                    s_perms = True
                     try:
                         os.umask(0) # this is probably redudant, but it doesn't hurt to clear the umask here.
                         if mylar.CONFIG.ENFORCE_PERMS:
