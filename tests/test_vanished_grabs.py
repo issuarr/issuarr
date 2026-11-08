@@ -130,6 +130,26 @@ def test_forget_puts_one_grab_back_to_wanted(myDB, method):
     assert json.loads(WebInterface().forgetGrab(issueid='1'))['ok'] is False
 
 
+@pytest.mark.unit
+def test_an_old_one_off_grab_isnt_waiting_once_its_issue_is_downloaded(myDB):
+    grab(myDB, '2', None, status='Downloaded')
+    myDB.action("INSERT INTO oneoffhistory (IssueID, Status) VALUES ('2', 'Snatched')")
+    assert downloadqueue.client_snatches(myDB) == []   # issue #271: the library row outranks the one-off row
+
+
+@pytest.mark.unit
+def test_forget_clears_a_grab_whose_issue_is_no_longer_in_the_library(myDB, method):
+    myDB.action("INSERT INTO snatched VALUES ('3', 'Ben 10', '1', ?, 'Snatched', '999', 'NZBGeek')", [OLD])
+    myDB.action("INSERT INTO oneoffhistory (IssueID, Status) VALUES ('4', 'Snatched')")
+    myDB.action("INSERT INTO snatched VALUES ('4', 'TaleSpin', '3', ?, 'Snatched', '998', 'NZBGeek')", [OLD])
+    assert sorted(w['issueid'] for w in downloadqueue.client_snatches(myDB)) == ['3', '4']
+    for iid in ('3', '4'):
+        r = json.loads(WebInterface().forgetGrab(issueid=iid))
+        assert r['ok'], r
+    assert downloadqueue.client_snatches(myDB) == []
+    assert myDB.selectone("SELECT Status FROM oneoffhistory WHERE IssueID='4'").fetchone()['Status'] == 'Failed'
+
+
 # ---- asking SABnzbd ---------------------------------------------------------
 
 class Answer(object):
