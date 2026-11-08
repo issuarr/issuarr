@@ -305,14 +305,16 @@ def client_snatches(myDB):
     as waiting while its issue (or arc issue, or one-off) is still marked Snatched; that
     status changes when the file is post-processed, fails, or is reset by hand.
     """
-    current = {}
+    current, oneoffs = {}, {}
     for table, key in (('issues', 'IssueID'), ('annuals', 'IssueID'), ('storyarcs', 'IssueArcID'), ('oneoffhistory', 'IssueID')):
         try:
             for r in myDB.select('SELECT %s AS id, Status FROM %s WHERE Status IS NOT NULL' % (key, table)):
                 if r['id'] is not None:
-                    current.setdefault(str(r['id']), set()).add(r['Status'])
+                    (oneoffs if table == 'oneoffhistory' else current).setdefault(str(r['id']), set()).add(r['Status'])
         except Exception:
             continue
+    for iid, statuses in oneoffs.items():
+        current.setdefault(iid, statuses)   # a library row outranks an old one-off row for the same issue
 
     rows = myDB.select("SELECT IssueID, ComicID, ComicName, Issue_Number, Provider, DateAdded, Status FROM snatched "
                        "WHERE Status IN ('Snatched', 'Downloaded', 'Post-Processed') ORDER BY DateAdded DESC")
@@ -1309,7 +1311,8 @@ def clear_vanished_tick():
 
 def forget_grab(myDB, issueid, rescan=None):
     """One grab at a download client that the owner says is gone (Forget on the Queue): its series is
-    rechecked, and if the issue is still Snatched it goes back to Wanted. Returns 'filed', 'wanted' or None."""
+    rechecked, and if the issue is still Snatched it goes back to Wanted. A grab with no library issue
+    to put back is marked Failed so it leaves the Queue. Returns 'filed', 'wanted', 'forgotten' or None."""
     from mylar import updater
     iid = str(issueid)
     row = next((w for w in client_snatches(myDB) if str(w['issueid']) == iid), None)
@@ -1325,7 +1328,14 @@ def forget_grab(myDB, issueid, rescan=None):
     if unsnatch(myDB, [iid]):
         logger.info('[CLIENT-CHECK] %s #%s is back to Wanted: you forgot its grab on the Queue.' % (row['series'], row['issue']))
         return 'wanted'
-    return None
+    # No library issue to put back (a one-off, or a series no longer in the library): retire the grab itself.
+    try:
+        myDB.action("UPDATE oneoffhistory SET Status='Failed' WHERE IssueID=? AND Status='Snatched'", [iid])
+    except Exception:
+        pass   # no one-off table yet
+    myDB.action("UPDATE snatched SET Status='Failed' WHERE IssueID=? AND Status='Snatched'", [iid])
+    logger.info('[CLIENT-CHECK] Forgot the grab for %s #%s: it has no issue in the library to search again.' % (row['series'], row['issue']))
+    return 'forgotten'
 
 
 def _issue_key(n):

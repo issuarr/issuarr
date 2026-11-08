@@ -4347,6 +4347,8 @@ class WebInterface(object):
             return json.dumps({'ok': True, 'message': 'That issue is already in your library.'})
         if done == 'wanted':
             return json.dumps({'ok': True, 'message': 'Forgot the grab. The issue is Wanted again.'})
+        if done == 'forgotten':
+            return json.dumps({'ok': True, 'message': 'Forgot the grab. Its issue isn\'t in your library, so nothing is searched again.'})
         return json.dumps({'ok': False, 'message': 'That grab isn\'t waiting any more.'})
     forgetGrab.exposed = True
 
