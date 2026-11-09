@@ -6,6 +6,7 @@ Releases come from the `main` branch and are the `latest` Docker image. Changes 
 
 ## Unreleased (on dev)
 
+- [fix] Issuarr starts again on Python 3.12 and newer when setuptools isn't installed. An old built-in copy of natsort needed it and stopped startup with "natsort is missing". ([`f95accf`](https://github.com/issuarr/issuarr/commit/f95accf))
 - [fix] Forget on the Queue now clears old "Waiting on client" grabs it used to refuse with "That grab isn't waiting any more" (issue #271). A grab whose issue is already Downloaded no longer shows as waiting because of an old one-off record, and Forget on a grab whose series is no longer in your library marks that grab Failed so it leaves the Queue. ([`6a099a9`](https://github.com/issuarr/issuarr/commit/6a099a9))
 - [fix] Grabs sent to SABnzbd or NZBGet before Issuarr restarts are filed again instead of sitting at "Finished downloading. Waiting to be filed" for good (issue #268). On start, Issuarr picks up its own grabs that are still Snatched and that the client still has. A grab that is still downloading no longer holds up the others, so a finished download is filed even while an earlier one is still coming in. ([`c8cb20c`](https://github.com/issuarr/issuarr/commit/c8cb20c))
 - [fix] Series descriptions no longer lose their last character when they have no "Collected" section (issue #266). Descriptions that were already cut short come back in full the next time the series is refreshed. ([`0371eb8`](https://github.com/issuarr/issuarr/commit/0371eb8))
