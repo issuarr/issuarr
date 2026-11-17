@@ -6,6 +6,7 @@ Releases come from the `main` branch and are the `latest` Docker image. Changes 
 
 ## Unreleased (on dev)
 
+- [fix] With "Keep annuals with their series" on, CBL import finds an annual that is already listed under its series. It used to call the annual missing and add its annual series as a separate series (issue #274). ([`3cc9baa`](https://github.com/issuarr/issuarr/commit/3cc9baa))
 - [fix] Issuarr starts again on Python 3.12 and newer when setuptools isn't installed. An old built-in copy of natsort needed it and stopped startup with "natsort is missing". ([`f95accf`](https://github.com/issuarr/issuarr/commit/f95accf))
 - [fix] Forget on the Queue now clears old "Waiting on client" grabs it used to refuse with "That grab isn't waiting any more" (issue #271). A grab whose issue is already Downloaded no longer shows as waiting because of an old one-off record, and Forget on a grab whose series is no longer in your library marks that grab Failed so it leaves the Queue. ([`6a099a9`](https://github.com/issuarr/issuarr/commit/6a099a9))
 - [fix] Grabs sent to SABnzbd or NZBGet before Issuarr restarts are filed again instead of sitting at "Finished downloading. Waiting to be filed" for good (issue #268). On start, Issuarr picks up its own grabs that are still Snatched and that the client still has. A grab that is still downloading no longer holds up the others, so a finished download is filed even while an earlier one is still coming in. ([`c8cb20c`](https://github.com/issuarr/issuarr/commit/c8cb20c))
