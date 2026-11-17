@@ -1837,6 +1837,15 @@ def forceRescan(ComicID, archive=None, module=None, recheck=False):
 
             myDB.upsert("issues", newValueDict, controlValueDict)
 
+    # annuals kept with the series that were matched to a file by hand
+    if mylar.CONFIG.ANNUALS_ON:
+        for rfc in myDB.select('SELECT IssueID, Issue_Number, Location, ComicSize FROM annuals WHERE ComicID=? AND forced_file=1 AND NOT Deleted', [ComicID]):
+            logger.fdebug('%s [FORCED-MATCH] Matched...annual: #%s --- %s' % (module, rfc['Issue_Number'], rfc['Location']))
+            havefiles += 1
+            annID_to_ignore.append(rfc['IssueID'])
+            myDB.upsert("annuals", {"Location": rfc['Location'], "ComicSize": rfc['ComicSize'],
+                                    "Status": "Archived" if archive else "Downloaded"}, {"IssueID": rfc['IssueID']})
+
     #here we need to change the status of the ones we DIDN'T FIND above since the loop only hits on FOUND issues.
     update_iss = []
     update_ann = []

@@ -90,11 +90,24 @@ def walk(dirs):
     return out
 
 
+def _annuals_on():
+    return bool(mylar.CONFIG.ANNUALS_ON)
+
+
+def annual_label(release_name, number):
+    """How an annual kept with its series is shown: "Annual 2024 #1", or "Annual #3"."""
+    m = re.search(r'\bannual\s+((?:19|20)\d\d)\b', release_name or '', re.I) or re.search(r'\b((?:19|20)\d\d)\s+annual\b', release_name or '', re.I)
+    return 'Annual %s#%s' % (m.group(1) + ' ' if m else '', number)
+
+
 def pins(comicid, dirs):
-    """The files matched by hand, by name, each with its issue. A match whose file is gone is dropped,
-    so the issue is matched by name again."""
+    """The files matched by hand, by name, each with its issue (or annual kept with the series). A match
+    whose file is gone is dropped, so the issue is matched by name again."""
     myDB = db.DBConnection()
-    rows = myDB.select('SELECT IssueID, Location FROM issues WHERE ComicID=? AND forced_file=1', [comicid])
+    rows = [dict(r, table='issues') for r in myDB.select('SELECT IssueID, Location FROM issues WHERE ComicID=? AND forced_file=1', [comicid])]
+    if _annuals_on():
+        rows += [dict(r, table='annuals') for r in
+                 myDB.select('SELECT IssueID, Location FROM annuals WHERE ComicID=? AND forced_file=1 AND NOT Deleted', [comicid])]
     if not rows:
         return {}
     found = {}
@@ -110,7 +123,7 @@ def pins(comicid, dirs):
             found[name] = r['IssueID']
         else:
             logger.info('[MATCHING] The file matched by hand to issue %s is gone - matching it by name again.' % r['IssueID'])
-            myDB.action('UPDATE issues SET forced_file=0 WHERE IssueID=?', [r['IssueID']])
+            myDB.action('UPDATE %s SET forced_file=0 WHERE IssueID=?' % r['table'], [r['IssueID']])
     return found
 
 
@@ -233,19 +246,26 @@ def files(comicid):
     if comic is None:
         return {'ok': False, 'note': 'That series isn\'t on your watchlist.'}
     myDB = db.DBConnection()
-    issues = [dict(r) for r in myDB.select('SELECT IssueID, Issue_Number, IssueName, Status, Location, forced_file, ImageURL, ImageURL_ALT FROM issues '
-                                            'WHERE ComicID=? ORDER BY Int_IssueNumber', [comicid])]
+    issues = [dict(r, label='#%s' % r['Issue_Number'], annual=False) for r in
+              myDB.select('SELECT IssueID, Issue_Number, IssueName, Status, Location, forced_file, ImageURL, ImageURL_ALT FROM issues '
+                          'WHERE ComicID=? ORDER BY Int_IssueNumber', [comicid])]
+    if _annuals_on():
+        # annuals kept with the series can be matched here too
+        issues += [dict(r, label=annual_label(r['ReleaseComicName'], r['Issue_Number']), annual=True, ImageURL=None, ImageURL_ALT=None) for r in
+                   myDB.select('SELECT IssueID, Issue_Number, IssueName, Status, Location, forced_file, ReleaseComicName FROM annuals '
+                               'WHERE ComicID=? AND NOT Deleted ORDER BY IssueDate, Int_IssueNumber', [comicid])]
     # Archived issues keep the name of a file that has gone, so only Downloaded ones count as having one
     linked = {i['Location']: i for i in issues if i['Location'] and i['Status'] == 'Downloaded'}
     out = []
     for f in walk(series_dirs(comic)):
         i = linked.get(f['name'])
         out.append({'name': f['name'], 'sub': f['sub'], 'size': f['size'],
-                    'issueid': i['IssueID'] if i else None, 'number': i['Issue_Number'] if i else None,
+                    'issueid': i['IssueID'] if i else None, 'number': i['Issue_Number'] if i else None, 'label': i['label'] if i else None,
                     'pinned': bool(i and i['forced_file']), 'reads_as': attention.parse(f['path']).get('issue')})
     out.sort(key=lambda f: (f['issueid'] is not None, (f['sub'] or '').lower(), f['name'].lower()))
     return {'ok': True, 'folder': comic['ComicLocation'], 'files': out, 'waiting': waiting(comicid),
-            'issues': [{'issueid': i['IssueID'], 'number': i['Issue_Number'], 'name': i['IssueName'], 'status': i['Status'],
+            'issues': [{'issueid': i['IssueID'], 'number': i['Issue_Number'], 'label': i['label'], 'annual': i['annual'],
+                        'name': i['IssueName'], 'status': i['Status'],
                         'file': i['Location'] if i['Status'] == 'Downloaded' else None,
                         'pinned': bool(i['forced_file']), 'cover': bool(i['ImageURL'] or i['ImageURL_ALT'])} for i in issues]}
 
@@ -278,6 +298,20 @@ def cover(comicid, name):
     return attention.cover_of(f['path']) if f else None
 
 
+def _issue(comicid, issueid):
+    """An issue of the series, or an annual kept with it, with its label, and the table it is in."""
+    myDB = db.DBConnection()
+    row = myDB.selectone('SELECT IssueID, Issue_Number, Status, forced_file FROM issues WHERE IssueID=? AND ComicID=?', [issueid, comicid]).fetchone()
+    if row is not None:
+        return dict(row, label='#%s' % row['Issue_Number']), 'issues'
+    if _annuals_on():
+        row = myDB.selectone('SELECT IssueID, Issue_Number, Status, forced_file, ReleaseComicName FROM annuals '
+                             'WHERE IssueID=? AND ComicID=? AND NOT Deleted', [issueid, comicid]).fetchone()
+        if row is not None:
+            return dict(row, label=annual_label(row['ReleaseComicName'], row['Issue_Number'])), 'annuals'
+    return None, None
+
+
 def _rescan(comicid):
     from mylar import updater
     updater.forceRescan(comicid, module='[MATCHING]')
@@ -290,35 +324,36 @@ def match(comicid, issueid, name):
     if comic is None:
         return {'ok': False, 'note': 'That series isn\'t on your watchlist.'}
     myDB = db.DBConnection()
-    issue = myDB.selectone('SELECT IssueID, Issue_Number, Status FROM issues WHERE IssueID=? AND ComicID=?', [issueid, comicid]).fetchone()
+    issue, table = _issue(comicid, issueid)
     if issue is None:
         return {'ok': False, 'note': 'That issue isn\'t part of this series.'}
     f = next((f for f in walk(series_dirs(comic)) if f['name'] == name), None)
     if f is None:
         return {'ok': False, 'note': 'That file isn\'t in the series folder any more.'}
     myDB.action('UPDATE issues SET forced_file=0 WHERE ComicID=? AND Location=? AND IssueID!=?', [comicid, name, issueid])
-    myDB.action("UPDATE issues SET forced_file=1, Location=?, ComicSize=?, Status='Downloaded' WHERE IssueID=?",
-                [name, str(f['size']), issueid])
-    logger.info('[MATCHING] %s is now #%s of %s, matched by hand.' % (name, issue['Issue_Number'], comic['ComicName']))
+    if _annuals_on():
+        myDB.action('UPDATE annuals SET forced_file=0 WHERE ComicID=? AND Location=? AND IssueID!=?', [comicid, name, issueid])
+    myDB.action("UPDATE %s SET forced_file=1, Location=?, ComicSize=?, Status='Downloaded' WHERE IssueID=? AND ComicID=?" % table,
+                [name, str(f['size']), issueid, comicid])
+    logger.info('[MATCHING] %s is now %s of %s, matched by hand.' % (name, issue['label'], comic['ComicName']))
     _rescan(comicid)
     if issue['Status'] not in ('Downloaded', 'Archived'):
         from mylar import notifiers
         notifiers.files_added(comic['ComicName'], comic['ComicYear'], [issue['Issue_Number']], issueid=issueid, module='[MATCHING]',
                               comicid=comicid, path=f['path'])
-    return {'ok': True, 'note': '%s is now #%s.' % (name, issue['Issue_Number'])}
+    return {'ok': True, 'note': '%s is now %s.' % (name, issue['label'])}
 
 
 def unmatch(comicid, issueid):
     """Undo a match made by hand: the file is matched by its name again."""
-    myDB = db.DBConnection()
-    issue = myDB.selectone('SELECT Issue_Number, forced_file FROM issues WHERE IssueID=? AND ComicID=?', [issueid, comicid]).fetchone()
+    issue, table = _issue(comicid, issueid)
     if issue is None:
         return {'ok': False, 'note': 'That issue isn\'t part of this series.'}
     if issue['forced_file']:
-        myDB.action('UPDATE issues SET forced_file=0 WHERE IssueID=?', [issueid])
+        db.DBConnection().action('UPDATE %s SET forced_file=0 WHERE IssueID=? AND ComicID=?' % table, [issueid, comicid])
         logger.info('[MATCHING] Undid the match made by hand for issue %s.' % issueid)
         _rescan(comicid)
-    return {'ok': True, 'note': '#%s is matched by file name again.' % issue['Issue_Number']}
+    return {'ok': True, 'note': '%s is matched by file name again.' % issue['label']}
 
 
 def move_to(comicid, newid):
