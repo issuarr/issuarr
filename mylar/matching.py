@@ -162,6 +162,65 @@ def by_tags(comicid, files, pinned, taken):
     return out
 
 
+def _annual_key(name):
+    """A series name reduced to letters and digits, with "2024 Annual" read as "Annual 2024"."""
+    name = re.sub(r'\b((?:19|20)\d\d)\s+(annual)\b', r'\2 \1', name or '', flags=re.I)
+    return re.sub(r'[^a-z0-9]', '', name.lower())
+
+
+def annual_for(comicid, filename):
+    """The annual kept with this series that a file name points to, by its annual series' own name
+    ("Sonic the Hedgehog Annual 2024 001 (2024)", "Sonic the Hedgehog Annual (2024)"), or None."""
+    from mylar import filechecker, helpers
+    p = filechecker.FileChecker(file=filename, justparse=True).listFiles() or {}
+    if p.get('parse_status') != 'success' or not p.get('series_name'):
+        return None
+    year = str(p.get('issue_year') or '')[:4]
+    number = p.get('issue_number')
+    keys = {_annual_key(p['series_name'])}
+    if re.match(r'^(19|20)\d\d$', str(number or '')):
+        keys.add(_annual_key('%s %s' % (p['series_name'], number)))
+        number = None
+    if year:
+        keys.add(_annual_key('%s %s' % (p['series_name'], year)))
+    rows = db.DBConnection().select('SELECT IssueID, Issue_Number, IssueDate, ReleaseComicID, ReleaseComicName FROM annuals '
+                                    'WHERE ComicID=? AND NOT Deleted', [comicid])
+    rows = [r for r in rows if r['ReleaseComicName'] and _annual_key(r['ReleaseComicName']) in keys]
+    if number is not None:
+        want = helpers.issue_number_parser(number).asInt
+        rows = [r for r in rows if helpers.issue_number_parser(r['Issue_Number']).asInt == want]
+    else:
+        # no number: only an annual series of one issue says which issue it is
+        rows = [r for r in rows if sum(1 for o in rows if o['ReleaseComicID'] == r['ReleaseComicID']) == 1]
+    if len(rows) > 1 and year:
+        rows = [r for r in rows if str(r['IssueDate'] or '')[:4] == year] or rows
+    return rows[0] if len(rows) == 1 else None
+
+
+def by_annual_name(comicid, files, pinned, taken):
+    """Of files nothing else placed, those named for one of the annuals kept with this series that no
+    other file has. files: (folder, subfolder, name, size)."""
+    if not mylar.CONFIG.ANNUALS_ON:
+        return []
+    taken = set(str(t) for t in taken) | set(str(i) for i in pinned.values())
+    seen = set()
+    out = []
+    for folder, sub, name, size in files:
+        if not name or name in pinned:
+            continue
+        path = os.path.join(folder, sub or '', name)
+        if path in seen or not os.path.isfile(path):
+            continue
+        seen.add(path)
+        row = annual_for(comicid, name)
+        if row is None or str(row['IssueID']) in taken:
+            continue
+        taken.add(str(row['IssueID']))
+        out.append({'issueid': row['IssueID'], 'number': row['Issue_Number'], 'name': name,
+                    'size': str(size if size is not None else os.path.getsize(path)), 'annual': True})
+    return out
+
+
 def _comic(comicid):
     return db.DBConnection().selectone('SELECT ComicID, ComicName, ComicYear, ComicLocation FROM comics WHERE ComicID=?', [comicid]).fetchone()
 
