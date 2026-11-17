@@ -142,65 +142,34 @@ class NZBGet(object):
             logger.fdebug('valid queue result returned. Analyzing...')
             queuedl = [qu for qu in queueinfo if qu['NZBID'] == nzbid]
             if len(queuedl) == 0:
-                logger.warn('Unable to locate NZBID %s in active queue. Could it be finished already ?' % nzbid)
+                logger.fdebug('NZBID %s is no longer in the active queue - checking history' % nzbid)
+                if nzbinfo.get('checked'):
+                    time.sleep(5)  # it just left the queue: give NZBGet a moment to write its history
                 return self.historycheck(nzbinfo)
 
-            stat = False
             double_pp = False
             double_type = None
-            while stat is False:
-                time.sleep(10)
-                queueinfo = self.server.listgroups()
-                queuedl = [qu for qu in queueinfo if qu['NZBID'] == nzbid]
-                if len(queuedl) == 0:
-                    logger.fdebug('Item is no longer in active queue. It should be finished by my calculations')
-                    stat = True
-                else:
-                    if 'comicrn' in queuedl[0]['PostInfoText'].lower():
-                        double_pp = True
-                        double_type = 'ComicRN'
-                    elif 'nzbtomylar' in queuedl[0]['PostInfoText'].lower():
-                        double_pp = True
-                        double_type = 'nzbToMylar'
+            job = queuedl[0]
+            if 'comicrn' in str(job.get('PostInfoText', '')).lower():
+                double_pp, double_type = True, 'ComicRN'
+            elif 'nzbtomylar' in str(job.get('PostInfoText', '')).lower():
+                double_pp, double_type = True, 'nzbToMylar'
+            for x in (job.get('ScriptStatuses') or []) + [p for p in (job.get('Parameters') or []) if p.get('Value') == 'yes']:
+                if double_pp:
+                    break
+                if 'comicrn' in x['Name'].lower():
+                    double_pp, double_type = True, 'ComicRN'
+                elif 'nzbtomylar' in x['Name'].lower():
+                    double_pp, double_type = True, 'nzbToMylar'
 
-                    if all([len(queuedl[0]['ScriptStatuses']) > 0, double_pp is False]):
-                        for x in queuedl[0]['ScriptStatuses']:
-                            if 'comicrn' in x['Name'].lower():
-                                double_pp = True
-                                double_type = 'ComicRN'
-                                break
-                            elif 'nzbtomylar' in x['Name'].lower():
-                                double_pp = True
-                                double_type = 'nzbToMylar'
-                                break
+            if double_pp is True:
+                logger.warn('%s has been detected as being active for this category & download. Completed Download Handling will NOT be performed due to this.' % double_type)
+                logger.warn('Either disable Completed Download Handling for NZBGet within Mylar, or remove %s from your category script in NZBGet.' % double_type)
+                return {'status': 'double-pp', 'failed': False}
 
-                    if all([len(queuedl[0]['Parameters']) > 0, double_pp is False]):
-                        for x in queuedl[0]['Parameters']:
-                            if all(['comicrn' in x['Name'].lower(), x['Value'] == 'yes']):
-                                double_pp = True
-                                double_type = 'ComicRN'
-                                break
-                            elif all(['nzbtomylar' in x['Name'].lower(), x['Value'] == 'yes']):
-                                double_pp = True
-                                double_type = 'nzbToMylar'
-                                break
-
-
-                    if double_pp is True:
-                        logger.warn('%s has been detected as being active for this category & download. Completed Download Handling will NOT be performed due to this.' % double_type)
-                        logger.warn('Either disable Completed Download Handling for NZBGet within Mylar, or remove %s from your category script in NZBGet.' % double_type)
-                        return {'status': 'double-pp', 'failed': False}
-
-                    logger.fdebug('status: %s' % queuedl[0]['Status'])
-                    logger.fdebug('name: %s' % queuedl[0]['NZBName'])
-                    logger.fdebug('FileSize: %sMB' % queuedl[0]['FileSizeMB'])
-                    logger.fdebug('Download Left: %sMB' % queuedl[0]['RemainingSizeMB'])
-                    logger.fdebug('health: %s' % (queuedl[0]['Health']/10))
-                    logger.fdebug('destination: %s' % queuedl[0]['DestDir'])
-
-            logger.fdebug('File has now downloaded!')
-            time.sleep(5)  #wait some seconds so shit can get written to history properly
-            return self.historycheck(nzbinfo)
+            logger.fdebug('%s [%s] Download Left: %sMB' % (job.get('NZBName'), job.get('Status'), job.get('RemainingSizeMB')))
+            # still in NZBGet's queue: the monitor checks the other grabs and comes back to this one
+            return {'status': 'downloading', 'failed': False}
 
     def historycheck(self, nzbinfo):
         nzbid = nzbinfo['NZBID']

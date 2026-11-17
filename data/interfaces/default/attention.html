@@ -52,9 +52,22 @@
             year: ['place', 'The year doesn\'t match that issue.'],
             issue: ['place', 'That issue number isn\'t on the series.'],
             owned: ['owned', 'You already have this issue.'],
+            coverart: ['place', 'Its cover doesn\'t match the issue it was taken for.'],
             damaged: ['bad', 'The file is damaged or incomplete.'],
             cover: ['bad', 'Covers only, not the full issue.'],
             unclaimed: ['review', 'Nothing on your watchlist claimed it, so it was moved to review.']
+        };
+        /* Try filing again's summary: "12 for series not on your watchlist, 1 already in your library". */
+        var WHY_LEFT = {
+            series: 'for series not on your watchlist (or named differently)',
+            unclaimed: 'that nothing on your watchlist claimed',
+            issue: 'whose issue isn\'t on the series',
+            volume: 'with a different volume',
+            year: 'with a different year',
+            owned: 'already in your library',
+            coverart: 'whose cover didn\'t match',
+            damaged: 'damaged',
+            cover: 'covers only'
         };
         var TABS = [['all', 'All'], ['place', 'Couldn\'t place'], ['owned', 'Already have'], ['review', 'In review'], ['bad', 'Damaged or covers']];
 
@@ -86,12 +99,23 @@
             var a = m ? m.agree : {};
             return '<div class="att-read" role="group" aria-label="The file name next to the closest series">' +
                 '<div class="att-col att-rowhead"><span class="att-part">&nbsp;</span><span class="att-file">File name</span><span class="att-lib">' + (m ? 'Closest match' : 'No close match') + '</span></div>' +
-                cell('Series', p.series, m && (m.name + ' (' + m.year + ')'), m ? a.series : null) +
-                cell('Issue', p.issue && '#' + p.issue, m && m.number && '#' + m.number, m ? a.issue : null, m ? 'not on this series' : '') +
+                cell('Series', p.series, m && label(i, m), m ? a.series : null) +
+                cell('Issue', p.issue && '#' + p.issue, m && m.number && (m.label || '#' + m.number), m ? a.issue : null, m ? 'not on this series' : '') +
                 cell('Year', p.year, m && m.issue_year, m ? a.year : null) +
                 cell('Volume', p.volume, m && m.volume, m ? a.volume : null) +
                 cell('Format', p.collected ? 'Collected edition' : 'Single issue', m && m.format, m ? a.format : null, m ? 'not known' : '') +
+                coverCell(m) +
                 '</div>';
+        }
+
+        /* The file's front cover against the issue's on ComicVine: the distance between their hashes, 0 for the same picture. */
+        var COVER = { match: 'matches', unsure: 'close, not a match', mismatch: 'different' };
+        function coverCell(m) {
+            var c = m && m.cover;
+            if (!c) return m && m.issueid ? cell('Cover', 'Front cover', '', null, 'not compared yet') : '';
+            if (c.distance == null) return cell('Cover', 'Front cover', '', null, 'no cover to compare');
+            var agree = c.verdict === 'match' ? true : c.verdict === 'mismatch' ? false : null;
+            return cell('Cover', 'Front cover', COVER[c.verdict] + ' (' + c.distance + ' apart)', agree);
         }
 
         function actions(i) {
@@ -99,23 +123,36 @@
             if (i.job && (i.job.state === 'filing' || i.job.state === 'waiting')) return '<p class="att-job">' + esc(i.job.note) + '…</p>';
             if (i.in_library) {
                 // already filed: filing it again would put it over itself
-                return '<div class="att-acts"><button type="button" class="btn btn-sm btn-ghost" data-trash>Move to trash</button>' +
+                var want = i.issue && i.issue.status !== 'Wanted' ?
+                    '<button type="button" class="btn btn-sm btn-primary" data-trash-want>Move to trash and mark Wanted</button>' : '';
+                return '<div class="att-acts">' + want + '<button type="button" class="btn btn-sm btn-ghost" data-trash>Move to trash</button>' +
                        '<button type="button" class="btn btn-sm btn-ghost" data-ignore>Ignore</button></div>';
             }
-            if (m && m.issueid) {
-                out += '<button type="button" class="btn btn-sm btn-primary" data-file="' + esc(m.comicid) + '|' + esc(m.issueid) + '">File as ' + esc(m.name) + ' #' + esc(m.number) + '</button>';
+            if (m && m.issueid && m.owned) {
+                // the suggested issue is already filed: this file is a spare copy
+                out += '<button type="button" class="btn btn-sm btn-primary" data-trash>Move to trash</button>';
+            } else if (m && m.issueid) {
+                out += '<button type="button" class="btn btn-sm btn-primary" data-file="' + esc(m.comicid) + '|' + esc(m.issueid) + '">File as ' + esc(m.name) + ' ' + esc(m.label || '#' + m.number) + '</button>';
             }
             out += '<button type="button" class="btn btn-sm" data-pick aria-expanded="' + (open === i.path) + '">' + (m && m.issueid ? 'Choose another' : 'Choose the issue') + '</button>';
-            out += '<button type="button" class="btn btn-sm btn-ghost" data-trash>Move to trash</button>';
+            if (!(m && m.issueid && m.owned)) out += '<button type="button" class="btn btn-sm btn-ghost" data-trash>Move to trash</button>';
             out += '<button type="button" class="btn btn-sm btn-ghost" data-ignore>Ignore</button>';
             return '<div class="att-acts">' + out + '</div>';
+        }
+
+        function owned(i) {
+            var m = i.matches[0];
+            if (!m || !m.issueid || !m.owned) return '';
+            return '<p class="att-owned"><b>' + esc(m.name) + ' (' + esc(m.year) + ') ' + esc(m.label || '#' + m.number) + ' is already in your library.</b> ' +
+                   'This file looks like a spare copy. Move it to the trash, or choose another issue if it\'s something else.</p>';
         }
 
         function others(i) {
             var rest = i.matches.slice(1).filter(function (m) { return m.issueid; });
             if (!rest.length) return '';
             return '<p class="att-others">Or ' + rest.map(function (m) {
-                return '<button type="button" class="link-btn" data-file="' + esc(m.comicid) + '|' + esc(m.issueid) + '">' + esc(m.name) + ' (' + esc(m.year) + ') #' + esc(m.number) + '</button>';
+                return '<button type="button" class="link-btn" data-file="' + esc(m.comicid) + '|' + esc(m.issueid) + '">' + esc(label(i, m)) + ' ' + esc(m.label || '#' + m.number) + '</button>' +
+                       (m.owned ? ' <span class="faint">(already in your library)</span>' : '');
             }).join(', ') + '</p>';
         }
 
@@ -127,8 +164,8 @@
                 '</button><figcaption>This file</figcaption></figure>';
             var issue = '<figure class="att-cover" data-issue-cover' + (m && m.issueid ? '' : ' hidden') + '>' +
                 '<button type="button" class="att-cover-btn" data-zoom aria-label="Show the covers larger">' +
-                (m && m.issueid ? '<img src="attention_issue_cover?' + q({ issueid: m.issueid }) + '" alt="Cover of ' + esc(m.name) + ' #' + esc(m.number) + '" loading="lazy" data-cover-img />' : '') +
-                '</button><figcaption>' + (m && m.issueid ? esc(m.name) + ' #' + esc(m.number) : '') + '</figcaption></figure>';
+                (m && m.issueid ? '<img src="attention_issue_cover?' + q({ issueid: m.issueid }) + '" alt="Cover of ' + esc(m.name) + ' ' + esc(m.label || '#' + m.number) + '" loading="lazy" data-cover-img />' : '') +
+                '</button><figcaption>' + (m && m.issueid ? esc(m.name) + ' ' + esc(m.label || '#' + m.number) : '') + '</figcaption></figure>';
             return '<div class="att-covers">' + file + issue + '</div>';
         }
 
@@ -147,7 +184,8 @@
                     '<button type="button" class="link-btn" data-copy>Copy path</button></p>' +
                 '<div class="att-body">' + covers(i) + '<div class="att-main">' +
                 '<p class="att-why"><b>' + r[1] + '</b>' + (i.detail ? ' ' + esc(i.detail) : '') + '</p>' +
-                (i.in_library ? '<p class="att-unread">Replace it with a good copy, or move it to the trash.</p>' : reading(i) + others(i)) + job + actions(i) +
+                (i.in_library ? '<p class="att-unread">' + (i.issue ? 'It\'s ' + esc(i.issue.name) + ' (' + esc(i.issue.year) + ') #' + esc(i.issue.number) +
+                    (i.issue.status === 'Wanted' ? ', already Wanted' : '') + '. ' : '') + 'Replace it with a good copy, or move it to the trash.</p>' : reading(i) + owned(i) + others(i)) + job + actions(i) +
                 (open === i.path ? picker(i) : '') +
                 '</div></div>' +
                 '</article>';
@@ -327,7 +365,7 @@
 
         /* By folder: a collection or download as one row, with one action for all its files. */
         var GROUP_REASON = { owned: 'Already have', series: 'Couldn\'t place', issue: 'Issue not on the series', volume: 'Wrong volume',
-                             year: 'Wrong year', unclaimed: 'Unclaimed', damaged: 'Damaged', cover: 'Covers only' };
+                             year: 'Wrong year', coverart: 'Cover didn\'t match', unclaimed: 'Unclaimed', damaged: 'Damaged', cover: 'Covers only' };
         function drawGroups() {
             if (!groupList.length) { list.innerHTML = '<p class="empty-state">Nothing needs attention.</p>'; return; }
             list.innerHTML = groupList.map(function (g) {
@@ -407,17 +445,28 @@
 
         /* A file no watchlist series' name agrees with: its series likely isn't on the watchlist
            yet, so the picker asks ComicVine straight away (once, when it opens). */
+        /* No watchlist series has both the name and the issue: ComicVine is asked too when the picker opens. */
         function noCloseMatch(i) {
-            return !(i.matches || []).some(function (m) { return m.agree && m.agree.series; });
+            return !(i.matches || []).some(function (m) { return m.agree && m.agree.series && m.agree.issue; });
+        }
+
+        /* "X-Men Annual (2023)" twice: the run tells them apart. */
+        function twin(i, m) {
+            return (i.matches || []).some(function (o) { return o !== m && o.name === m.name && String(o.year) === String(m.year); });
+        }
+
+        function label(i, m) {
+            return m.name + ' (' + m.year + ')' + (m.published && twin(i, m) ? ', ' + m.published : '');
         }
 
         function search(pk, text, opening) {
-            fetch('attention_search?' + q({ q: text }), { credentials: 'same-origin' }).then(function (r) { return r.json(); }).then(function (d) {
+            var it = itemOf(pk);
+            fetch('attention_search?' + q({ q: text, year: (it && it.parsed && it.parsed.year) || '' }), { credentials: 'same-origin' }).then(function (r) { return r.json(); }).then(function (d) {
                 var ul = pk.querySelector('[data-series]');
                 wantIssue(pk, d.link);
                 ul.innerHTML = d.series.length ? d.series.map(function (s) {
                     return '<li><button type="button" class="link-btn" data-series-id="' + esc(s.comicid) + '">' + esc(s.name) + ' (' + esc(s.year) + ')' +
-                           (s.volume ? ' ' + esc(s.volume) : '') + '</button></li>';
+                           (s.volume ? ' ' + esc(s.volume) : '') + '</button>' + (s.published ? ' <span class="faint">' + esc(s.published) + '</span>' : '') + '</li>';
                 }).join('') : d.link ? '<li class="muted">That series isn\'t on your watchlist yet.</li>' : '<li class="muted">No series on your watchlist by that name.</li>';
                 var i = itemOf(pk);
                 if (opening && !d.link && text.trim() && i && noCloseMatch(i) && !adding[i.path]) cvSearch(pk, text, i.parsed && i.parsed.year);
@@ -437,8 +486,8 @@
                 var byId = wantId && d.issues.some(function (s) { return String(s.IssueID) === wantId; });
                 sel.innerHTML = d.issues.map(function (s) {
                     var n = String(s.Issue_Number);
-                    var pick = byId ? String(s.IssueID) === wantId : n === want;
-                    return '<option value="' + esc(comicid) + '|' + esc(s.IssueID) + '"' + (pick ? ' selected' : '') + '>#' + esc(n) +
+                    var pick = byId ? String(s.IssueID) === wantId : !s.Annual && n === want;
+                    return '<option value="' + esc(comicid) + '|' + esc(s.IssueID) + '"' + (pick ? ' selected' : '') + '>' + esc(s.Label || '#' + n) +
                            (s.IssueDate ? ' (' + esc(String(s.IssueDate).slice(0, 7)) + ')' : '') + ' - ' + esc(s.Status) + '</option>';
                 }).join('');
                 pk.querySelector('[data-issue-wrap]').hidden = !d.issues.length;
@@ -534,13 +583,14 @@
             stopBtn.disabled = !!r.stopping;
             var text = '';
             if (running) {
-                var where = r.waiting ? 'Waiting while new downloads are filed.' : r.current ? 'Filing ' + r.current + '.' : '';
+                var where = r.lookup ? 'Looking up their series on ComicVine.' : r.waiting ? 'Waiting while new downloads are filed.' : r.current ? 'Filing ' + r.current + '.' : '';
                 text = (r.auto ? 'Trying everything here again after the update: ' : 'Trying again: ') + 'folder ' + Math.min(r.done + 1, r.total) +
                        ' of ' + r.total + '. ' + where + (r.stopping ? ' Stopping after this folder.' : '');
             } else if (r.state === 'done' || r.state === 'stopped') {
                 var filed = r.after == null ? null : Math.max(r.before - r.after, 0);
                 text = (r.state === 'stopped' ? 'Stopped. ' : 'Tried everything again. ') +
-                       (filed == null ? '' : filed + ' of ' + r.before + ' files were filed; ' + r.after + ' still need you.');
+                       (filed == null ? '' : filed + ' of ' + r.before + ' files were filed; ' + r.after + ' still need you') +
+                       (r.why && r.why.length ? ': ' + r.why.map(function (w) { return w[1] + ' ' + (WHY_LEFT[w[0]] || w[0]); }).join(', ') + '.' : '.');
             }
             refileNote.textContent = text;
             refileNote.hidden = !text;
@@ -655,6 +705,7 @@
                 if (!open) unpark();
                 return;
             }
+            if (e.target.closest('[data-trash-want]')) return act('attention_trash', i, { want: '1' }, 'Moving it to the trash and marking the issue Wanted');
             if (e.target.closest('[data-trash]')) return act('attention_trash', i, null, 'Moving it to the trash');
             if (e.target.closest('[data-ignore]')) return act('attention_ignore', i, null, 'Hiding it');
             if ((b = e.target.closest('[data-series-id]'))) return chooseSeries(b.closest('[data-picker]'), b.getAttribute('data-series-id'), b);

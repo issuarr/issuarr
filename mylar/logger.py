@@ -25,6 +25,10 @@ from mylar import helpers
 import logging
 from logging import getLogger, WARN, ERROR, INFO, DEBUG, StreamHandler, Formatter, Handler
 from six import PY2
+from mylar import redact
+
+# keys, passwords and tokens never reach the log file, the console or the Logs page
+logging.getLogger('mylar').addFilter(redact.SecretFilter())
 
 #setup logger for non-english (this doesnt carry thru, so check here too)
 try:
@@ -142,6 +146,7 @@ if not LOG_LANG.startswith('en'):
             if PY2:
                 message = safe_unicode(message)
                 message = message.encode(mylar.SYS_ENCODING)
+            message = redact.redact(message)
             if level != 'DEBUG' or mylar.LOG_LEVEL >= 2:
                 mylar.LOGLIST.insert(0, (helpers.now(), message, level, threadname))
                 if len(mylar.LOGLIST) > 2500:
@@ -207,7 +212,6 @@ else:
         #since this only happens on windows boxes, if it's nix/mac use the default logger.
         if platform.system() == 'Windows':
             #set the path to the lib here - just to make sure it can detect cloghandler & portalocker.
-            import sys
             sys.path.append(os.path.join(mylar.PROG_DIR, 'lib'))
 
             try:
@@ -284,14 +288,18 @@ else:
         # Setup console logger
         if console:
             console_formatter = logging.Formatter('%(asctime)s - %(levelname)s :: %(name)s.%(funcName)s.%(lineno)s : %(threadName)s : %(message)s', '%d-%b-%Y %H:%M:%S')
-            console_handler = logging.StreamHandler()
-            console_handler.setFormatter(console_formatter)
+            # info and debug go to stdout, warnings and errors to stderr, so log viewers read the level right
+            console_handler = logging.StreamHandler(sys.stdout)
+            console_handler.addFilter(lambda record: record.levelno < logging.WARNING)
+            error_handler = logging.StreamHandler(sys.stderr)
+            error_handler.setLevel(logging.WARNING)
+            for handler in (console_handler, error_handler):
+                handler.setFormatter(console_formatter)
+                logger.addHandler(handler)
             if loglevel == 1:  #normal
                 console_handler.setLevel(logging.INFO)
             elif loglevel >= 2:   #verbose
                 console_handler.setLevel(logging.DEBUG)
-
-            logger.addHandler(console_handler)
 
         # Install exception hooks
         initHooks()

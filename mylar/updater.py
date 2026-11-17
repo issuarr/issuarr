@@ -899,6 +899,24 @@ def nzblog(IssueID, NZBName, ComicName, SARC=None, IssueArcID=None, id=None, pro
     myDB.upsert("nzblog", newValue, controlValue)
 
 
+REGRAB_MINUTES = 10   # a grab of the same issue from the same provider after this long is a new grab
+
+
+def _record_snatch(myDB, values, key):
+    """Add a grab to the snatched history. One grab can be recorded more than once within moments;
+    a later grab of the same issue from the same provider gets its own row instead of overwriting it."""
+    where = ' AND '.join('%s=?' % k for k in key)
+    row = myDB.selectone('SELECT rowid AS rid, DateAdded FROM snatched WHERE %s ORDER BY DateAdded DESC' % where,
+                         list(key.values())).fetchone()
+    cutoff = (datetime.datetime.now() - datetime.timedelta(minutes=REGRAB_MINUTES)).strftime('%Y-%m-%d %H:%M:%S')
+    if row is not None and (row['DateAdded'] or '') >= cutoff:
+        myDB.action('UPDATE snatched SET %s WHERE rowid=?' % ', '.join('%s=?' % k for k in values),
+                    list(values.values()) + [row['rid']])
+        return
+    cols = dict(key, **values)
+    myDB.action('INSERT INTO snatched (%s) VALUES (%s)' % (', '.join(cols), ', '.join('?' * len(cols))), list(cols.values()))
+
+
 def foundsearch(ComicID, IssueID, mode=None, down=None, provider=None, SARC=None, IssueArcID=None, module=None, hash=None, crc=None, comicname=None, issuenumber=None, pullinfo=None):
     # When doing a Force Search (Wanted tab), the resulting search calls this to update.
 
@@ -990,7 +1008,7 @@ def foundsearch(ComicID, IssueID, mode=None, down=None, provider=None, SARC=None
                                "Hash":            hash
                                }
 
-            myDB.upsert("snatched", newsnatchValues, snatchedupdate)
+            _record_snatch(myDB, newsnatchValues, snatchedupdate)
 
         elif mode != 'pullwant':
             if modcomicname:
@@ -1009,7 +1027,7 @@ def foundsearch(ComicID, IssueID, mode=None, down=None, provider=None, SARC=None
                                "Hash":            hash
                                }
 
-            myDB.upsert("snatched", newsnatchValues, snatchedupdate)
+            _record_snatch(myDB, newsnatchValues, snatchedupdate)
 
         else:
              #updating snatched table with one-off is abit difficult due to lack of complete information in some instances
@@ -1024,7 +1042,7 @@ def foundsearch(ComicID, IssueID, mode=None, down=None, provider=None, SARC=None
                                "Hash":            hash
                                }
 
-            myDB.upsert("snatched", newsnatchValues, snatchedupdate)
+            _record_snatch(myDB, newsnatchValues, snatchedupdate)
 
         #this will update the weeklypull list immediately after snatching to reflect the new status.
         #-is ugly, should be linked directly to other table (IssueID should be populated in weekly pull at this point hopefully).
@@ -1761,9 +1779,10 @@ def forceRescan(ComicID, archive=None, module=None, recheck=False):
 
     # Files the name didn't place: a file tagged with a ComicVine issue ID of this series is that issue.
     issStatus = 'Archived' if archive else 'Downloaded'
-    for tagged in matching.by_tags(ComicID, [(f['ComicLocation'], f.get('sub'), f['ComicFilename'], f['ComicSize']) for f in leftovers] +
-                                   [(f['comiclocation'], f['sub'], f['comicfilename'], None) for f in unnamed],
-                                   pins, set(issID_to_ignore) | set(annID_to_ignore)):
+    unplaced = [(f['ComicLocation'], f.get('sub'), f['ComicFilename'], f['ComicSize']) for f in leftovers] + \
+               [(f['comiclocation'], f['sub'], f['comicfilename'], None) for f in unnamed]
+    for tagged in matching.by_tags(ComicID, unplaced, pins, set(issID_to_ignore) | set(annID_to_ignore)):
+        unplaced = [f for f in unplaced if f[2] != tagged['name']]
         logger.fdebug('%s [TAGGED-MATCH] %s is #%s by its ComicVine issue ID %s' % (module, tagged['name'], tagged['number'], tagged['issueid']))
         havefiles += 1
         if tagged['annual']:
@@ -1772,6 +1791,13 @@ def forceRescan(ComicID, archive=None, module=None, recheck=False):
         else:
             d_issues.append((issStatus, tagged['size'], tagged['name'], tagged['issueid']))
             issID_to_ignore.append(tagged['issueid'])
+
+    # Files still unplaced that are named for an annual kept with this series ("X Annual 2024 001")
+    for named in matching.by_annual_name(ComicID, unplaced, pins, set(issID_to_ignore) | set(annID_to_ignore)):
+        logger.fdebug('%s [ANNUAL-MATCH] %s is annual #%s by its annual series name' % (module, named['name'], named['number']))
+        havefiles += 1
+        d_annuals.append((issStatus, named['size'], named['name'], named['issueid']))
+        annID_to_ignore.append(named['issueid'])
 
     added = [] if archive or recheck else newly_owned(myDB, d_issues, d_annuals)   # recheck: post-processing already says so
     b_start = datetime.datetime.now()
@@ -1783,7 +1809,7 @@ def forceRescan(ComicID, archive=None, module=None, recheck=False):
         logger.warn('Error updating: %s' % e)
     logger.fdebug('[haves] issue_status_writing took %s' % (datetime.datetime.now() - b_start))
     if added:
-        notifiers.files_added(rescan['ComicName'], rescan['ComicYear'], added, issueid=None, module=module)
+        notifiers.files_added(rescan['ComicName'], rescan['ComicYear'], added, issueid=None, module=module, comicid=ComicID)
 
     #if this far, forced_file is true and the file didn't parse properly due to w/e reason, we need to force the filename to link to the given issueid.
     reforce = myDB.select('SELECT * FROM issues WHERE ComicID=? AND forced_file = 1', [ComicID])
@@ -1810,6 +1836,15 @@ def forceRescan(ComicID, archive=None, module=None, recheck=False):
                             }
 
             myDB.upsert("issues", newValueDict, controlValueDict)
+
+    # annuals kept with the series that were matched to a file by hand
+    if mylar.CONFIG.ANNUALS_ON:
+        for rfc in myDB.select('SELECT IssueID, Issue_Number, Location, ComicSize FROM annuals WHERE ComicID=? AND forced_file=1 AND NOT Deleted', [ComicID]):
+            logger.fdebug('%s [FORCED-MATCH] Matched...annual: #%s --- %s' % (module, rfc['Issue_Number'], rfc['Location']))
+            havefiles += 1
+            annID_to_ignore.append(rfc['IssueID'])
+            myDB.upsert("annuals", {"Location": rfc['Location'], "ComicSize": rfc['ComicSize'],
+                                    "Status": "Archived" if archive else "Downloaded"}, {"IssueID": rfc['IssueID']})
 
     #here we need to change the status of the ones we DIDN'T FIND above since the loop only hits on FOUND issues.
     update_iss = []

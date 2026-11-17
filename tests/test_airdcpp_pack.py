@@ -25,6 +25,8 @@ def quiet(monkeypatch):
     ('Batman 012.5 (2016).cbz', ('batman', '12.5', 2016)),
     ('Batman Annual 001 (2017).cbz', ('batman annual', '1', 2017)),
     ('Batman 001 (2016) (TPB).cbz', None),
+    ('Batman 001 (2016) (GN).cbz', None),
+    ('Batman 001 (2016) (Graphic Novel).cbz', None),
     ('Batman Vol. 1 - I Am Gotham (2017).cbz', None),
     ('Batman 012 (2016).pdf', None),
 ])

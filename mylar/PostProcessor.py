@@ -29,10 +29,22 @@ import pathlib
 from xml.dom.minidom import parseString
 import mylar
 
-from mylar import logger, db, helpers, updater, notifiers, filechecker, weeklypull, getimage, archives, autoadd, webp, attention, editions
+from mylar import logger, db, helpers, updater, notifiers, filechecker, weeklypull, getimage, archives, autoadd, webp, attention, editions, covermatch
 
 PP_LOCK = threading.RLock()
 
+
+
+def volume_as_issue(parsed):
+    """The issue number in a parsed filename. Collected editions (TPB, HC, omnibus) often number each
+    book only as a volume ("Aliens Omnibus v04"), so with no issue number the volume stands in for it.
+    A series that carries the same volume on every issue ("Justice League v2 015") keeps its issue."""
+    issue = parsed.get('issue_number')
+    if issue is None and parsed.get('series_volume'):
+        digits = re.sub(r'[^0-9]', '', str(parsed['series_volume'])).lstrip('0')
+        if digits:
+            return digits
+    return issue
 
 
 def series_year_label(file_year, series_year, issue_year):
@@ -102,11 +114,14 @@ def folder_job(folder):
 
 
 def year_in_name(myDB, comiclist, alt_list):
-    """Files named "Uncanny X-Men Annual 1999" read as issue #1999 of Uncanny X-Men Annual. When a
+    """Files named "Uncanny X-Men Annual 1999" have no issue number: the parser marks the year as one
+    that may be part of the name (name_year), and older parses read it as issue #1999. When a
     watchlist series is called that (or has it as an alternate name, like ComicVine's aliases for
-    Uncanny X-Men 1999), the year is part of the name: file it as that series' only issue, or #1."""
+    Uncanny X-Men 1999), file it as that series' only issue, or #1."""
     for fl in comiclist:
         number = str(fl.get('issue_number') or '').strip()
+        if fl.get('name_year') and not number:
+            number = str(fl.get('issue_year') or '').strip()
         if not fl.get('series_name') or not re.match(r'^(19|20)\d\d$', number):
             continue
         key = _loop_name('%s %s' % (fl['series_name'], number))[0]
@@ -191,6 +206,7 @@ class PostProcessor(object):
         self.nzb_folder = nzb_folder
         # which download this is ({'provider', 'id'}), so the queue can show it being filed
         self.download_info = download_info
+        self._att_listed = []   # files this run listed in Needs attention
         if module is not None:
             self.module = module + '[POST-PROCESSING]'
         else:
@@ -597,6 +613,11 @@ class PostProcessor(object):
             return result
         finally:
             archives.cleanup(self.extracted)
+            if source_name == 'Manual Run':
+                try:
+                    archives.drop_empty_source(source)
+                except Exception as e:
+                    logger.warn('[POST-PROCESSING] Unable to tidy up %s: %s' % (source, e))
             if source_name == 'Manual Run' and mylar.CONFIG.CHECK_FOLDER and source and \
                     os.path.normpath(source) == os.path.normpath(mylar.CONFIG.CHECK_FOLDER):
                 archives.sweep(source, started)
@@ -605,6 +626,10 @@ class PostProcessor(object):
             archives.done()
             if pending:
                 autoadd.queue(pending)
+            # what this run listed in Needs attention may still be placed by its cover
+            listed = [p for p in getattr(self, '_att_listed', []) if os.path.isfile(p)]
+            if listed:
+                attention.cover_pass(listed)
 
     # Files filing looks at but can't place go to Downloads > Needs attention, with why.
     def _att_start(self, fl, counts):
@@ -628,11 +653,64 @@ class PostProcessor(object):
         if comicid and reason in ('volume', 'year', 'issue'):
             cur['comicid'] = comicid
 
+    def _cover_ok(self, ml):
+        """Before filing, the file's front cover is compared with the issue's on ComicVine. A clearly
+        different cover, or with "Issues must match by cover" on anything short of a match, goes to
+        Needs attention instead. Issues the user picked by hand aren't checked."""
+        if ml.get('ForcedMatch') or ml.get('One-Off') or ml.get('IssueArcID') or not ml.get('IssueID'):
+            return True
+        path = ml.get('ComicLocation')
+        if not path or not os.path.isfile(path):
+            return True
+        try:
+            res = covermatch.check(path, ml['IssueID'])
+        except Exception as e:
+            logger.warn('%s[COVER-MATCH] Could not compare the cover of %s: %s' % (self.module, path, e))
+            res = {'distance': None, 'verdict': 'unknown'}
+        label = '%s (%s) #%s' % (ml.get('ComicName'), ml.get('SeriesYear'), ml.get('IssueNumber'))
+        if covermatch.may_file(res):
+            logger.fdebug('%s[COVER-MATCH] %s against %s: %s (distance %s)' % (self.module, os.path.basename(path), label, res['verdict'], res['distance']))
+            return True
+        limit = covermatch.pass_score()
+        if res['verdict'] == 'unknown':
+            detail = 'There was no cover to compare with %s\'s on ComicVine.' % label
+        elif res['verdict'] == 'unsure':
+            detail = 'Its cover is close to %s\'s on ComicVine, but not a match (%s apart; a match is %s or less).' % (label, res['distance'], limit)
+        else:
+            detail = 'Its cover doesn\'t look like %s\'s on ComicVine (%s apart; a match is %s or less).' % (label, res['distance'], limit)
+        logger.info('%s[COVER-MATCH] Not filing %s as %s: %s' % (self.module, os.path.basename(path), label, detail))
+        attention.record(path, 'coverart', detail, ml.get('ComicID'))
+        archives.tally('attention')
+        self.__dict__.setdefault('_att_listed', []).append(path)
+        return False
+
+    def _named_annual(self, myDB, fl, path):
+        """A file named for an annual kept with a watchlist series ("Sonic the Hedgehog Annual 2024 001"),
+        as an entry to file, or None. The old matching reads such names as another series."""
+        if not mylar.CONFIG.ANNUALS_ON or fl.get('issueid') or not os.path.isfile(path):
+            return None
+        from mylar import matching
+        try:
+            row = matching.annual_for(None, os.path.basename(path))
+        except Exception as e:
+            logger.fdebug('%s Could not check %s against the annuals: %s' % (self.module, path, e))
+            return None
+        comic = row and myDB.selectone('SELECT ComicID, ComicName, ComicYear, AgeRating FROM comics WHERE ComicID=?', [row['ComicID']]).fetchone()
+        if not comic:
+            return None
+        logger.info('%s[ANNUAL-MATCH] %s is %s #%s, kept with %s (%s).' % (self.module, os.path.basename(path), row['ReleaseComicName'],
+                                                                          row['Issue_Number'], comic['ComicName'], comic['ComicYear']))
+        return {'ComicLocation': path, 'ComicID': comic['ComicID'], 'IssueID': row['IssueID'], 'IssueNumber': row['Issue_Number'],
+                'AnnualType': 'Annual', 'AnnualSeries': row['ReleaseComicName'], 'ComicName': comic['ComicName'],
+                'AgeRating': comic['AgeRating'], 'Series': row['ReleaseComicName'], 'SeriesYear': comic['ComicYear'],
+                'AltSeries': None, 'One-Off': False, 'ForcedMatch': False}
+
     def _att_settle(self, counts):
         cur, self._att = getattr(self, '_att', None), None
         if cur and cur['path'] and counts == cur['counts'] and os.path.isfile(cur['path']):
             attention.record(cur['path'], attention.pick(cur['reasons']), cur['detail'], cur['comicid'])
             archives.tally('attention')
+            self.__dict__.setdefault('_att_listed', []).append(cur['path'])
 
     def _process_main(self):
             module = self.module
@@ -791,6 +869,10 @@ class PostProcessor(object):
                         logger.warn(f"Could not find file {full_filename}.  Skipping condition check.")
 
                     self.matched = False
+                    named = self._named_annual(myDB, fl, full_filename)
+                    if named:
+                        manual_list.append(named)
+                        continue
                     as_d = filechecker.FileChecker()
                     as_dinfo = as_d.dynamic_replace(fl['series_name']) #helpers.conversion(fl['series_name']))
                     orig_seriesname = as_dinfo['mod_seriesname']
@@ -1095,8 +1177,9 @@ class PostProcessor(object):
                         #do some extra checks in here to ignore these types:
                         # check for valid issue number - if not, don't even bother checking it
                         # TODO Not sure why this is here.  If it catches any exception, then it's going to cause problems further down.
+                        tmp_iss = None
                         try:
-                            tmp_iss = helpers.issue_number_parser(fl['issue_number']).asInt
+                            tmp_iss = helpers.issue_number_parser(volume_as_issue(fl)).asInt
                         except Exception as e:
                             logger.warn('Unable to determine issue number. This is a no-go, Captain [%s]' % (e,))
 
@@ -1124,10 +1207,15 @@ class PostProcessor(object):
                                 if any([dbcheck[0] == 'Wanted', dbcheck[0] == 'Snatched']):
                                     logger.fdebug('Series is 100%s complete, but specific issue %s matched up to a %s status. Let\'s Go!' % ('%', tmp_iss, dbcheck[0]))
                                 else:
-                                    logger.fdebug('Series is 100%s complete, however status is not Wanted (or Snatched), but %s. Set to Wanted for this to post-process on the next run.' % ('%', dbcheck[0]))
+                                    logger.fdebug('%s [%s] is 100%s complete and issue %s is %s, not Wanted or Snatched, so this file isn\'t filed. '
+                                                  'Mark the issue Wanted to file it on the next run.' % (wv['ComicName'], wv['ComicYear'], '%', tmp_iss, dbcheck[0]))
                                     if dbcheck[0] in ('Downloaded', 'Archived'):
                                         self._att_why('owned', '%s (%s) #%s is already in your library.' % (wv['ComicName'], wv['ComicYear'], fl['issue_number']), wv['ComicID'])
                                     continue
+                            elif myDB.selectone("SELECT 1 FROM issues WHERE ComicID=? AND Status IN ('Wanted', 'Snatched')", [wv['ComicID']]).fetchone():
+                                # Have can be stale (issues marked Wanted again after their files went); a series
+                                # still wanting issues isn't complete, so let matching decide.
+                                logger.fdebug('%s [%s] counts as 100%s complete, but still has Wanted issues - checking it.' % (wv['ComicName'], wv['ComicYear'], '%'))
                             else:
                                 logger.warn('%s [%s] is either Paused or in an Ended status with 100%s completion. Ignoring for match.' % (wv['ComicName'], wv['ComicYear'], '%'))
                                 continue
@@ -1280,6 +1368,8 @@ class PostProcessor(object):
                                         just_the_digits = re.sub(r'[^0-9]', '', watchmatch['series_volume']).strip()
                                     else:
                                         just_the_digits = re.sub(r'[^0-9.\-\u00BC-\u00BE\u2150-\u215E\u221E]', '', watchmatch['justthedigits']).strip()
+                                elif watchmatch['justthedigits'] is None:
+                                    just_the_digits = volume_as_issue({'series_volume': watchmatch['series_volume']})
                                 else:
                                     just_the_digits = watchmatch['justthedigits']
                             except Exception as e:
@@ -2527,6 +2617,7 @@ class PostProcessor(object):
                 #loop through the hits here.
                 annualtype = None
                 issuenumOG = None
+                manual_list = [ml for ml in manual_list if self._cover_ok(ml)]
                 if len(manual_list) == 0 and len(manual_arclist) == 0:
                     if self.nzb_name == 'Manual Run':
                         logger.info('%s No matches for Manual Run ... exiting.' % module)

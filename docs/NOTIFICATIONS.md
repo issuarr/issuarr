@@ -4,10 +4,12 @@ Issuarr can tell you when it grabs an issue, when an issue is filed, and when ta
 
 The services are Discord, Email, Gotify, Mattermost, ntfy, Pushbullet, Pushover, Slack, Telegram, Prowl, Boxcar and a plain webhook. Each one has a **Notify when an issue is grabbed** switch. Tagging errors are always sent once a service is on.
 
+Covers: Discord, Gotify and ntfy show the issue cover on grabbed, filed, added and Needs attention messages, and Pushover and Telegram do when their image switch is on. Mattermost shows the ComicVine cover as a link. A grabbed issue gets its ComicVine cover, a pack the series cover. The other services are text only.
+
 Two switches at the top of the section pick the other messages, for every service at once (Email also needs its own switch for filed issues):
 
 - **Notify when an issue is downloaded and filed** (on by default): an issue was downloaded, or a folder was post-processed, and the file was filed in the library.
-- **Notify when files are added by hand** (off by default): a file was matched to an issue on **Needs attention**, a series was imported with its files, or a recheck found files you put in a series folder yourself. A recheck sends one message per series, such as `Added to Issuarr: Saga (2018) #54, #55`.
+- **Notify when files are added by hand** (off by default): a file was matched to an issue on **Needs attention**, a series was imported with its files, or a recheck found files you put in a series folder yourself. A recheck sends one message per series, such as `Added to Issuarr: Saga (2018) #54, #55`. Services that show covers get the matched file's cover, or for a recheck or import the series cover.
 
 More switches tell you about Issuarr itself. These are checked every five minutes, and each thing is told once (Email sends them without its filed-issues switch):
 

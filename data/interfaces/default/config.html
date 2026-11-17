@@ -251,9 +251,10 @@
                 ${toggle('sab_client_post_processing', 'Completed download handling', config['sab_client_post_processing'], id='sab_client_post_processing',
                          help='Issuarr checks SABnzbd for finished downloads and files them itself.')}
                 <div class="set-sub">
-                    ${toggle('sab_remove_completed', 'Remove finished downloads from SABnzbd', config['sab_remove_completed'], id='sab_remove_completed')}
                     ${toggle('sab_remove_failed', 'Remove failed downloads from SABnzbd', config['sab_remove_failed'], id='sab_remove_failed', help='Their files are deleted too.')}
                 </div>
+                ${toggle('sab_remove_completed', 'Remove downloads from SABnzbd once they\'re filed', config['sab_remove_completed'], id='sab_remove_completed',
+                         help='Clears them from SABnzbd\'s history, including downloads you added yourself in Issuarr\'s category. Once every comic in a download is filed, what\'s left of it is deleted (kept when filing uses soft links).')}
                 ${toggle('sab_to_mylar', 'SABnzbd runs on another machine', config['sab_to_mylar'], id='sab_to_mylar')}
                 <div class="set-sub">
                     ${field('sab_directory', 'SABnzbd download folder', config['sab_directory'], help='Where SABnzbd puts finished downloads.')}
@@ -275,6 +276,8 @@
                 ${select('nzbget_priority', 'Priority', [(p, p) for p in ['Default', 'Low', 'Normal', 'High', 'Force', 'Paused']], config['nzbget_priority'])}
                 ${toggle('nzbget_client_post_processing', 'Completed download handling', config['nzbget_client_post_processing'], id='nzbget_client_post_processing',
                          help='Issuarr checks NZBGet for finished downloads and files them itself.')}
+                ${toggle('nzbget_remove_completed', 'Remove downloads from NZBGet once they\'re filed', config['nzbget_remove_completed'], id='nzbget_remove_completed',
+                         help='Clears them from NZBGet\'s history, including downloads you added yourself in Issuarr\'s category. Once every comic in a download is filed, what\'s left of it is deleted (kept when filing uses soft links).')}
                 ${tester('test_nzbget', 'Test NZBGet', 'nzbget_statusicon', 'nzbgetstatus')}
             </div>
 
@@ -372,6 +375,14 @@
                     ${select('qbittorrent_loadaction', 'When a torrent is added', [('default', 'Use qBittorrent\'s default'), ('force_start', 'Force start'), ('pause', 'Add paused')], config['qbittorrent_loadaction'])}
                     ${tester('qbittorrent_test', 'Test qBittorrent', 'qbittorrent_statusicon')}
                 </div>
+                ${toggle('torrent_remove_completed', 'Remove torrents once they\'re filed and done seeding', config['torrent_remove_completed'], id='torrent_remove_completed',
+                         help='A torrent is removed, with its files (kept when filing uses soft links), only after every comic in it is filed and your client has stopped it for reaching its seed ratio or time limit. Includes torrents you added yourself with Issuarr\'s label.')}
+                ${field('torrent_post_import_label', 'Label after filing', config['torrent_post_import_label'], placeholder='keep Issuarr\'s label',
+                        help='Once every comic in a torrent is filed, it moves to this label (or category) so your client can treat it differently, for example to seed longer. Issuarr then stops watching it, so it isn\'t removed. Not for Transmission, which has no labels.')}
+                ${toggle('torrent_remove_failed', 'Remove failed torrents', config['torrent_remove_failed'], id='torrent_remove_failed',
+                         help='When a torrent Issuarr grabbed fails (the client reports an error, or it stalls past the limit below), it\'s removed from the client with its files. With Handle failed downloads on, the release is blocked and, with retrying on, the issue is searched again either way.')}
+                ${field('torrent_stalled_timeout', 'Give up on stalled torrents after', config['torrent_stalled_timeout'], attrs='inputmode="numeric" class="set-num"', suffix='<span class="set-unit">minutes</span>',
+                        help='A torrent with no download progress for 30 minutes shows as Stalled in Downloads. Set a limit to treat Issuarr\'s own grabs as failed after that long. 0 never gives up.')}
             </div>
         </section>
 
@@ -688,9 +699,15 @@
                 <p class="set-warn" id="warningmeta"></p>
                 ${toggle('archive_delete', 'Delete .zip and .rar packs after unpacking them', config['archive_delete'])}
                 ${toggle('archive_auto_add', 'Add the series of comics nothing on the watchlist wants', config['archive_auto_add'],
-                         help='Finds each series on ComicVine (using the pack\'s release week when there is one), adds it, and files the issue on the next folder monitor pass. Anything it can\'t identify follows the option below.')}
+                         help='Finds each series on ComicVine (using the pack\'s release week when there is one), adds it, and files the issue on the next folder monitor pass, or the next check of a watched download client. Anything it can\'t identify follows the option below.')}
+                ${toggle('cover_match_strict', 'Issues must match by cover to get filed', config['cover_match_strict'],
+                         help='Each issue\'s front cover is compared with its cover on ComicVine before it\'s filed. A clearly different cover always goes to Needs attention. With this on, so does any issue whose cover isn\'t a match, or that has no cover on ComicVine to compare with.')}
+                <div class="set-row">
+                    <label class="set-label" for="f_cover_match_score"><b>Cover match strictness</b><span>How different two covers may be and still match, from 4 (nearly identical) to 32. 16 is ComicTagger's own. Lower it if wrong issues get filed; raise it if variant covers or scans keep failing.</span></label>
+                    <div class="set-ctl"><input type="number" name="cover_match_score" id="f_cover_match_score" value="${config['cover_match_score'] | h}" min="4" max="32" class="set-num" /></div>
+                </div>
                 ${select('archive_leftovers', 'Comics nothing on the watchlist wants', [('review', 'Move to a review folder'), ('delete', 'Delete them')], 'delete' if config['archive_leftovers'] == 'delete' else 'review',
-                         help='From packs and the monitored folder.')}
+                         help='From packs and the monitored folder. Downloads in a watched client are never moved or deleted: they wait in Downloads as Needs a choice.')}
                 ${field('archive_review_dir', 'Review folder', config['archive_review_dir'], placeholder=config['archive_review_default'] or '',
                         help='Leave empty to use %s. Keep it outside the monitored folder.' % (config['archive_review_default'] or ''))}
                 ${toggle('webp_on_import', 'Convert new downloads to WebP', config['webp_on_import'],
@@ -717,6 +734,11 @@
                         <div class="set-ctl"><input type="text" name="check_folder" id="f_check_folder" value="${'' if config['check_folder'] in (None, 'None') else config['check_folder'] | h}" ${'data-none="1"' if config['check_folder'] in (None, 'None') else ''} class="set-wide" /></div>
                     </div>
                     ${field('download_scan_interval', 'Check every', config['download_scan_interval'], attrs='inputmode="numeric" class="set-num"', suffix='<span class="set-unit">minutes</span>')}
+                </div>
+                ${toggle('client_watch', 'Watch download clients for downloads in Issuarr\'s category', config['client_watch'], id='client_watch',
+                         help='Your download clients are checked for everything in the category or label set for Issuarr (for Transmission, its download folder), including downloads you add yourself. They show in the Downloads queue, and when one finishes, each comic whose name matches an issue on your watchlist is filed. One that matches nothing waits in the queue. A client with no category, label or Transmission folder set under Download clients isn\'t watched.')}
+                <div class="set-sub">
+                    ${field('client_watch_interval', 'Check every', config['client_watch_interval'], attrs='inputmode="numeric" class="set-num"', suffix='<span class="set-unit">minutes</span>')}
                 </div>
             </div>
         </section>

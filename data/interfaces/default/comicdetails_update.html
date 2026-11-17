@@ -566,7 +566,7 @@
             } else {
                 first = main('manqueueit', 'Search now', 'Search for this issue now');
             }
-            if (!p) more.push(item('matchfile', 'Match a file…', 'Choose which file in the series folder is this issue'));
+            more.push(item('matchfile', 'Match a file…', 'Choose which file in the series folder is this ' + (p ? 'annual' : 'issue')));
             more.push('<a id="' + p + 'listbox" name="' + p + 'listbox" href="#" class="btn btn-ghost" title="Details read from ComicVine or the file">Issue details</a>');
             return '<span class="issue-acts">' + first + '<details class="menu row-menu"><summary class="btn btn-sm btn-ghost" aria-label="More for #' + escHtml(full[0]) + '">⋯</summary>' +
                    '<div class="menu-list">' + more.join('') + '</div></details></span>';
@@ -623,7 +623,7 @@
                 //date = dataline[2];
                 //title = dataline[1];
                 IssuarrIssue.open(this.closest('table'), this.closest('tr'));
-            } else if (action == 'matchfile'){
+            } else if (action == 'matchfile' || action == 'amatchfile'){
                 IssuarrMatch.open(comicid, issueid);
             } else if (action == 'metatag' || action == 'ametatag'){
                 run_single_metatag(issueid, comicid, issuenumber);

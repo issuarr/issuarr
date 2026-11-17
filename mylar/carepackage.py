@@ -14,8 +14,52 @@ from operator import itemgetter
 
 from glob import glob
 import mylar
-from mylar import config, logger, encrypted, versioncheck
+from mylar import config, logger, encrypted, versioncheck, redact
+import sqlite3
 import zipfile
+
+def scrubbed_db(src, dest, keys=()):
+    """Copy the database to dest with API keys, passwords and tokens in any text replaced, as in the logs."""
+    keys = sorted({k for k in keys if k and len(k) > 4 and not k.isdigit()}, key=len, reverse=True)
+
+    def clean(text):
+        for k in keys:
+            if k in text:
+                text = text.replace(k, '-REDACTED-')
+        return redact.redact(text)
+
+    source = sqlite3.connect(src)
+    out = sqlite3.connect(dest)
+    try:
+        source.backup(out)
+    finally:
+        source.close()
+    cleaned = 0
+    try:
+        tables = [r[0] for r in out.execute("SELECT name FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%'")]
+        for table in tables:
+            cols = [r[1] for r in out.execute('PRAGMA table_info("%s")' % table)]
+            try:
+                rows = out.execute('SELECT rowid, %s FROM "%s"' % (', '.join('"%s"' % c for c in cols), table)).fetchall()
+            except sqlite3.OperationalError:
+                continue   # a table without a rowid
+            for row in rows:
+                changed = {}
+                for col, value in zip(cols, row[1:]):
+                    if isinstance(value, str) and value:
+                        new = clean(value)
+                        if new != value:
+                            changed[col] = new
+                if changed:
+                    cleaned += 1
+                    out.execute('UPDATE "%s" SET %s WHERE rowid=?' % (table, ', '.join('"%s"=?' % c for c in changed)),
+                                list(changed.values()) + [row[0]])
+        out.commit()
+        out.execute('VACUUM')
+    finally:
+        out.close()
+    return cleaned
+
 
 class carePackage(object):
 
@@ -335,9 +379,18 @@ class carePackage(object):
 
     def panicbutton(self):
         dbpath = os.path.join(mylar.DATA_DIR, 'mylar.db')
-        with zipfile.ZipFile(self.panicfile, 'w') as zip:
+        cleandb = os.path.join(self.log_dir, 'carepackage-mylar.db')
+        try:
+            n = scrubbed_db(dbpath, cleandb, self.keylist)
+            logger.fdebug('removed keys from %s database rows' % n)
+        except Exception as e:
+            logger.warn('[CARE-PACKAGE] Could not remove keys from a copy of the database, so it is left out: %s' % e)
+            cleandb = None
+        with zipfile.ZipFile(self.panicfile, 'w', zipfile.ZIP_DEFLATED) as zip:
             zip.write(self.filename, os.path.basename(self.filename))
-            zip.write(dbpath, os.path.basename(dbpath))
+            if cleandb:
+                zip.write(cleandb, os.path.basename(dbpath))
+                os.unlink(cleandb)
             zip.write(self.cleanpath, os.path.basename(self.cleanpath))
             if os.path.exists(self.lastrelpath):
                 zip.write(self.lastrelpath, os.path.basename(self.lastrelpath))

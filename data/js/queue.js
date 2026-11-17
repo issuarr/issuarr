@@ -6,19 +6,21 @@
 
   // Tab order. "Active" is everything not finished; Completed only applies to direct downloads, and only
   // once they're filed: until then they're Waiting to file, Filing, or Not filed.
-  var TABS = [['active', 'Active'], ['Downloading', 'Downloading'], ['Queued', 'Queued'], ['Processing', 'Processing'],
-              ['Filing', 'Filing'], ['Sent', 'Sent'], ['Paused', 'Paused'], ['Incomplete', 'Incomplete'], ['Failed', 'Failed'],
+  var TABS = [['active', 'Active'], ['Downloading', 'Downloading'], ['Stalled', 'Stalled'], ['Queued', 'Queued'], ['Processing', 'Processing'],
+              ['Filing', 'Filing'], ['Needs a choice', 'Needs a choice'], ['Sent', 'Sent'], ['Paused', 'Paused'], ['Incomplete', 'Incomplete'], ['Failed', 'Failed'],
               ['Not filed', 'Not filed'], ['Completed', 'Finished'], ['', 'All']];
   var CLASS = { Completed: 'is-have', Downloading: 'is-snatched is-running', Processing: 'is-snatched is-running',
                 Checking: 'is-snatched', Queued: 'is-idle', Sent: 'is-idle', Paused: 'is-idle',
                 Incomplete: 'is-snatched', Failed: 'is-failed', 'Waiting to file': 'is-snatched', Filing: 'is-snatched is-running',
-                'Not filed': 'is-failed' };
+                'Not filed': 'is-failed', 'Needs a choice': 'is-wanted', Stalled: 'is-wanted' };
   var LABEL = { Completed: 'Finished', Sent: 'Waiting on client', Processing: 'Processing' };
   var HELP = { Sent: 'Sent to the download client. Its progress shows here when the client can be reached.',
                Processing: 'Downloaded. Waiting for the client to unpack it or for Issuarr to file it.',
                'Waiting to file': 'Downloaded. Waiting for post-processing to file it into your library.',
                Filing: 'Downloaded. Post-processing is filing it into your library now.',
-               'Not filed': 'Downloaded, but post-processing didn\'t file it.' };
+               'Not filed': 'Downloaded, but post-processing didn\'t file it.',
+               Stalled: 'The torrent has made no progress for a while, usually because nobody is seeding it.',
+               'Needs a choice': 'Finished, but no issue on your watchlist matches it, so it waits here instead of being filed. Use Choose match to pick its series.' };
   var st = { tab: 'active', q: '', col: null, start: 0, len: 50, items: [], stalled: 0, loaded: false };
 
   function $id(id) { return document.getElementById(id); }
@@ -80,6 +82,14 @@
 
   /* ---- rows ---- */
   function actionsFor(it) {
+    var rm = it.client && it.jobid && it.status !== 'Filing' ? '<button type="button" class="btn btn-sm btn-ghost" data-client-remove="' + esc(it.client) +
+      '" data-jobid="' + esc(it.jobid) + '" data-own="' + (it.kind === 'client' ? '1' : '') + '" data-name="' + esc(it.title) + '" data-source="' + esc(it.source) + '">Remove</button>' : '';
+    if (it.kind === 'watch') {
+      return (it.choose ? '<button type="button" class="btn btn-sm' + (it.status === 'Needs a choice' ? ' btn-primary' : '') + '" data-client-choose="' +
+        esc(it.client) + '" data-jobid="' + esc(it.jobid) + '" title="Pick the series this download is, so Issuarr can file it">Choose match</button>' : '') + rm;
+    }
+    if (it.kind === 'client') return (it.status === 'Sent' ? '<button type="button" class="btn btn-sm btn-ghost" data-client-forget="' + esc(it.issueid) +
+      '" data-name="' + esc(it.title) + '" title="The download client no longer has this grab: search for the issue again">Forget</button>' : '') + rm;
     if (it.kind !== 'ddl') return '';
     var id = it.queueid, out = [];
     // Nothing to do while filing has it; starting it again would download a second copy.
@@ -184,6 +194,7 @@
   function renderClear() {
     $id('q-clear-finished').hidden = !ddlCount('Completed');
     $id('q-clear-failed').hidden = !ddlCount('Failed');
+    $id('q-clear-gone').hidden = !st.items.some(function (it) { return it.kind === 'client' && it.status === 'Sent'; });
   }
 
   /* ---- loading ---- */
@@ -196,7 +207,9 @@
       .then(function (d) {
         st.items = d.items || [];
         st.stalled = d.stalled || 0;
+        st.clients = d.clients || [];
         st.loaded = true;
+        renderClients();
         renderTabs();
         renderRows();
         renderStalled();
@@ -206,6 +219,18 @@
         if (!st.loaded) $id('q-table').tBodies[0].innerHTML = '<tr><td colspan="6" class="empty-state">Couldn\'t load the queue. Check the log.</td></tr>';
       })
       .then(function () { loading = false; });
+  }
+
+  // When each watched download client was last asked what it holds, for downloads added by hand.
+  function renderClients() {
+    var el = $id('q-clients'), list = st.clients || [];
+    $id('q-refresh').hidden = !list.length;
+    el.hidden = !list.length;
+    if (!list.length) return;
+    el.innerHTML = list.map(function (c) {
+      var when = c.at ? 'checked ' + esc(I().relTime(c.at)) : 'not checked yet';
+      return '<b>' + esc(c.name) + '</b> ' + (c.error ? '<span class="set-warn-inline" title="' + esc(c.error) + '">couldn\'t be reached</span>' : when);
+    }).join(' · ');
   }
 
   function pixeldrain() {
@@ -234,6 +259,16 @@
     else if (act === 'abort') requeue('abort', id, 'Stop downloading ' + name + '? The download is marked Failed and its issues go back to Wanted to be searched again.');
     else requeue(act, id);
   });
+  $id('q-refresh').addEventListener('click', function () {
+    var b = this;
+    b.disabled = true;
+    b.textContent = 'Checking…';
+    post('checkDownloadClients')
+      .then(function (r) { I().toast(r.message || 'Done', r.ok !== false); })
+      .catch(function () { I().toast('Couldn\'t check your download clients. Check the log.', false); })
+      .then(function () { b.disabled = false; b.textContent = 'Refresh'; load(true); });
+  });
+  document.addEventListener('issuarr:queue-reload', function () { load(true); });
   $id('q-restart-queue').addEventListener('click', function () { requeue('restart_queue'); });
   document.addEventListener('click', function (e) { if (e.target.closest('[data-queue-restart]')) requeue('restart_queue'); });
   $id('q-clear-queue').addEventListener('click', function () {
@@ -272,6 +307,29 @@
     clearStatus('Failed', 'Remove ' + n + ' failed ' + (n === 1 ? 'download' : 'downloads') + ' from this list? ' +
       'The comics in your library stay, and issues still marked Snatched go back to Wanted to be searched again. ' +
       'The failures also leave the activity history, and you can\'t retry them from here or from the issue\'s history.');
+  });
+  // Grabs the client dropped (history cleared, removed there) would otherwise wait on it for good.
+  $id('q-clear-gone').addEventListener('click', function () {
+    var b = this;
+    I().ask('Ask your download clients about every grab waiting on them? Issues whose job the client no longer has go back to Wanted to be searched again, ' +
+      'unless the file is already in the series folder.', { ok: 'Check and clear' }, function () {
+      b.disabled = true;
+      post('clearVanishedGrabs')
+        .then(function (r) { I().toast(r.message || 'Done', r.ok !== false); })
+        .catch(function () { I().toast('That didn\'t work. Check the log.', false); })
+        .then(function () { b.disabled = false; load(true); });
+    });
+  });
+  document.addEventListener('click', function (e) {
+    var b = e.target.closest('[data-client-forget]');
+    if (!b) return;
+    I().ask('Forget the grab for ' + b.getAttribute('data-name') + '? Use this when your download client no longer has it. ' +
+      'The issue goes back to Wanted to be searched again, unless the file is already in the series folder.', { ok: 'Forget', danger: true }, function () {
+      post('forgetGrab', { issueid: b.getAttribute('data-client-forget') })
+        .then(function (r) { I().toast(r.message || 'Done', r.ok !== false); })
+        .catch(function () { I().toast('That didn\'t work. Check the log.', false); })
+        .then(function () { load(true); });
+    });
   });
   $id('q-prev').addEventListener('click', function () { st.start = Math.max(0, st.start - st.len); renderRows(); });
   $id('q-next').addEventListener('click', function () { st.start += st.len; renderRows(); });

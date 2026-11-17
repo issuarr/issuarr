@@ -44,3 +44,16 @@ def test_other_years_and_real_issue_numbers_are_left_alone(myDB):
     year_in_name(myDB, files, alt_list(myDB))
     assert [(f['series_name'], f['issue_number']) for f in files] == [
         ('Uncanny X-Men Annual', '1997'), ('Uncanny X-Men', '2'), ('X-Men', '1995')]
+
+
+@pytest.mark.unit
+def test_a_name_year_with_no_issue_number_takes_the_year_named_series(myDB, monkeypatch):
+    for k, v in dict(IGNORE_SEARCH_WORDS=[], CUSTOM_ISSUE_EXCEPTIONS=[], FOLDER_SCAN_LOG_VERBOSE=False).items():
+        monkeypatch.setattr(mylar.CONFIG, k, v, raising=False)
+    # the parser now reads "Uncanny X-Men Annual 1999" as no issue number, year 1999, maybe part of the name
+    parsed = filechecker.FileChecker(file='Uncanny X-Men Annual 1999 (Universo Edits-DCP).cbr').listFiles()
+    assert (parsed['issue_number'], parsed['issue_year'], parsed['name_year']) == (None, '1999', True)
+    files = [dict(parsed, comicfilename='a.cbr'),
+             {'series_name': 'Uncanny X-Men Annual', 'issue_number': None, 'issue_year': '1997', 'name_year': True, 'comicfilename': 'b.cbr'}]
+    year_in_name(myDB, files, alt_list(myDB))
+    assert [(f['series_name'], f['issue_number']) for f in files] == [('Uncanny X-Men 1999', '1'), ('Uncanny X-Men Annual', None)]

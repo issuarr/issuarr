@@ -173,7 +173,7 @@ def test_LoadAlternateSearchNames(test, result):
 
 filesafe_tests = [
     ("", ""),
-    ("This is a — comic", "This is a  -  comic"),
+    ("This is a — comic", "This is a - comic"),
     ("This is a: comic", "This is a comic"),
     ("This is a\ comic", "This is a comic"),
 ]
@@ -618,6 +618,7 @@ def test_issue_exception_list_pattern(monkeypatch):
     ("Who | What", "Who - What"),
     ("<Angle> Brackets", "Angle Brackets"),
     ("Batman: Year One", "Batman Year One"),
+    ("Young Avengers: Style > Substance", "Young Avengers Style Substance"),
 ])
 def test_filesafe_strips_unsafe_characters(name, expected):
     assert helpers.filesafe(name) == expected

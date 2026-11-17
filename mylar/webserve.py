@@ -57,6 +57,7 @@ from mylar.comicinfo import tag_mode as ct_tag_mode
 from mylar import (
     activity,
     alerts,
+    redact,
     attention,
     archives,
     webp,
@@ -4273,9 +4274,83 @@ class WebInterface(object):
         # Everything on its way: direct downloads plus grabs at SABnzbd, NZBGet or a torrent client.
         myDB = db.DBConnection()
         # stalled follows the flow line's rule, so rows JD2 is holding never count as stuck
+        from mylar import clientwatch
         return json.dumps({'items': downloadqueue.build(myDB, rate=downloadqueue.download_rate),
-                           'stalled': activity.stalled_downloads(myDB)})
+                           'stalled': activity.stalled_downloads(myDB),
+                           'clients': clientwatch.summary()})
     downloadQueue.exposed = True
+
+    def client_choice(self, client='', id='', **kwargs):
+        # Downloads > Choose match: the download and the series its name is closest to
+        from mylar import clientwatch
+        return self._attention_json(clientwatch.choice_info(client, id))
+    client_choice.exposed = True
+
+    def client_choose(self, client='', id='', comicid='', name=None, year=None, **kwargs):
+        self._attention_post()
+        from mylar import clientwatch
+        return self._attention_json(clientwatch.choose(client, id, comicid, name, year))
+    client_choose.exposed = True
+
+    def client_remove(self, client='', id='', files='1', blocklist='0', skip='0', relabel='0', **kwargs):
+        self._attention_post()
+        from mylar import clientwatch
+        on = lambda v: str(v).lower() in ('1', 'true', 'on', 'yes')
+        return self._attention_json(clientwatch.remove_download(client, id, files=on(files), blocklist=on(blocklist), skip=on(skip), relabel=on(relabel)))
+    client_remove.exposed = True
+
+    def checkDownloadClients(self, **kwargs):
+        # Refresh on Downloads: ask the watched clients now, waiting a little for slow ones.
+        cherrypy.response.headers['Content-Type'] = 'application/json'
+        from mylar import clientwatch
+        if not clientwatch.enabled():
+            return json.dumps({'ok': False, 'message': 'Watching download clients is off in Settings > Files & post-processing.'})
+        if not clientwatch.watched():
+            return json.dumps({'ok': False, 'message': 'No download client has a category for Issuarr. Set a category or label (for Transmission, a download folder) in Settings > Download clients.'})
+        t = threading.Thread(target=clientwatch.check, kwargs={'force': True}, name='CLIENT-WATCH', daemon=True)
+        t.start()
+        t.join(20)
+        return json.dumps({'ok': True, 'clients': clientwatch.summary(),
+                           'message': 'Checked your download clients.' if not t.is_alive() else 'Still checking. The list updates when it\'s done.'})
+    checkDownloadClients.exposed = True
+
+    def clearVanishedGrabs(self, **kwargs):
+        # Queue button: grabs SABnzbd, NZBGet or a torrent client no longer has go back to Wanted.
+        if cherrypy.request.method != 'POST':
+            raise cherrypy.HTTPError(405)
+        cherrypy.response.headers['Content-Type'] = 'application/json'
+        r = downloadqueue.clear_vanished(force=True)
+        if r['busy']:
+            return json.dumps({'ok': False, 'message': 'Issuarr is filing downloads right now. Try again when that\'s done.'})
+        parts = []
+        if r['wanted']:
+            parts.append('%s back to Wanted' % ('1 issue is' if len(r['wanted']) == 1 else '%s issues are' % len(r['wanted'])))
+        if r['filed']:
+            parts.append('%s already in your library' % ('1 was' if r['filed'] == 1 else '%s were' % r['filed']))
+        msg = ('Your download clients no longer had %s %s: %s.' % (r['gone'], 'grab' if r['gone'] == 1 else 'grabs', ', '.join(parts))
+               if parts else 'Your download clients still have every grab Issuarr could check.')
+        if r['unchecked']:
+            msg += (' %s couldn\'t be checked (no job id was recorded, or the client didn\'t answer). Use Forget on those rows if they\'re gone.'
+                    % r['unchecked'])
+        return json.dumps({'ok': True, 'message': msg})
+    clearVanishedGrabs.exposed = True
+
+    def forgetGrab(self, issueid=None, **kwargs):
+        # Forget on one "Waiting on client" row: the owner says the client no longer has it.
+        if cherrypy.request.method != 'POST':
+            raise cherrypy.HTTPError(405)
+        cherrypy.response.headers['Content-Type'] = 'application/json'
+        if not issueid:
+            return json.dumps({'ok': False, 'message': 'No issue given.'})
+        done = downloadqueue.forget_grab(db.DBConnection(), issueid)
+        if done == 'filed':
+            return json.dumps({'ok': True, 'message': 'That issue is already in your library.'})
+        if done == 'wanted':
+            return json.dumps({'ok': True, 'message': 'Forgot the grab. The issue is Wanted again.'})
+        if done == 'forgotten':
+            return json.dumps({'ok': True, 'message': 'Forgot the grab. Its issue isn\'t in your library, so nothing is searched again.'})
+        return json.dumps({'ok': False, 'message': 'That grab isn\'t waiting any more.'})
+    forgetGrab.exposed = True
 
     def previewRename(self, **args): #comicid=None, comicidlist=None):
         file_format = mylar.CONFIG.FILE_FORMAT
@@ -4407,8 +4482,8 @@ class WebInterface(object):
         return serve_template(templatename="manage.html", title="Manage", mylarRoot=mylarRoot, scan_info=scan_info)
     manage.exposed = True
 
-    JOB_ORDER = ('Auto-Search', 'RSS Feeds', 'Folder Monitor', 'Weekly Pullist', 'DB Updater', 'Check Version')
-    JOB_FORCE_IDS = {'Auto-Search': 'search', 'RSS Feeds': 'rss', 'Folder Monitor': 'monitor',
+    JOB_ORDER = ('Auto-Search', 'RSS Feeds', 'Folder Monitor', 'Check download clients', 'Weekly Pullist', 'DB Updater', 'Check Version')
+    JOB_FORCE_IDS = {'Auto-Search': 'search', 'RSS Feeds': 'rss', 'Folder Monitor': 'monitor', 'Check download clients': 'clientwatch',
                      'Weekly Pullist': 'weekly', 'DB Updater': 'updater', 'Check Version': 'version'}
 
     @staticmethod
@@ -4447,6 +4522,11 @@ class WebInterface(object):
             next_ts = None if status == 'Paused' else self._job_epoch(jb['next_run_datetime'])
             rows.append({'jobname': name, 'status': status, 'interval': interval,
                          'prev_ts': self._job_epoch(jb['prev_run_datetime']), 'next_ts': next_ts})
+        from mylar import clientwatch
+        if clientwatch.enabled():
+            rows.append({'jobname': clientwatch.JOB_NAME, 'status': 'Running' if clientwatch.RUN['busy'] else 'Waiting',
+                         'interval': '%s mins' % clientwatch.interval(), 'prev_ts': clientwatch.RUN['last'] or None,
+                         'next_ts': clientwatch.next_run()})
         order = {n: i for i, n in enumerate(self.JOB_ORDER)}
         rows.sort(key=lambda r: (order.get(r['jobname'], len(order)), r['jobname']))
         return rows
@@ -4624,6 +4704,10 @@ class WebInterface(object):
 
     def schedulerForceCheck(self, jobid):
         from apscheduler.triggers.date import DateTrigger
+        if jobid == 'clientwatch':
+            from mylar import clientwatch
+            threading.Thread(target=clientwatch.check, kwargs={'force': True}, name='CLIENT-WATCH', daemon=True).start()
+            return
         for jb in mylar.SCHED.get_jobs():
             if jobid.lower() in str(jb).lower():
                 logger.info('[%s] Now force submitting job for jobid %s' % (jb, jobid))
@@ -4731,10 +4815,38 @@ class WebInterface(object):
                             "Link":          link,
                             "ID":            f['ID'],
                             "FileName":      f['NZBName'],
+                            "Reason":        f['Reason'] if 'Reason' in f.keys() else None,
                             "DateFailed":    datefailed})
 
         return serve_template(templatename="managefailed.html", title="Failed DB Management", failed=results)
     manageFailed.exposed = True
+
+    def failed_issue(self, IssueID='', action='', **kwargs):
+        # Downloads > Failed: search again for the issue (the failed release stays blocked), or skip it
+        self._attention_post()
+        myDB = db.DBConnection()
+        table = 'issues'
+        row = myDB.selectone('SELECT ComicID, ComicName, Issue_Number, Status FROM issues WHERE IssueID=?', [IssueID]).fetchone()
+        if row is None:
+            table = 'annuals'
+            row = myDB.selectone('SELECT ComicID, ReleaseComicName AS ComicName, Issue_Number, Status FROM annuals WHERE IssueID=? AND NOT Deleted', [IssueID]).fetchone()
+        if row is None:
+            return self._attention_json({'ok': False, 'note': 'That issue isn\'t on your watchlist any more.'})
+        label = '%s #%s' % (row['ComicName'], row['Issue_Number'])
+        if row['Status'] in ('Downloaded', 'Archived'):
+            return self._attention_json({'ok': False, 'note': '%s is already in your library.' % label})
+        if action == 'skip':
+            myDB.upsert(table, {'Status': 'Skipped'}, {'IssueID': IssueID})
+            logger.info('[FAILED] Skipped %s from Downloads > Failed.' % label)
+            return self._attention_json({'ok': True, 'note': 'Skipped %s. It won\'t be searched for.' % label})
+        if action == 'retry':
+            myDB.upsert(table, {'Status': 'Wanted'}, {'IssueID': IssueID})
+            self.queueit(mode='want' if table == 'issues' else 'want_ann', ComicName=row['ComicName'], ComicIssue=row['Issue_Number'],
+                         ComicID=row['ComicID'], IssueID=IssueID, manualsearch=True)
+            logger.info('[FAILED] Searching again for %s from Downloads > Failed.' % label)
+            return self._attention_json({'ok': True, 'note': 'Searching again for %s. The release that failed stays blocked.' % label})
+        return self._attention_json({'ok': False, 'note': 'Unknown action.'})
+    failed_issue.exposed = True
 
     def discover(self):
         return serve_template(templatename="discover.html", title="Discover", weeks=discover.WEEK_CHOICES, default_weeks=discover.DEFAULT_WEEKS)
@@ -4799,8 +4911,8 @@ class WebInterface(object):
         return self._attention_image(attention.issue_cover(issueid))
     attention_issue_cover.exposed = True
 
-    def attention_search(self, q=''):
-        return self._attention_json(attention.search_link(q) or {'series': attention.search(q)})
+    def attention_search(self, q='', year=''):
+        return self._attention_json(attention.search_link(q) or {'series': attention.search(q, year=year or None)})
     attention_search.exposed = True
 
     def cv_link(self, q=''):
@@ -4833,10 +4945,10 @@ class WebInterface(object):
         return self._attention_json(attention.file_as(path, comicid, issueid))
     attention_file.exposed = True
 
-    def attention_trash(self, path):
+    def attention_trash(self, path, want=None):
         self._attention_post()
         try:
-            return self._attention_json(attention.trash(path))
+            return self._attention_json(attention.trash(path, want=want == '1'))
         except Exception as e:
             logger.warn('[ATTENTION] Could not move %s to the trash: %s' % (path, e))
             return self._attention_json({'ok': False, 'note': 'Could not move it: %s' % e})
@@ -7291,6 +7403,16 @@ class WebInterface(object):
         return json.dumps(importchoice.choice(DynamicName, Volume))
     import_choice.exposed = True
 
+    def import_cover_match(self, DynamicName, Volume=None):
+        # Choose a match: how the shown file's cover compares with each series the import found
+        cherrypy.response.headers['Content-Type'] = 'application/json'
+        try:
+            return json.dumps(importchoice.covers(DynamicName, Volume))
+        except Exception as e:
+            logger.warn('[IMPORT] Comparing covers for %s failed: %s' % (DynamicName, e))
+            return json.dumps({'ok': False, 'note': 'Couldn\'t compare the covers. The log has why.'})
+    import_cover_match.exposed = True
+
     def import_cover(self, impid, r=None):   # r: a retry after the server was busy
         path = importchoice.file_path(impid)
         return self._attention_image(attention.cover_of(path) if path else None)
@@ -7727,6 +7849,12 @@ class WebInterface(object):
                 logger.info('[IMPORT] Returning results to Select option - there are %s possibilities, manual intervention required.' % len(search_matches))
                 resultset = 0
 
+        if sr is None and len(search_matches or sresults or []) > 1:
+            # several series could be it: the one whose issue cover matches the files' cover is
+            sr = importchoice.cover_pick(search_matches or sresults, DynamicName, volume)
+            if sr is not None:
+                resultset = 1
+
         #generate random Search Results ID to allow for easier access for viewing logs / search results.
 
         SRID = str(random.randint(100000, 999999))
@@ -8028,6 +8156,8 @@ class WebInterface(object):
                     "archive_review_dir": mylar.CONFIG.ARCHIVE_REVIEW_DIR or '',
                     "archive_review_default": archives.review_dir(),
                     "archive_auto_add": helpers.checked(mylar.CONFIG.ARCHIVE_AUTO_ADD),
+                    "cover_match_strict": helpers.checked(mylar.CONFIG.COVER_MATCH_STRICT),
+                    "cover_match_score": mylar.CONFIG.COVER_MATCH_SCORE,
                     "webp_on_import": helpers.checked(mylar.CONFIG.WEBP_ON_IMPORT),
                     "webp_since": mylar.CONFIG.WEBP_SINCE or '',
                     "webp_quality": mylar.CONFIG.WEBP_QUALITY,
@@ -8035,6 +8165,8 @@ class WebInterface(object):
                     "webp_available": webp.available(),
                     "check_folder": mylar.CONFIG.CHECK_FOLDER,
                     "download_scan_interval": mylar.CONFIG.DOWNLOAD_SCAN_INTERVAL,
+                    "client_watch": helpers.checked(mylar.CONFIG.CLIENT_WATCH),
+                    "client_watch_interval": mylar.CONFIG.CLIENT_WATCH_INTERVAL,
                     "search_interval": mylar.CONFIG.SEARCH_INTERVAL,
                     "nzb_startup_search": helpers.checked(mylar.CONFIG.NZB_STARTUP_SEARCH),
                     "search_delay": mylar.CONFIG.SEARCH_DELAY,
@@ -8053,6 +8185,11 @@ class WebInterface(object):
                     "sab_version": mylar.CONFIG.SAB_VERSION,
                     "sab_client_post_processing": helpers.checked(mylar.CONFIG.SAB_CLIENT_POST_PROCESSING),
                     "sab_remove_completed": helpers.checked(mylar.CONFIG.SAB_REMOVE_COMPLETED),
+                    "nzbget_remove_completed": helpers.checked(mylar.CONFIG.NZBGET_REMOVE_COMPLETED),
+                    "torrent_remove_completed": helpers.checked(mylar.CONFIG.TORRENT_REMOVE_COMPLETED),
+                    "torrent_remove_failed": helpers.checked(mylar.CONFIG.TORRENT_REMOVE_FAILED),
+                    "torrent_stalled_timeout": mylar.CONFIG.TORRENT_STALLED_TIMEOUT or 0,
+                    "torrent_post_import_label": '' if mylar.CONFIG.TORRENT_POST_IMPORT_LABEL in (None, 'None') else mylar.CONFIG.TORRENT_POST_IMPORT_LABEL,
                     "sab_remove_failed": helpers.checked(mylar.CONFIG.SAB_REMOVE_FAILED),
                     "nzbget_host": mylar.CONFIG.NZBGET_HOST,
                     "nzbget_sub": mylar.CONFIG.NZBGET_SUB,
@@ -8637,18 +8774,19 @@ class WebInterface(object):
 
 
     def configUpdate(self, **kwargs):
-        checked_configs = ['enable_https', 'launch_browser', 'backup_on_start', 'keep_html_cache', 'syno_fix', 'auto_update', 'annuals_on', 'api_enabled', 'nzb_startup_search',
-                           'enforce_perms', 'sab_to_mylar', 'torrent_local', 'torrent_seedbox', 'rtorrent_ssl', 'rtorrent_verify', 'rtorrent_startonload', 'qbittorrent_ignore_ssl',
-                           'enable_torrents', 'enable_rss', 'experimental', 'enable_32p', 'enable_torznab',
+        intervals_before = {k: getattr(mylar.CONFIG, k, None) for k in ('SEARCH_INTERVAL', 'RSS_CHECKINTERVAL')}
+        checked_configs = ['enable_https', 'launch_browser', 'backup_on_start', 'syno_fix', 'annuals_on', 'api_enabled', 'nzb_startup_search',
+                           'enforce_perms', 'sab_to_mylar', 'torrent_local', 'torrent_seedbox', 'rtorrent_verify', 'rtorrent_startonload', 'qbittorrent_ignore_ssl',
+                           'enable_torrents', 'enable_rss', 'experimental', 'enable_torznab',
                            'newznab', 'use_minsize', 'use_maxsize', 'ddump', 'failed_download_handling', 'sab_client_post_processing', 'nzbget_client_post_processing',
-                           'failed_auto', 'post_processing', 'enable_check_folder', 'archive_delete', 'archive_auto_add', 'webp_on_import', 'enable_pre_scripts', 'enable_snatch_script', 'enable_extra_scripts',
-                           'enable_meta', 'cbr2cbz_only', 'ct_tag_cr', 'ct_tag_cbl', 'ct_cbz_overwrite', 'cmtag_start_year_as_volume', 'cmtag_volume', 'setdefaultvolume',
-                           'rename_files', 'replace_spaces', 'zero_level', 'sab_remove_completed', 'sab_remove_failed',
+                           'failed_auto', 'post_processing', 'enable_check_folder', 'client_watch', 'archive_delete', 'archive_auto_add', 'cover_match_strict', 'webp_on_import', 'enable_pre_scripts', 'enable_snatch_script', 'enable_extra_scripts',
+                           'enable_meta', 'cbr2cbz_only', 'ct_tag_cr', 'cmtag_start_year_as_volume', 'cmtag_volume', 'setdefaultvolume',
+                           'rename_files', 'replace_spaces', 'zero_level', 'sab_remove_completed', 'sab_remove_failed', 'nzbget_remove_completed', 'torrent_remove_completed', 'torrent_remove_failed',
                            'lowercase_filenames', 'autowant_upcoming', 'autowant_all', 'comic_cover_local', 'cover_folder_local', 'series_metadata_local', 'alternate_latest_series_covers', 'cvinfo', 'snatchedtorrent_notify', 'notify_on_download', 'notify_on_added',
                            'notify_on_task_start', 'notify_on_task_done', 'notify_on_attention', 'notify_on_match_needed', 'notify_on_action', 'notify_on_disk_low',
                            'prowl_enabled', 'prowl_onsnatch', 'pushover_enabled', 'pushover_onsnatch', 'pushover_image', 'mattermost_enabled', 'mattermost_onsnatch', 'boxcar_enabled',
                            'boxcar_onsnatch', 'pushbullet_enabled', 'pushbullet_onsnatch', 'telegram_enabled', 'telegram_onsnatch', 'telegram_image', 'discord_enabled', 'discord_onsnatch', 'slack_enabled', 'slack_onsnatch',
-                           'email_enabled', 'email_enc', 'email_ongrab', 'email_onpost', 'gotify_enabled', 'gotify_server_url', 'gotify_token', 'gotify_onsnatch', 'ntfy_enabled', 'ntfy_onsnatch', 'webhook_enabled', 'webhook_onsnatch', 'opds_enable', 'opds_authentication', 'opds_metainfo', 'opds_pagesize', 'enable_ddl',
+                           'email_enabled', 'email_enc', 'email_ongrab', 'email_onpost', 'gotify_enabled', 'gotify_onsnatch', 'ntfy_enabled', 'ntfy_onsnatch', 'webhook_enabled', 'webhook_onsnatch', 'opds_enable', 'opds_authentication', 'opds_metainfo', 'enable_ddl',
                            'enable_getcomics', 'enable_flaresolverr', 'enable_airdcpp', 'airdcpp_folder_packs', 'jd2_enable', 'enable_external_server', 'ddl_prefer_upscaled', 'ddl_main_large_last', 'deluge_pause',
                            'custom_css_enabled', 'prowlarr_sync'] #enable_public
 
@@ -8671,6 +8809,11 @@ class WebInterface(object):
             kwargs['ddl_query_delay'] = query_delay(kwargs['ddl_query_delay'])
         if 'cvapi_rate' in kwargs:
             kwargs['cvapi_rate'] = cv_gap(kwargs['cvapi_rate'])
+        if 'cover_match_score' in kwargs:
+            try:
+                kwargs['cover_match_score'] = max(4, min(int(kwargs['cover_match_score']), 32))
+            except (TypeError, ValueError):
+                kwargs['cover_match_score'] = 16
 
         custom_css = kwargs.pop('custom_css', None)
         if custom_css is not None:
@@ -8756,6 +8899,7 @@ class WebInterface(object):
                 mylar.CONFIG.EXTRA_TORZNABS.append((torznab_name, torznab_host, torznab_verify, torznab_api, torznab_category, torznab_enabled, int(torznab_number)))
 
         mylar.CONFIG.process_kwargs(kwargs)
+        redact.forget()   # new keys are masked from the next log line
 
         #this makes sure things are set to the default values if they're not appropriately set.
         mylar.CONFIG.configure(update=True, startup=False)
@@ -8771,8 +8915,33 @@ class WebInterface(object):
         logger.info('Now saving config...')
         mylar.CONFIG.writeconfig()
         self._sync_monitor()
+        self._sync_intervals(intervals_before)
 
     configUpdate.exposed = True
+
+    def _sync_intervals(self, before):
+        # a new search or RSS interval takes effect now, as it does from Tasks
+        from apscheduler.triggers.interval import IntervalTrigger
+        for key, jobid in (('SEARCH_INTERVAL', 'search'), ('RSS_CHECKINTERVAL', 'rss')):
+            now = getattr(mylar.CONFIG, key, None)
+            if now == before.get(key) or not now:
+                continue
+            try:
+                job = mylar.SCHED.get_job(jobid)
+                if job is None:
+                    continue
+                trigger = IntervalTrigger(minutes=int(now), timezone='UTC')
+                if job.next_run_time is None:
+                    mylar.SCHED.modify_job(jobid, trigger=trigger)
+                else:
+                    mylar.SCHED.reschedule_job(jobid, trigger=trigger)
+                logger.info('[SCHEDULER] %s now runs every %s minutes.' % (job.name, now))
+            except Exception as e:
+                logger.warn('[SCHEDULER] Saved %s = %s, but could not reschedule it now: %s' % (key.lower(), now, e))
+        try:
+            helpers.job_management(write=True)
+        except Exception:
+            pass
 
     def _sync_monitor(self):
         try:
@@ -11095,14 +11264,13 @@ class WebInterface(object):
                 cvSeriesID = databaseEntry.get('Series')
                 cvIssueID = databaseEntry.get('Issue')
 
-                if cvSeriesID in volume_cache.keys():
-                    vol_exists = volume_cache[cvSeriesID]
-                else:
-                    comic = myDB.selectone('SELECT * FROM comics WHERE ComicID=?', [cvSeriesID]).fetchone()
-                    vol_exists = False if comic is None else True
-                    volume_cache[cvSeriesID] = vol_exists
-                    if not vol_exists:
+                if cvSeriesID not in volume_cache:
+                    # an annual series kept with its series is in the library under that series
+                    volume_cache[cvSeriesID] = cbl_catalog.watched_series(myDB, cvSeriesID)
+                    if volume_cache[cvSeriesID] is None:
                         newvol_count += 1
+                held_by = volume_cache[cvSeriesID]
+                vol_exists = held_by is not None
                 
                 if vol_exists:
                     issue = myDB.selectone('SELECT * FROM issues WHERE IssueID=?', [cvIssueID]).fetchone()
@@ -11139,7 +11307,7 @@ class WebInterface(object):
                 
                 # List to return to import table display: Entry, Volume, Issue, Status, Action
                 results.append([issueIndex, 
-                                f'<a href="{"comicDetails?ComicID=" if vol_exists else "https://comicvine.com/volume/4050-"}{cvSeriesID}" target="{"_self" if vol_exists else "_blank"}">{volumeName} ({volumeYear})</a>',
+                                f'<a href="{"comicDetails?ComicID=" if vol_exists else "https://comicvine.com/volume/4050-"}{held_by if vol_exists else cvSeriesID}" target="{"_self" if vol_exists else "_blank"}">{volumeName} ({volumeYear})</a>',
                                 issueNumber,
                                 iss_status,
                                 action_text])
@@ -11217,7 +11385,7 @@ class WebInterface(object):
                     else:
                         checkIssue = True
                 else:
-                    volume = myDB.selectone('SELECT * FROM comics WHERE ComicID=?', [cvSeriesID]).fetchone()
+                    volume = cbl_catalog.watched_series(myDB, cvSeriesID)
                     if volume is None:
                         logger.fdebug(f'CBL File: Volume "{volumeName} ({volumeYear})" does not exist exist.  Adding Volume, and Issue #{issueNumber} to be marked as Wanted')
                         

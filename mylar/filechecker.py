@@ -42,6 +42,19 @@ if 'windows' not in platform.system().lower():
     from pwd import getpwnam
     from grp import getgrnam
 
+def unescape_bytes(name):
+    """Some tools write each byte of a character they can't keep as _XX, so "X-Men \u00bd" turns up as
+    "X-Men _C2_BD". Puts those characters back. Only runs of two or more non-ASCII bytes that
+    decode as UTF-8 are read this way; anything else is left as it is."""
+    def put_back(m):
+        raw = bytes(int(h, 16) for h in m.group(0).split('_')[1:])
+        try:
+            return raw.decode('utf-8') if len(raw) > 1 else m.group(0)
+        except UnicodeDecodeError:
+            return m.group(0)
+    return re.sub(r'(?:_[89A-F][0-9A-F](?![0-9A-Za-z]))+', put_back, name)
+
+
 class FileChecker(object):
 
     def __init__(self, dir=None, watchcomic=None, Publisher=None, AlternateSearch=None, manual=None, sarc=None, justparse=None, file=None, pp_mode=False):
@@ -136,6 +149,7 @@ class FileChecker(object):
                     'alt_issue':           runresults['alt_issue'],
                     'issue_year':          runresults['issue_year'],
                     'issue_number':        runresults['issue_number'],
+                    'name_year':           runresults.get('name_year', False),
                     'scangroup':           runresults['scangroup'],
                     'reading_order':       runresults['reading_order'],
                     'booktype':            runresults['booktype']
@@ -179,6 +193,7 @@ class FileChecker(object):
                                     'series_volume':       runresults['series_volume'],
                                     'issue_year':          runresults['issue_year'],
                                     'issue_number':        runresults['issue_number'],
+                                    'name_year':           runresults.get('name_year', False),
                                     'scangroup':           runresults['scangroup'],
                                     'reading_order':       runresults['reading_order'],
                                     'booktype':            runresults['booktype']
@@ -267,10 +282,14 @@ class FileChecker(object):
         #find the issue number first.
         #split the file and then get all the relevant numbers that could possibly be an issue number.
         #remove the extension.
-        modfilename = re.sub(filetype, '', filename).strip()
+        modfilename = unescape_bytes(re.sub(filetype, '', filename).strip())
         reading_order = None
 
         ro = re.match(r'^(0\d{1,2})\s*[-.]?\s+(?=\S)(.*\d.*)$', modfilename)
+        if not ro:
+            # an unpadded number set off by a dash before a volume ("12 - Aliens Omnibus v03") is a
+            # reading order too. Otherwise it could be the series' own name (52 - Week Fifty-Two, 100 Bullets)
+            ro = re.match(r'^([1-9]\d{0,2})\s+-\s+(?=\S)(.*\bv(?:ol(?:ume)?)?\.?\s*\d.*)$', modfilename, re.I)
         if not ro:
             arc = re.match(r'^(\d{1,3})\s+-\s+(?=[^a-z]*[A-Z][^a-z]*?\s+-\s+.*\d)(.*)$', modfilename)
             if arc and len(re.sub(r'[^A-Z]', '', arc.group(2).split(' - ')[0])) >= 3:
@@ -370,8 +389,11 @@ class FileChecker(object):
         # A cover gallery, 'Age of Ultron 007 03 of 03 covers': the issue number comes first and
         # 'N of M covers' only counts the covers, so drop the count before it's read as the issue.
         modfilename = re.sub(r'(\d)\s+\d+\s+of\s+\d+\s+(?:variant\s+)?covers?\b', r'\1 ', modfilename, flags=re.I).strip()
+        # 'Legend Of Supreme #1 of 3', 'Stone #1of4': the issue count reads like the usual '(of 3)'
+        modfilename = re.sub(r'(?<![a-z0-9\[\(])(#?\d+)\s*of\s*(\d+)(?![a-z0-9])', r'\1 (of \2)', modfilename, flags=re.I)
         # A cover date in square brackets, '[2013-07]', reads like the usual '(2013-07)'.
         modfilename = re.sub(r'\[((?:19|20)\d{2}(?:-\d{2}){0,2})\]', r' (\1)', modfilename).strip()
+        modfilename = re.sub(r'\(([^()]+)\)', self._year_apart, modfilename)
 
         #here we take a snapshot of the current modfilename, the intent is that we will remove characters that match
         #as we discover them - namely volume, issue #, years, etc
@@ -859,8 +881,8 @@ class FileChecker(object):
                             logger.fdebug('MINI-SERIES DETECTED')
                         else:
                             edition = re.sub(r'[\(\)]', '', sf.lower()).strip()   # '(HC)' as well as 'HC'
-                            if edition in ('tpb', 'digital tpb', 'gn', 'graphic novel', 'hc', 'hardcover'):
-                                booktype = 'TPB' if 'tpb' in edition else 'GN' if edition in ('gn', 'graphic novel') else 'HC'
+                            if edition in ('tpb', 'digital tpb', 'gn', 'ogn', 'graphic novel', 'hc', 'hardcover'):
+                                booktype = 'TPB' if 'tpb' in edition else 'GN' if edition in ('gn', 'ogn', 'graphic novel') else 'HC'
                                 logger.fdebug('%s DETECTED. NOT DETECTING ISSUE NUMBER - ASSUMING VOLUME'
                                               % {'TPB': 'TRADE PAPERBACK', 'GN': 'GRAPHIC NOVEL', 'HC': 'HARDCOVER'}[booktype])
                                 if volume_found.get('volume') is not None:
@@ -938,7 +960,7 @@ class FileChecker(object):
                 if len(possible_issuenumbers) > 0:
                     for x in possible_years:
                         logger.fdebug('yearposition[%s] -- dc[position][%s]' % (yearposition, x['yearposition']))
-                        if yearposition < x['yearposition']:
+                        if yearposition is None or yearposition < x['yearposition']:
                             if all([len(possible_issuenumbers) == 1, possible_issuenumbers[0]['number'] == x['year'], x['yearposition'] != possible_issuenumbers[0]['position']]):
                                 logger.fdebug('issue2year is true')
                                 issue2year = True
@@ -1093,10 +1115,12 @@ class FileChecker(object):
         else:
             logger.fdebug('issue verified as : %s' % issue_number)
         issue_volume = None
+        volume_moved = False   # the volume label now follows the issue number, not the series' name
         if len(volume_found) > 0:
             issue_volume = 'v' + str(volume_found['volume'])
             if all([highest_series_pos + 1 != volume_found['position'], highest_series_pos != volume_found['position'] + 1, sep_volume == False, booktype == 'issue', len(possible_issuenumbers) > 0]):
                 logger.fdebug('Extra item(s) are present between the volume label and the issue number. Checking..')
+                volume_moved = volume_found['position'] < issue_number_position
                 split_file.insert(int(issue_number_position), split_file.pop(volume_found['position'])) #highest_series_pos-1, split_file.pop(volume_found['position']))
                 logger.fdebug('new split: %s' % split_file)
                 highest_series_pos = volume_found['position'] -1
@@ -1105,10 +1129,8 @@ class FileChecker(object):
                     issue_number_position -=1
             else:
                 if highest_series_pos > volume_found['position']:
-                    if sep_volume:
-                        highest_series_pos = volume_found['position'] - 1
-                    else:
-                        highest_series_pos = volume_found['position']
+                    # the position is the volume label's ("Vol" of "Saga Vol. 2") even when its number is apart
+                    highest_series_pos = volume_found['position']
             logger.fdebug('Volume detected as : %s' % issue_volume)
 
         if all([len(volume_found) == 0, booktype != 'issue']) or all([len(volume_found) == 0, issue_number_position == len(split_file)]):
@@ -1125,6 +1147,9 @@ class FileChecker(object):
                     highest_series_pos = issue_number_position -2
                 else:
                     if split_file[issue_number_position -1].lower() == 'annual' or split_file[issue_number_position -1].lower() == 'special':
+                        highest_series_pos = issue_number_position
+                    elif volume_moved:
+                        # "Supreme v1 - Glory Days #1": everything before the issue number is the name
                         highest_series_pos = issue_number_position
                     else:
                         highest_series_pos = issue_number_position - 1
@@ -1319,6 +1344,27 @@ class FileChecker(object):
                     alt_series = re.sub('tpb', '', alt_series, flags=re.I).strip()
             logger.fdebug('Alternate series / issue title: %s [%s]' % (alt_series, alt_issue))
 
+        # "Silver Surfer Homecoming GN [Marvel]": a publisher in brackets and a GN label after the
+        # title aren't part of the series' name
+        if series_name:
+            tidy = series_name
+            # "30 Days of Night (2011) v03 - Run Alice Run", "Batman (2016) v2 001": the series' year
+            # (and the volume read after it) end the name
+            if issue_volume is not None:
+                m = re.match(r'^(.+?)\s*\((?:19|20)\d\d\)\s+v(?:ol(?:ume)?\.?)?\s*0*(\d+)\b', tidy, flags=re.I)
+                if m and m.group(2) == re.sub(r'\D', '', issue_volume).lstrip('0'):
+                    tidy = m.group(1)
+            if not re.search(r'\((?:19|20)\d\d\)\s*$', self.watchcomic or ''):
+                tidy = re.sub(r'(?<=\S)\s*\((?:19|20)\d\d\)\s*$', '', tidy)
+            tidy = re.sub(r'(\s*\[[^\]]*\])+\s*$', '', tidy).strip()
+            tidy = re.sub(r'\s+O?GN$', '', tidy, flags=re.I).strip()
+            # "Lady Pendragon - V2 - 00", "Stone Volume 1 Issue 1": a dash or label left before the number
+            tidy = re.sub(r'(?<=\S)(?:\s+(?:-|issue|no\.?))+$', '', tidy, flags=re.I)
+            tidy = re.sub(r'\s{2,}', ' ', tidy).strip()
+            if tidy and tidy != series_name:
+                logger.fdebug('series title tidied: %s' % tidy)
+                series_name = tidy
+
         #if the filename is unicoded, it won't match due to the unicode translation. Keep the unicode as well as the decoded.
         series_name_decoded= unicodedata.normalize('NFKD', series_name)
         og_seriesn = series_name
@@ -1393,8 +1439,21 @@ class FileChecker(object):
                             'booktype':            booktype,
                             'reading_order':       None}
 
+        # "X-Men Annual 2000", "X-Men - Dr. Doom Annual (1998)": a year right after "Annual" is the
+        # year, and may be part of the series' name (ComicVine's "X-Men 2000"), not issue #2000
+        name_year = False
+        if series_name and re.search(r'\bannual$', series_name.strip(), re.I) and re.match(r'^(19|20)\d\d$', str(issue_year or '')) \
+                and str(issue_number or issue_year) == str(issue_year):
+            logger.fdebug('%s %s: the year is the year, and may be part of the series name - no issue number' % (series_name, issue_year))
+            issue_number = None
+            name_year = True
+            booktype = 'issue'
+            if not volume_found:
+                issue_volume = None
+
         if self.justparse:
             return {'parse_status':           'success',
+                    'name_year':              name_year,
                     'type':                   re.sub(r'\.','', filetype).strip(),
                     'sub':                    path_list,
                     'comicfilename':          filename,
@@ -1425,6 +1484,7 @@ class FileChecker(object):
                        'series_volume':          issue_volume,
                        'issue_year':             issue_year,
                        'issue_number':           issue_number,
+                       'name_year':              name_year,
                        'scangroup':              scangroup,
                        'booktype':               booktype}
 
@@ -1476,17 +1536,7 @@ class FileChecker(object):
         n_name = 'annual'
         if mylar.CONFIG.ANNUALS_ON:
             ann_year_check = re.findall(r'(\d{4})(?=[\s]|annual\b|$)', self.watchcomic, flags=re.I)
-            if all(
-                      [
-                          'annual' in nspace_watchcomic.lower(),
-                          'annual' not in series_name.lower()
-                      ]
-                ) or all(
-                      [
-                          'annual' not in nspace_watchcomic.lower(),
-                          'annual' in series_name.lower()
-                      ]
-                ):
+            if 'annual' in nspace_watchcomic.lower() or 'annual' in series_name.lower():
                 annualisation = True
                 justthedigits = 'Annual'
                 if series_info['issue_number'] is not None:
@@ -1849,6 +1899,20 @@ class FileChecker(object):
         return {'AS_Alt':   AS_Alt,
                 'AS_Tuple': AS_Tuple}
     
+    def _year_apart(self, m):
+        """'(2015, Marvel edition)' or '(Marvel edition 2015)' becomes '(2015) (Marvel edition)',
+        so the year reads as the year. Dates like '(Jan 2015)' are left whole."""
+        inner = m.group(1).strip()
+        if self.checkthedate(inner) or self.checkthedate(re.sub(r'[\s,]+', ' ', inner)):
+            return m.group(0)
+        y = re.search(r'(?<![\w-])((?:19|20)\d{2})(?![\w-])', inner)
+        if not y or int(y.group(1)) > dt.datetime.now().year + 1:
+            return m.group(0)
+        rest = re.sub(r'\s+', ' ', (inner[:y.start()] + ' ' + inner[y.end():]).strip(' ,')).strip(' ,')
+        if not re.search(r'[a-z]', rest, re.I):
+            return m.group(0)
+        return '(%s) (%s)' % (y.group(1), rest)
+
     def checkthedate(self, txt, fulldate=False, cnt=0):
     #    txt='''\
     #    Jan 19, 1990
@@ -1945,6 +2009,7 @@ def validateAndCreateDirectory(dir, create=False, module=None, dmode=None):
             if create:
                 if dir.strip():
                     logger.info('%s Creating %s directory (%s) : %s' % (module, dirmode, mylar.CONFIG.CHMOD_DIR, dir))
+                    s_perms = True
                     try:
                         os.umask(0) # this is probably redudant, but it doesn't hurt to clear the umask here.
                         if mylar.CONFIG.ENFORCE_PERMS:

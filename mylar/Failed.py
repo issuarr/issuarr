@@ -64,7 +64,7 @@ def title_failed(myDB, nzbname, comicid):
 class FailedProcessor(object):
     """ Handles Failed downloads that are passed from SABnzbd thus far """
 
-    def __init__(self, nzb_name=None, nzb_folder=None, id=None, issueid=None, comicid=None, prov=None, queue=None, oneoffinfo=None):
+    def __init__(self, nzb_name=None, nzb_folder=None, id=None, issueid=None, comicid=None, prov=None, queue=None, oneoffinfo=None, reason=None):
         """
         nzb_name : Full name of the nzb file that has returned as a fail.
         nzb_folder: Full path to the folder of the failed download.
@@ -91,6 +91,7 @@ class FailedProcessor(object):
             self.oneoffinfo = None
 
         self.prov = prov
+        self.reason = reason   # why it was blocked, shown on Downloads > Failed
         if queue: self.queue = queue
         self.valreturn = []
 
@@ -242,7 +243,8 @@ class FailedProcessor(object):
                 "Issue_Number": issuenzb['Issue_Number'],
                 "IssueID":      issueid,
                 "ComicID":      comicid,
-                "DateFailed":   helpers.now()}
+                "DateFailed":   helpers.now(),
+                "Reason":       self.reason or 'The download failed at the download client.'}
         myDB.upsert("failed", Vals, ctrlVal)
 
         logger.info(module + ' Successfully marked as Failed.')
@@ -364,6 +366,8 @@ class FailedProcessor(object):
                 "IssueID":      self.issueid,
                 "ComicID":      self.comicid,
                 "DateFailed":   helpers.now()}
+        if self.reason:
+            Vals['Reason'] = self.reason
         myDB.upsert("failed", Vals, ctrlVal)
 
         logger.info(module + ' Successfully marked as Failed.')

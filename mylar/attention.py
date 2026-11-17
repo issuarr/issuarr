@@ -37,12 +37,12 @@ import threading
 import time
 
 import mylar
-from mylar import db, logger, editions, cvlink
+from mylar import db, logger, editions, cvlink, covermatch
 
 COMIC_EXT = ('.cbz', '.cbr', '.cb7', '.pdf')
 # Most telling first: a file that failed on volume for one series and on name for the rest
 # failed on volume.
-REASONS = ('damaged', 'cover', 'owned', 'volume', 'year', 'issue', 'series', 'unclaimed')
+REASONS = ('damaged', 'cover', 'owned', 'coverart', 'volume', 'year', 'issue', 'series', 'unclaimed')
 CACHE_SECONDS = 60
 _COUNT = [0.0, 0]          # (counted at, count) for the nav badge
 _COMICS = [0.0, []]        # (loaded at, watchlist rows) for suggestions
@@ -103,6 +103,18 @@ def record(path, reason, detail='', comicid=None):
         _COUNT[0] = 0
     except Exception as e:
         logger.warn('[ATTENTION] Could not note %s: %s' % (path, e))
+
+
+def held(path):
+    """Whether filing held this file back because its cover didn't match: it's a wanted issue, so
+    clearing up leftovers keeps it."""
+    try:
+        myDB = db.DBConnection()
+        ensure(myDB)
+        row = myDB.selectone('SELECT reason FROM attention WHERE path=?', [path]).fetchone()
+        return bool(row) and row['reason'] == 'coverart'
+    except Exception:
+        return False
 
 
 def moved(old, new):
@@ -255,13 +267,44 @@ def _names(name, aliases):
 def _watchlist():
     if time.time() - _COMICS[0] < 300 and _COMICS[1]:
         return _COMICS[1]
-    rows = db.DBConnection().select('SELECT ComicID, ComicName, ComicYear, ComicVersion, Total, Type, Corrected_Type, AlternateSearch FROM comics WHERE ComicName IS NOT NULL')
-    rows = [dict(r, norm=_norm(r['ComicName'])) for r in rows]
+    rows = db.DBConnection().select('SELECT * FROM comics WHERE ComicName IS NOT NULL')
+    keep = ('ComicID', 'ComicName', 'ComicYear', 'ComicVersion', 'Total', 'Type', 'Corrected_Type', 'AlternateSearch', 'ComicPublished')
+    rows = [{k: r[k] if k in r.keys() else None for k in keep} for r in rows]
+    rows = [dict(r, norm=_norm(r['ComicName']), years=_run_years(r)) for r in rows]
     for r in rows:
         r['names'] = [(n, collections.Counter(n)) for n in _names(r['ComicName'], r['AlternateSearch'])]
     _COMICS[:] = [time.time(), rows]
     _NAMED.clear()
     return _COMICS[1]
+
+
+def _run_years(c):
+    """The years a series came out in, (first, last): from its publication run ("July 1992 -
+    December 1994"), else its start year. None when neither is known."""
+    years = [int(y) for y in re.findall(r'(?<!\d)(?:19|20)\d\d(?!\d)', str(c.get('ComicPublished') or ''))]
+    if not years and str(c.get('ComicYear') or '').isdigit():
+        years = [int(c['ComicYear'])]
+    return (min(years), max(years)) if years else None
+
+
+def _year_gap(c, year):
+    """How many years a series' run is from year: 0 when it came out that year (or the year
+    before, as cover dates run ahead), None when either isn't known."""
+    run = c.get('years') if 'years' in c else _run_years(c)
+    if not run or not str(year or '').isdigit():
+        return None
+    year = int(year)
+    if run[0] - 1 <= year <= run[1] + 1:
+        return 0
+    return run[0] - 1 - year if year < run[0] else year - run[1] - 1
+
+
+def _year_rank(gap):
+    """A small nudge by how near a series is to the file's year, so of series with the same name the
+    one from that year comes first, and one from decades away last."""
+    if gap is None:
+        return 0
+    return 0.15 if gap == 0 else -0.01 * min(gap, 20)
 
 
 def parse(path):
@@ -276,9 +319,23 @@ def parse(path):
         return out
     if not isinstance(p, dict) or p.get('parse_status') != 'success':
         return out
-    out.update(series=p.get('series_name'), issue=p.get('issue_number'), year=p.get('issue_year'), volume=p.get('series_volume'))
+    out.update(series=p.get('series_name'), issue=p.get('issue_number'), year=p.get('issue_year') or _folder_year(path, p.get('series_name')),
+               volume=p.get('series_volume'), name_year=bool(p.get('name_year')))
     out['search'] = _titled(out) or out['series']
     return out
+
+
+def _folder_year(path, series):
+    """The year in the folder's name, '(2015 Marvel edition)', when the name has none and the
+    folder is that series' pack."""
+    folder = os.path.basename(os.path.dirname(path))
+    if not series or not _norm(folder).startswith(_norm(series)):
+        return None
+    for group in re.findall(r'\(([^()]*)\)', folder):
+        m = re.search(r'(?<![\w-])((?:19|20)\d{2})(?![\w-])', group)
+        if m and int(m.group(1)) <= datetime.datetime.now().year + 1:
+            return m.group(1)
+    return None
 
 
 def _num(v):
@@ -330,10 +387,11 @@ def _named(want, comicid=None, floor=0.75):
     return named
 
 
-def suggest(parsed, limit=3, comicid=None):
+def suggest(parsed, limit=3, comicid=None, annuals=False):
     """Watchlist series closest to what the file name says, each with the issue it would be
     and which parts of the name agree. Series with the same name are told apart by whether
-    the issue is on them and its year and volume agree."""
+    the issue is on them and its year and volume agree. annuals: a file named for an annual
+    kept with a series ("X Annual 2024 001") may be that annual."""
     want = _norm(parsed.get('series'))
     if not want and not comicid:
         return []
@@ -345,9 +403,23 @@ def suggest(parsed, limit=3, comicid=None):
         # a series named for another year isn't this year's annual
         named = [n for n in named if not all(_years_clash(tnorm, nm) for nm, _ in n[1]['names'])]
         best = {str(c['ComicID']): s for s, c, _ in named}
-        extra = [(s, c, True) for s, c in _named(tnorm, comicid) if s > best.get(str(c['ComicID']), 0)]
+        # only a series called (nearly) exactly that: "Iron Man Annual 2000" isn't X-Men Annual 2000
+        extra = [(s, c, True) for s, c in _named(tnorm, comicid) if s >= 0.92 and s > best.get(str(c['ComicID']), 0)]
         named = sorted([n for n in named if not any(str(n[1]['ComicID']) == str(e[1]['ComicID']) for e in extra)] + extra, key=lambda x: -x[0])
     myDB = db.DBConnection()
+    ann = None
+    if annuals and mylar.CONFIG.ANNUALS_ON and parsed.get('name'):
+        from mylar import matching
+        ann = matching.annual_for(comicid, parsed['name'])
+        if ann is not None:
+            # named for its annual series, so its parent series is a match whatever its own name
+            ann = myDB.selectone('SELECT IssueID, ComicID, Issue_Number, Status, IssueDate, ReleaseDate, ReleaseComicName FROM annuals '
+                                 'WHERE IssueID=? AND ComicID=?', [ann['IssueID'], ann['ComicID']]).fetchone()
+        parent = ann is not None and next((c for c in _watchlist() if str(c['ComicID']) == str(ann['ComicID'])), None)
+        if parent:
+            named = [(1.0, parent, False)] + [n for n in named if str(n[1]['ComicID']) != str(parent['ComicID'])]
+        else:
+            ann = None
     fyear = str(parsed.get('year') or '')
     out = []
     for s, c, by_title in named[:10]:
@@ -367,8 +439,15 @@ def suggest(parsed, limit=3, comicid=None):
                 if _num(r['Issue_Number']) == target:
                     issue = dict(r)
                     break
-        elif len(rows) == 1 and s >= 0.92 and not (is_collected and singles):
-            issue = dict(rows[0])   # a one-shot: the name says no number, or the number was part of the name
+        elif len(rows) == 1 and s >= 0.92 and not (is_collected and singles) and (by_title or not parsed.get('name_year')):
+            # a one-shot: the name says no number, or the number was part of the name. "X-Men Annual 2000"
+            # is only the one-shot of a series named for that year, not of X-Men Annual (2023)
+            issue = dict(rows[0])
+        label = None
+        if ann is not None and str(c['ComicID']) == str(ann['ComicID']):
+            from mylar import matching
+            issue = dict(ann)
+            label = matching.annual_label(ann['ReleaseComicName'], ann['Issue_Number'])
         iyear = str((issue or {}).get('IssueDate') or (issue or {}).get('ReleaseDate') or '')[:4]
         fvol, svol = _vol(parsed.get('volume')), _vol(c.get('ComicVersion'))
         agree = {
@@ -382,19 +461,27 @@ def suggest(parsed, limit=3, comicid=None):
         near = fyear.isdigit() and iyear.isdigit() and abs(int(fyear) - int(iyear)) <= 1   # cover dates run ahead
         rank = s + (0.3 if agree['issue'] else 0) + (0.2 if agree['year'] else 0.1 if near else -0.2 if agree['year'] is False else 0) + \
             {True: 0.1, False: -0.1, None: 0}[agree['volume']] + {True: 0, None: 0, False: -0.5 if is_collected else -0.2}[agree['format']]
+        if agree['year'] is None:
+            # no issue to date: go by when the series itself came out
+            rank += _year_rank(_year_gap(c, fyear))
         out.append({'comicid': c['ComicID'], 'name': c['ComicName'], 'year': c['ComicYear'], 'volume': c['ComicVersion'],
+                     'published': c.get('ComicPublished'),
                      'total': c['Total'], 'score': round(s, 2), 'rank': round(rank, 2), 'agree': agree,
                      'format': 'Single issues' if singles else stype,
-                     'issueid': (issue or {}).get('IssueID'), 'number': (issue or {}).get('Issue_Number'),
-                     'status': (issue or {}).get('Status'), 'issue_year': iyear or None})
+                     'issueid': (issue or {}).get('IssueID'), 'number': (issue or {}).get('Issue_Number'), 'label': label,
+                     'status': (issue or {}).get('Status'), 'issue_year': iyear or None,
+                     # filing it would only duplicate the copy already filed
+                     'owned': (issue or {}).get('Status') in ('Downloaded', 'Archived')})
     out.sort(key=lambda m: -m['rank'])
     return out[:limit]
 
 
 def _titled(parsed):
-    """Series name with the issue number put back when that number looks like a year:
-    "X-Men Annual 1995 (1995)" reads as X-Men Annual #1995, but the series may be called that."""
+    """Series name with its year put back when the year may be part of the name: "X-Men Annual
+    1995 (1995)" has no issue number, and the series may be called X-Men Annual 1995."""
     series, number = parsed.get('series'), str(parsed.get('issue') or '').strip()
+    if parsed.get('name_year') and not number:
+        number = str(parsed.get('year') or '').strip()
     if series and re.match(r'^(19|20)\d\d$', number):
         return '%s %s' % (series, number)
     return None
@@ -418,15 +505,15 @@ def items():
         hit = _SUGGESTED.get(key)
         if hit is None or time.time() - hit[2] > SUGGEST_SECONDS:
             parsed = parse(path)
-            hit = (parsed, [] if library else suggest(parsed, comicid=row.get('comicid')), time.time())
+            hit = (parsed, [] if library else suggest(parsed, comicid=row.get('comicid'), annuals=True), time.time())
             _SUGGESTED[key] = hit
-        parsed, matches = hit[0], hit[1]
+        parsed, matches = hit[0], covermatch.annotate(path, hit[1])
         job = JOBS.get(path)
         if job is None and row.get('status') == 'queued':
             job = {'state': 'waiting', 'note': 'Waiting to file'}
         out.append({'path': path, 'name': os.path.basename(path), 'folder': os.path.dirname(path), 'group': group_of(path)[0],
                     'in_review': bool(review) and os.path.normpath(path).startswith(review + os.sep),
-                    'in_library': library,
+                    'in_library': library, 'issue': library_issue(path) if library else None,
                     'reason': row.get('reason') or 'unclaimed', 'detail': row.get('detail') or '',
                     'size': _size(path), 'modified': mtime, 'parsed': parsed,
                     'matches': matches, 'job': job})
@@ -458,20 +545,36 @@ def search_link(text):
     return {'series': series, 'link': link}
 
 
-def search(text, limit=12):
-    """Watchlist series for the manual pick."""
-    want = _norm(_year_hint(text)[0])
+def search(text, limit=12, year=None):
+    """Watchlist series for the manual pick, closest name first. Of names that score alike, the
+    series that came out in the year asked for comes first, then the nearest: a "(1996)" in the
+    text, else a year in it ("X-Men Annual 2000"), else year (the file's)."""
+    words, hinted = _year_hint(text)
+    want = _norm(words)
     if not want:
         return []
+    named = sorted(_name_years(want))
+    year = hinted or (named[-1] if named else None) or (str(year) if str(year or '').isdigit() else None)
+    # "X-Men Annual 2000" is also X-Men Annual from 2000: names are compared with and without the year
+    bare = _norm(re.sub(r'(?<!\d)%s(?!\d)' % named[-1], ' ', want)) if named else None
+    wants = [w for w in (want, bare) if w]
+
+    def score(w, n):
+        return 0 if _years_clash(w, n) else 3.0 if n == w else 2.0 if n.startswith(w) else 1.0 if w in n else \
+            difflib.SequenceMatcher(None, w, n).ratio()
+
     hits = []
     for c in _watchlist():
-        s = max(0 if _years_clash(want, n) else 3.0 if n == want else 2.0 if n.startswith(want) else 1.0 if want in n else
-                difflib.SequenceMatcher(None, want, n).ratio() for n, _ in c['names'])
+        # a name for another year ("Uncanny X-Men Annual 1999") still never matches
+        s = max(0 if _years_clash(want, n) else score(w, n if w == want else _norm(re.sub(r'(?<!\d)(?:19|20)\d\d(?!\d)', ' ', n)))
+                for n, _ in c['names'] for w in wants)
         if s >= 0.5:
-            hits.append((s, c))
-    hits.sort(key=lambda x: (-x[0], x[1]['ComicName']))
-    hits.sort(key=lambda x: (-x[0], x[1]['ComicName'], str(x[1]['ComicYear'])))
-    return [{'comicid': c['ComicID'], 'name': c['ComicName'], 'year': c['ComicYear'], 'volume': c['ComicVersion']} for s, c in hits[:limit]]
+            gap = _year_gap(c, year)
+            hits.append((round(s, 2) + _year_rank(gap), gap, c))
+    # series with the same name and year stay side by side
+    hits.sort(key=lambda x: (-x[0], 99 if x[1] is None else x[1], x[2]['ComicName'], str(x[2]['ComicYear']), str(x[2].get('ComicPublished') or '')))
+    return [{'comicid': c['ComicID'], 'name': c['ComicName'], 'year': c['ComicYear'], 'volume': c['ComicVersion'],
+             'published': c.get('ComicPublished'), 'fits': gap == 0} for s, gap, c in hits[:limit]]
 
 
 def _cv_key():
@@ -568,9 +671,16 @@ def series_state(comicid):
 
 
 def issues(comicid):
-    rows =db.DBConnection().select('SELECT IssueID, Issue_Number, Status, IssueDate FROM issues WHERE ComicID=?', [comicid])
-    rows = [dict(r) for r in rows]
+    """The series' issues to pick from, then the annuals kept with it ("Annual 2024 #1" as Label)."""
+    from mylar import matching
+    myDB = db.DBConnection()
+    rows = [dict(r) for r in myDB.select('SELECT IssueID, Issue_Number, Status, IssueDate FROM issues WHERE ComicID=?', [comicid])]
     rows.sort(key=lambda r: (_num(r['Issue_Number']) is None, _num(r['Issue_Number']) or 0))
+    if mylar.CONFIG.ANNUALS_ON:
+        for r in myDB.select('SELECT IssueID, Issue_Number, Status, IssueDate, ReleaseComicName FROM annuals '
+                             'WHERE ComicID=? AND NOT Deleted ORDER BY IssueDate, Int_IssueNumber', [comicid]):
+            rows.append({'IssueID': r['IssueID'], 'Issue_Number': r['Issue_Number'], 'Status': r['Status'], 'IssueDate': r['IssueDate'],
+                         'Label': matching.annual_label(r['ReleaseComicName'], r['Issue_Number']), 'Annual': True})
     return rows
 
 
@@ -718,15 +828,54 @@ def gone(path):
     return {'ok': True, 'gone': True, 'note': 'That file was already moved or deleted, so it\'s off the list.'}
 
 
-def trash(path):
+def library_issue(path, myDB=None):
+    """The issue a file in the library is filed as: its name in the series' folder, or else the only
+    issue anywhere with that file name (a series folder can move without the series noticing)."""
+    myDB = myDB or db.DBConnection()
+    try:
+        rows = myDB.select('SELECT i.IssueID, i.ComicID, i.Issue_Number, i.Status, c.ComicName, c.ComicYear, c.ComicLocation FROM issues i '
+                           'JOIN comics c ON c.ComicID=i.ComicID WHERE i.Location=?', [os.path.basename(path)])
+    except Exception as e:
+        logger.fdebug('[ATTENTION] Could not look up the issue of %s: %s' % (path, e))
+        return None
+    folder = os.path.normpath(os.path.dirname(path))
+    here = [r for r in rows if r['ComicLocation'] and os.path.normpath(r['ComicLocation']) == folder]
+    row = here[0] if len(here) == 1 else rows[0] if len(rows) == 1 else None
+    if row is None:
+        return None
+    return {'issueid': row['IssueID'], 'comicid': row['ComicID'], 'name': row['ComicName'], 'year': row['ComicYear'],
+            'number': row['Issue_Number'], 'status': row['Status']}
+
+
+def trash(path, want=False):
+    """Move a listed file to the trash. want: it's a damaged file in the library, so mark its issue
+    Wanted (unless it already is) and look for a good copy."""
     left = gone(path)
     if left:
         return left
     if not _known(path):
         return {'ok': False, 'note': 'That file is no longer waiting for a decision.'}
+    issue = library_issue(path) if want and in_library(path) else None
     dest_dir = _trash_file(path)
     logger.info('[ATTENTION] Moved %s to the trash (%s).' % (os.path.basename(path), dest_dir))
-    return {'ok': True, 'note': 'Moved to the trash. It\'s deleted for good after %s days.' % trash_days()}
+    note = 'Moved to the trash. It\'s deleted for good after %s days.' % trash_days()
+    if issue:
+        note += ' ' + _want(issue)
+    return {'ok': True, 'note': note}
+
+
+def _want(issue):
+    """Mark a trashed library file's issue Wanted and search for it, as marking it Wanted by hand does."""
+    from mylar import search
+    label = '%s (%s) #%s' % (issue['name'], issue['year'], issue['number'])
+    myDB = db.DBConnection()
+    myDB.action("UPDATE issues SET Location=NULL, ComicSize=NULL WHERE IssueID=?", [issue['issueid']])
+    if issue['status'] == 'Wanted':
+        return '%s was already Wanted.' % label
+    myDB.upsert('issues', {'Status': 'Wanted'}, {'IssueID': issue['issueid']})
+    logger.info('[ATTENTION] Marked %s Wanted after its damaged file went to the trash.' % label)
+    threading.Thread(target=search.searchIssueIDList, args=[[issue['issueid']]], name='ATTENTION-WANT', daemon=True).start()
+    return '%s is now Wanted.' % label
 
 
 def _trash_file(path):
@@ -803,18 +952,35 @@ def file_as(path, comicid, issueid):
     if in_library(path):
         return {'ok': False, 'note': 'That file is already in your library. Replace it with a good copy, or move it to the trash.'}
     myDB = db.DBConnection()
-    issue = myDB.selectone('SELECT i.IssueID, i.Issue_Number, i.ComicID, c.ComicName, c.ComicYear FROM issues i '
-                           'JOIN comics c ON c.ComicID=i.ComicID WHERE i.IssueID=? AND i.ComicID=?', [issueid, comicid]).fetchone()
+    issue = _issue_to_file(myDB, issueid, comicid)
     if issue is None:
         return {'ok': False, 'note': 'That issue isn\'t on your watchlist.'}
     with _LOCK:
         if (JOBS.get(path) or {}).get('state') in ('waiting', 'filing'):
             return {'ok': False, 'note': 'Already being filed.'}
-        label = '%s #%s' % (issue['ComicName'], issue['Issue_Number'])
+        label = _label(issue)
         JOBS[path] = {'state': 'waiting', 'note': 'Waiting to file as %s' % label}
     _keep_pick(path, comicid, issueid)
-    threading.Thread(target=_file_now, args=(path, dict(issue)), name='ATTENTION-FILE', daemon=True).start()
+    threading.Thread(target=_file_now, args=(path, issue), name='ATTENTION-FILE', daemon=True).start()
     return {'ok': True, 'note': 'Filing as %s. It starts as soon as the filing that\'s running now finishes.' % label}
+
+
+def _issue_to_file(myDB, issueid, comicid):
+    """An issue of a watchlist series, or an annual kept with it, to file a file as, or None."""
+    row = myDB.selectone('SELECT i.IssueID, i.Issue_Number, i.ComicID, c.ComicName, c.ComicYear FROM issues i '
+                         'JOIN comics c ON c.ComicID=i.ComicID WHERE i.IssueID=? AND i.ComicID=?', [issueid, comicid]).fetchone()
+    if row is not None:
+        return dict(row, annual=None)
+    if mylar.CONFIG.ANNUALS_ON:
+        row = myDB.selectone('SELECT a.IssueID, a.Issue_Number, a.ComicID, a.ReleaseComicName, c.ComicName, c.ComicYear FROM annuals a '
+                             'JOIN comics c ON c.ComicID=a.ComicID WHERE a.IssueID=? AND a.ComicID=? AND NOT a.Deleted', [issueid, comicid]).fetchone()
+        if row is not None:
+            return dict(row, annual=row['ReleaseComicName'] or '%s Annual' % row['ComicName'])
+    return None
+
+
+def _label(issue):
+    return '%s #%s' % (issue['annual'] or issue['ComicName'], issue['Issue_Number'])
 
 
 def _keep_pick(path, comicid, issueid):
@@ -850,12 +1016,11 @@ def resume_picks():
         if not os.path.isfile(r['path']):
             forget(r['path'])
             continue
-        issue = myDB.selectone('SELECT i.IssueID, i.Issue_Number, i.ComicID, c.ComicName, c.ComicYear FROM issues i '
-                               'JOIN comics c ON c.ComicID=i.ComicID WHERE i.IssueID=? AND i.ComicID=?', [issueid, comicid]).fetchone()
+        issue = _issue_to_file(myDB, issueid, comicid)
         if issue is None:
             _drop_pick(r['path'])
             continue
-        JOBS[r['path']] = {'state': 'waiting', 'note': 'Waiting to file as %s #%s' % (issue['ComicName'], issue['Issue_Number'])}
+        JOBS[r['path']] = {'state': 'waiting', 'note': 'Waiting to file as %s' % _label(issue)}
         todo.append((r['path'], dict(issue)))
     if todo:
         logger.info('[ATTENTION] Filing %s file(s) you chose an issue for before the restart.' % len(todo))
@@ -870,19 +1035,21 @@ def resume_picks():
 def entry_for(path, issue):
     return {'ComicLocation': path, 'ComicID': issue['ComicID'], 'IssueID': issue['IssueID'],
             'IssueNumber': issue['Issue_Number'], 'ComicName': issue['ComicName'], 'SeriesYear': issue['ComicYear'],
-            'Series': issue['ComicName'], 'AltSeries': None, 'AnnualType': None, 'AnnualSeries': None,
+            'Series': issue['ComicName'], 'AltSeries': None, 'AnnualType': 'Annual' if issue.get('annual') else None,
+            'AnnualSeries': issue.get('annual'),
             'AgeRating': None, 'One-Off': False, 'ForcedMatch': True}   # no IssueArcID: that would start story-arc filing
 
 
 def _file_now(path, issue):
     from mylar import PostProcessor
-    label = '%s #%s' % (issue['ComicName'], issue['Issue_Number'])
+    label = _label(issue)
     try:
         pp = PostProcessor.PostProcessor('Manual Run', os.path.dirname(path), queue=queue.Queue())
         with PostProcessor.PP_LOCK:
             JOBS[path] = {'state': 'filing', 'note': 'Filing as %s' % label}
             pp.nzb_or_oneoff_pp(manual=[entry_for(path, issue)])
-        row = db.DBConnection().selectone('SELECT Status FROM issues WHERE IssueID=?', [issue['IssueID']]).fetchone()
+        row = db.DBConnection().selectone('SELECT Status FROM %s WHERE IssueID=?' % ('annuals' if issue.get('annual') else 'issues'),
+                                          [issue['IssueID']]).fetchone()
         if row is not None and row['Status'] in ('Downloaded', 'Archived'):
             if os.path.isfile(path):
                 # filing copies when set to copy - the original isn't needed here any more
@@ -936,13 +1103,26 @@ def refile_all(auto=False):
         folders = refile_folders(paths)
         if not folders:
             return {'ok': False, 'note': 'Nothing here to try again.'}
+        # with "Add the series of comics nothing on the watchlist wants" on, look their series up
+        # again first, files tried before included: the lookup may know more now
+        from mylar import autoadd
+        rows = _rows(db.DBConnection())
+        lookup = [p for p in paths if (rows.get(p) or {}).get('reason', 'unclaimed') in ('series', 'unclaimed')] \
+            if not auto and autoadd.enabled() else []
         REFILE.clear()
         REFILE.update(state='running', auto=auto, folders=folders, total=len(folders), done=0, current='',
                       before=len(paths), after=None, started=time.time(), finished=None, stop=False)
-    threading.Thread(target=_refile_run, args=(folders,), name='ATTENTION-REFILE', daemon=True).start()
+    threading.Thread(target=_refile_run, args=(folders, lookup), name='ATTENTION-REFILE', daemon=True).start()
     logger.info('[ATTENTION] Trying to file %s file(s) again, in %s folder(s)%s.'
                 % (len(paths), len(folders), ' after an update' if auto else ''))
     return {'ok': True, 'note': 'Trying %s files again. New downloads are filed first.' % len(paths)}
+
+
+def why_left(rows):
+    """Why the files still listed weren't filed, as [(reason, count)], most files first: what Try
+    filing again tells the user it couldn't do. rows: path -> attention row."""
+    counts = collections.Counter((r or {}).get('reason') or 'unclaimed' for r in rows.values())
+    return sorted(counts.items(), key=lambda x: (-x[1], REASONS.index(x[0]) if x[0] in REASONS else len(REASONS)))
 
 
 def stop_refile():
@@ -953,9 +1133,19 @@ def stop_refile():
     return False
 
 
-def _refile_run(folders):
-    from mylar import PostProcessor
+def _refile_run(folders, lookup=None):
+    from mylar import PostProcessor, autoadd
     try:
+        if lookup and not REFILE.get('stop'):
+            REFILE['lookup'] = True
+            if autoadd.running():
+                logger.info('[ATTENTION] Auto-add is already looking up series; not looking these up again now.')
+            else:
+                try:
+                    autoadd._run(lookup, refile=False)
+                except Exception as e:
+                    logger.warn('[ATTENTION] Looking up the series of %s file(s) failed: %s' % (len(lookup), e))
+            REFILE['lookup'] = False
         for n, folder in enumerate(folders):
             # new downloads go first: wait while the post-processing queue has work
             while not REFILE.get('stop') and getattr(mylar, 'PP_QUEUE', None) is not None and mylar.PP_QUEUE.qsize():
@@ -975,17 +1165,64 @@ def _refile_run(folders):
                 except Exception as e:
                     logger.warn('[ATTENTION] Filing %s again failed: %s' % (folder, e))
             REFILE['done'] = n + 1
+        if not REFILE.get('stop'):
+            REFILE['current'] = 'Comparing covers'
+            cover_pass(wait=True)
     finally:
         _COUNT[0] = 0
         try:
-            left = len([p for p in _open_paths(db.DBConnection()) if not in_library(p)])
+            still = {p: r for p, r in _open_paths(db.DBConnection()).items() if not in_library(p)}
+            left = len(still)
+            why = why_left(still)
         except Exception:
-            left = None
+            left, why = None, []
         with _REFILE_LOCK:
-            REFILE.update(state='stopped' if REFILE.get('stop') else 'done', after=left, current='',
+            REFILE.update(state='stopped' if REFILE.get('stop') else 'done', after=left, why=why, current='',
                           waiting=False, finished=time.time())
-        logger.info('[ATTENTION] Finished trying again: %s of %s file(s) still need attention.'
-                    % ('?' if left is None else left, REFILE.get('before')))
+        logger.info('[ATTENTION] Finished trying again: %s of %s file(s) still need attention%s.'
+                    % ('?' if left is None else left, REFILE.get('before'), ' (%s)' % ', '.join('%s %s' % (n, r) for r, n in why) if why else ''))
+
+
+COVER_PASS = threading.Lock()
+
+
+def cover_pass(paths=None, wait=False):
+    """Compare each listed file's cover with the covers of the issues suggested for it, and file it
+    when exactly one of them clearly matches, before it waits on the user. paths: only these
+    files (the ones a filing run just listed); otherwise every file here. Runs in the background
+    unless wait; one pass at a time, a pass already running covers the files."""
+    def run():
+        if not COVER_PASS.acquire(blocking=wait):
+            return
+        try:
+            filed = 0
+            rows = _open_paths(db.DBConnection())
+            for path in (paths if paths is not None else list(rows)):
+                row = rows.get(path)
+                if row is None or row.get('status') == 'queued' or JOBS.get(path) or in_library(path):
+                    continue
+                try:
+                    scored = covermatch.annotate(path, suggest(parse(path), comicid=row.get('comicid')), fetch=True)
+                except Exception as e:
+                    logger.fdebug('[ATTENTION] Could not compare the covers for %s: %s' % (path, e))
+                    continue
+                win = covermatch.winner(scored)
+                if win is None or win.get('owned'):
+                    continue
+                logger.info('[ATTENTION] The cover of %s matches %s #%s (distance %s), so it\'s being filed as that.'
+                            % (os.path.basename(path), win['name'], win['number'], win['cover']['distance']))
+                if file_as(path, win['comicid'], win['issueid']).get('ok'):
+                    filed += 1
+            if filed:
+                logger.info('[ATTENTION] Filed %s file(s) by their covers.' % filed)
+        finally:
+            COVER_PASS.release()
+            _COUNT[0] = 0
+
+    if wait:
+        run()
+    else:
+        threading.Thread(target=run, name='ATTENTION-COVERS', daemon=True).start()
 
 
 def _version_key():

@@ -174,6 +174,12 @@ def findComic(name, mode, issue, limityear=None, search_type=None, annual_check=
     if '+' in name:
         name = re.sub(r'\+', 'PLUS', name)
 
+    # Dotted acronyms ("M.O.D.O.K.", "G.I. Joe") would otherwise tokenize into single
+    # letters and match thousands of unrelated series; collapse the dots between the
+    # single letters so they search as one word. Leaves "Doctor.Who" style dots alone.
+    name = re.sub(r'(?<![A-Za-z])(?:[A-Za-z]\.)+[A-Za-z]?(?![A-Za-z])',
+                  lambda m: m.group(0).replace('.', ''), name)
+
     pattern = re.compile(r'\w+', re.UNICODE)
     name = pattern.findall(name)
 

@@ -305,6 +305,8 @@ _CONFIG_DEFINITIONS = OrderedDict({
     'ARCHIVE_REVIEW_DIR':  (str, 'PostProcess', None),
     'ATTENTION_TRASH_DAYS':  (int, 'PostProcess', 14),   # Needs attention: days a trashed file is kept
     'ARCHIVE_AUTO_ADD':  (bool, 'PostProcess', False),
+    'COVER_MATCH_STRICT':  (bool, 'PostProcess', False),   # file only issues whose cover matches ComicVine's
+    'COVER_MATCH_SCORE':  (int, 'PostProcess', 16),        # largest cover hash distance that counts as a match
     'WEBP_ON_IMPORT': (bool, 'WebP', False),
     'WEBP_SINCE': (str, 'WebP', '2015'),
     'WEBP_QUALITY': (int, 'WebP', 85),
@@ -318,6 +320,8 @@ _CONFIG_DEFINITIONS = OrderedDict({
     'WEBP_WINDOW_END': (str, 'WebP', '07:00'),
     'WEBP_BACKUP_DIR': (str, 'WebP', None),
     'CHECK_FOLDER': (str, 'PostProcess', None),
+    'CLIENT_WATCH': (bool, 'PostProcess', True),
+    'CLIENT_WATCH_INTERVAL': (int, 'PostProcess', 1),
     'MANUAL_PP_FOLDER': (str, 'PostProcess', None),
     'FOLDER_CACHE_LOCATION': (str, 'PostProcess', None),
 
@@ -349,6 +353,7 @@ _CONFIG_DEFINITIONS = OrderedDict({
     'NZBGET_PASSWORD': (str, 'NZBGet', None),
     'NZBGET_PRIORITY': (str, 'NZBGet', None),
     'NZBGET_CATEGORY': (str, 'NZBGet', None),
+    'NZBGET_REMOVE_COMPLETED': (bool, 'NZBGet', False),
     'NZBGET_DIRECTORY': (str, 'NZBGet', None),
     'NZBGET_CLIENT_POST_PROCESSING': (bool, 'NZBGet', False),   #0/False: ComicRN.py, #1/True: Completed Download Handling
 
@@ -410,6 +415,10 @@ _CONFIG_DEFINITIONS = OrderedDict({
 
 
     'ENABLE_TORRENTS': (bool, 'Torrents', False),
+    'TORRENT_REMOVE_COMPLETED': (bool, 'Torrents', False),
+    'TORRENT_POST_IMPORT_LABEL': (str, 'Torrents', None),
+    'TORRENT_REMOVE_FAILED': (bool, 'Torrents', False),
+    'TORRENT_STALLED_TIMEOUT': (int, 'Torrents', 0),
     'ENABLE_TORRENT_SEARCH': (bool, 'Torrents', False),
     'MINSEEDS': (int, 'Torrents', 0),
     'ENABLE_PUBLIC': (bool, 'Torrents', False),

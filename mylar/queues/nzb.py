@@ -5,10 +5,97 @@ from pathlib import Path
 
 import mylar
 from .. import logger, helpers
-from mylar import sabnzbd, nzbget
+from mylar import sabnzbd, nzbget, db
+
+
+def _cdh_client():
+    if mylar.USE_SABNZBD is True and mylar.CONFIG.SAB_CLIENT_POST_PROCESSING is True:
+        return 'sabnzbd'
+    if mylar.USE_NZBGET is True and mylar.CONFIG.NZBGET_CLIENT_POST_PROCESSING is True:
+        return 'nzbget'
+    return None
+
+
+def _still_snatched(myDB, issueid, issuearcid):
+    if issueid is not None:
+        rows = [myDB.selectone('SELECT Status FROM issues WHERE IssueID=?', [issueid]).fetchone(),
+                myDB.selectone('SELECT Status FROM annuals WHERE IssueID=? AND NOT Deleted', [issueid]).fetchone()]
+    else:
+        rows = [myDB.selectone('SELECT Status FROM storyarcs WHERE IssueArcID=?', [issuearcid]).fetchone()]
+    return any(r is not None and r['Status'] == 'Snatched' for r in rows)
+
+
+def _download_info(myDB, key):
+    r = myDB.selectone('SELECT PROVIDER, ID FROM nzblog WHERE IssueID=?', [key]).fetchone()
+    if r is not None:
+        return {'provider': r['PROVIDER'], 'id': r['ID']}
+    r = myDB.selectone("SELECT Provider FROM snatched WHERE IssueID=? AND Status='Snatched' ORDER BY DateAdded DESC",
+                       [key]).fetchone()
+    return {'provider': r['Provider'] if r is not None else None, 'id': None}
+
+
+def pending_jobs(myDB=None):
+    """Queue items for Issuarr's own SABnzbd/NZBGet grabs whose issue is still Snatched. The
+    completed-download queue only lives in memory, so these are lost when Issuarr restarts."""
+    client = _cdh_client()
+    if client is None:
+        return []
+    myDB = myDB or db.DBConnection()
+    try:
+        rows = myDB.select('SELECT IssueID, IssueArcID, ComicID, JobID FROM client_jobs WHERE Client=? ORDER BY DateAdded',
+                           [client])
+    except Exception:
+        return []
+    latest = {}
+    for r in rows:
+        key = r['IssueID'] if r['IssueID'] is not None else ('S%s' % r['IssueArcID'] if r['IssueArcID'] is not None else None)
+        if key is not None and r['JobID']:
+            latest[key] = r   # a later grab of the same issue replaces the earlier one
+    items = []
+    for key, r in latest.items():
+        try:
+            if not _still_snatched(myDB, r['IssueID'], r['IssueArcID']):
+                continue
+            info = _download_info(myDB, key)
+        except Exception as e:
+            logger.fdebug('[AUTO-COMPLETE-NZB] Could not check %s: %s' % (key, e))
+            continue
+        item = {'status': True, 'comicid': r['ComicID'], 'issueid': key, 'apicall': True, 'download_info': info}
+        if client == 'sabnzbd':
+            item['nzo_id'] = r['JobID']
+            item['queue'] = {'mode': 'queue', 'search': r['JobID'], 'output': 'json', 'apikey': mylar.CONFIG.SAB_APIKEY}
+        else:
+            try:
+                item['NZBID'] = int(r['JobID'])
+            except ValueError:
+                continue
+        items.append(item)
+    if items:
+        from mylar import downloadqueue
+        held = downloadqueue.client_has(client, [str(i.get('nzo_id') or i.get('NZBID')) for i in items])
+        if held is not None:   # None: the client couldn't be asked, so keep them all
+            items = [i for i in items if str(i.get('nzo_id') or i.get('NZBID')).lower() in held]
+    return items
+
+
+def requeue_pending(queue):
+    """Put grabs sent before a restart back on the completed-download queue."""
+    waiting = {str(i.get('nzo_id') or i.get('NZBID')) for i in list(queue.queue) if isinstance(i, dict)}
+    added = 0
+    for item in pending_jobs():
+        if str(item.get('nzo_id') or item.get('NZBID')) not in waiting:
+            queue.put(item)
+            added += 1
+    if added:
+        logger.info('[AUTO-COMPLETE-NZB] Picked up %s grab(s) sent before the restart that are still waiting to be filed.' % added)
+    return added
 
 
 def nzb_monitor(queue):
+    try:
+        requeue_pending(queue)
+    except Exception as e:
+        logger.warn('[AUTO-COMPLETE-NZB] Could not pick up grabs sent before the restart: %s' % e)
     while True:
         if mylar.RETURN_THE_NZBQUEUE.qsize() >= 1:
             if mylar.USE_SABNZBD is True:
@@ -71,6 +158,12 @@ def cdh_monitor(queue, item, nzstat, readd=False):
             mylar.RETURN_THE_NZBQUEUE.put(item)
         else:
             logger.warn('NZB seems to have been removed from queue: %s' % known_nzb_id)
+    elif nzstat['status'] == 'downloading':
+        # still downloading: check it again after the other grabs
+        item['checked'] = True
+        time.sleep(2)
+        if item not in queue.queue:
+            mylar.NZB_QUEUE.put(item)
     elif nzstat['status'] == 'failed_in_sab':
         logger.warn('Failure returned from SAB for %s for some reason. You should probably check your SABnzbd logs' % known_nzb_id)
     elif nzstat['status'] == 'queue_paused':

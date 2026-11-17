@@ -10,13 +10,16 @@
             <div class="head-text">
                 <h1><span class="page-crumb">Downloads › </span>Queue</h1>
                 <p class="page-sub">Everything on its way into your library, from every source: SABnzbd, NZBGet, torrent clients, GetComics and JDownloader 2. <span id="q-pixeldrain" hidden></span></p>
+                <p class="page-sub" id="q-clients" hidden></p>
             </div>
             <div class="btn-row">
+                <button type="button" class="btn" id="q-refresh" title="Check your download clients now for downloads in Issuarr's category, including ones you added yourself" hidden>Refresh</button>
                 <button type="button" class="btn btn-ghost" id="q-clear-finished" title="Remove finished direct downloads from this list" hidden>Clear finished</button>
                 <button type="button" class="btn btn-ghost" id="q-clear-failed" title="Remove failed direct downloads from this list" hidden>Clear failed</button>
                 <button type="button" class="btn" id="q-restart-queue">Restart queue</button>
                 <button type="button" class="btn" id="q-pause" data-paused="false" title="Hold direct downloads: nothing new starts until you resume them">Pause downloads</button>
                 <button type="button" class="btn btn-danger" id="q-stop-all" title="Stop every running direct download and remove every queued one">Stop all</button>
+                <button type="button" class="btn btn-ghost" id="q-clear-gone" title="Ask your download clients about every grab waiting on them, and put the ones they no longer have back to Wanted" hidden>Clear grabs the client no longer has</button>
                 <button type="button" class="btn btn-danger" id="q-clear-queue" title="Remove every direct download that hasn't started">Clear the queue</button>
             </div>
         </div>
@@ -60,10 +63,49 @@
             </div>
         </section>
     </div>
+    <dialog id="client-remove" class="match-dialog" aria-labelledby="client-remove-title" style="max-width: 520px">
+        <form method="dialog" id="client-remove-form">
+            <h2 id="client-remove-title">Remove download</h2>
+            <p class="match-meta" id="client-remove-name"></p>
+            %if mylar.CONFIG.TORRENT_POST_IMPORT_LABEL not in (None, '', 'None'):
+            <div class="set-row set-tog" data-torrent-only>
+                <label class="set-label" for="cr-relabel"><b>Move it to the ${mylar.CONFIG.TORRENT_POST_IMPORT_LABEL | h} label instead</b><span>It stays in the client, out of Issuarr's label.</span></label>
+                <input type="checkbox" class="switch" id="cr-relabel" />
+            </div>
+            %endif
+            <div class="set-row set-tog">
+                <label class="set-label" for="cr-files"><b>Delete its files too</b><span id="cr-files-help">Otherwise only the client's entry is removed.</span></label>
+                <input type="checkbox" class="switch" id="cr-files" checked />
+            </div>
+            <div class="set-row set-tog" data-own-only>
+                <label class="set-label" for="cr-block"><b>Block this release</b><span>It's added to Downloads › Failed so it isn't grabbed again.</span></label>
+                <input type="checkbox" class="switch" id="cr-block" />
+            </div>
+            <div class="set-row set-tog" data-own-only>
+                <label class="set-label" for="cr-skip"><b>Skip the issue</b><span>Marks it Skipped so it isn't searched for. Otherwise it's wanted again.</span></label>
+                <input type="checkbox" class="switch" id="cr-skip" />
+            </div>
+            <div class="match-actions">
+                <button type="button" class="btn btn-danger" id="cr-go">Remove</button>
+                <button type="button" class="btn btn-ghost" data-cr-close>Cancel</button>
+            </div>
+        </form>
+    </dialog>
+    <dialog id="client-choose" class="match-dialog choose-dialog" aria-labelledby="client-choose-title">
+        <div class="choose-top">
+            <h2 id="client-choose-title">Choose a match</h2>
+            <span class="muted" id="client-choose-src"></span>
+        </div>
+        <div id="client-choose-body" class="match-body"></div>
+        <div class="match-actions choose-actions">
+            <button type="button" class="btn btn-ghost" data-cc-close>Close</button>
+        </div>
+    </dialog>
 </%def>
 
 <%def name="javascriptIncludes()">
     <script>var queueShowPixeldrain = ${'true' if mylar.CONFIG.ENABLE_DDL else 'false'};</script>
     <script src="js/flow.js?v=${mylar.CURRENT_VERSION}"></script>
     <script src="js/queue.js?v=${mylar.CURRENT_VERSION}"></script>
+    <script src="js/clientchoice.js?v=${mylar.CURRENT_VERSION}"></script>
 </%def>

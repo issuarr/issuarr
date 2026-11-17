@@ -288,7 +288,10 @@ def match_file(path, comicid, issueid):
         return p
     if p['blocked']:
         return {'ok': False, 'note': p['blocked'][0]['note']}
-    if not db.DBConnection().selectone('SELECT IssueID FROM issues WHERE IssueID=? AND ComicID=?', [issueid, comicid]).fetchone():
+    myDB = db.DBConnection()
+    if not myDB.selectone('SELECT IssueID FROM issues WHERE IssueID=? AND ComicID=?', [issueid, comicid]).fetchone() and \
+            not (mylar.CONFIG.ANNUALS_ON and myDB.selectone('SELECT IssueID FROM annuals WHERE IssueID=? AND ComicID=? AND NOT Deleted',
+                                                            [issueid, comicid]).fetchone()):
         return {'ok': False, 'note': 'That issue isn\'t part of %s.' % p['series']}
     try:
         target = _move(p['move'][0], p['dest']) if p['move'] else p['stay'][0]

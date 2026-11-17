@@ -203,7 +203,7 @@
         body().innerHTML = '<p>Which issue of <b>' + esc(label(s)) + '</b> is ' + esc(dlg.file.name) + '?</p>' +
           '<div class="match-do"><select id="um-issue" aria-label="Issue">' + issues.map(function (i) {
             var n = String(i.Issue_Number || '').replace(/^0+(?=\d)/, '');
-            return '<option value="' + esc(i.IssueID) + '"' + (n === want ? ' selected' : '') + '>#' + esc(i.Issue_Number) +
+            return '<option value="' + esc(i.IssueID) + '"' + (!i.Annual && n === want ? ' selected' : '') + '>' + esc(i.Label || '#' + i.Issue_Number) +
               (i.IssueDate ? ' · ' + esc(i.IssueDate) : '') + ' · ' + esc(i.Status || '') + '</option>';
           }).join('') + '</select><button type="button" class="btn btn-sm btn-primary" data-um-issue' + (issues.length ? '' : ' disabled') + '>Next</button>' +
           '<button type="button" class="btn btn-sm btn-ghost" data-um-back>Another series</button></div>' +

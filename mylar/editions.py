@@ -24,11 +24,11 @@ import os
 import re
 
 # "Absolute" is left out: it is also a line of single-issue series (Absolute Batman).
-_WORDS = re.compile(r'(?<![a-z0-9])(?:tpb|trade paperback|hc|hardcover|gn|graphic novel|omnibus|deluxe edition|'
+_WORDS = re.compile(r'(?<![a-z0-9])(?:tpb|trade paperback|hc|hardcover|o?gn|graphic novel|omnibus|deluxe edition|'
                     r'compendium|epic collection|complete collection|library edition)(?![a-z0-9])', re.I)
 
 # Words that only say the format, never part of a title, so "Saga HC Book 01" is the series Saga.
-_FORMAT_TAIL = re.compile(r'(?:\s+(?:tpb|trade paperback|hc|hardcover|gn|graphic novel))+(?:\s+(?:book|vol(?:ume)?\.?))?\s*$', re.I)
+_FORMAT_TAIL = re.compile(r'(?:\s+(?:tpb|trade paperback|hc|hardcover|o?gn|graphic novel))+(?:\s+(?:book|vol(?:ume)?\.?))?\s*$', re.I)
 
 COLLECTED_TYPES = ('TPB', 'HC', 'GN')
 

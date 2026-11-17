@@ -529,6 +529,9 @@ class MATTERMOST:
                     ]
                 }
             ]
+            image_url = cover_url(metadata)
+            if image_url:
+                attachments[0]["image_url"] = image_url   # Mattermost takes a link, not an upload
         else:
             attachments = []
 
@@ -694,11 +697,11 @@ class DISCORD:
                         ],
                         "timestamp": timestamp
                     }
-                if imageFile is not None:
-                    embed["image"] = {"url": "attachment://image.jpg"}
                 payload["content"] = attachment_text
                 payload["embeds"] = [embed]
 
+        if imageFile is not None and payload.get("embeds"):
+            payload["embeds"][0]["image"] = {"url": "attachment://image.jpg"}
         if imageFile is not None:
             files = {
                 'payload_json': (None, json.dumps(payload)),
@@ -759,12 +762,12 @@ class GOTIFY:
                 "extras": {
                     "client::display": {
                         "contentType": "text/markdown"
-                    },
-                    "client::notification": {
-                      "click": { "url": "https://comicvine.gamespot.com/issue/4000-"+metadata['issueid']+"/" }
                     }
                 }
             }
+            click = _cv_issue_url(metadata)   # a recheck's cover is the series', with no one issue to open
+            if click:
+                payload["extras"]["client::notification"] = {"click": {"url": click}}
 
         try:
             response = requests.post(self.webhook_url, json=payload, verify=True)
@@ -906,7 +909,7 @@ def send_all(headline, prline, message, event='downloaded', metadata=None, image
             PROWL().notify(prline, headline, module=module)
 
         if mylar.CONFIG.PUSHOVER_ENABLED:
-            PUSHOVER().notify(prline, message, module=module, imageFile=imageFile)
+            PUSHOVER().notify(prline, message, module=module, imageFile=imageFile if mylar.CONFIG.PUSHOVER_IMAGE else None)
 
         if mylar.CONFIG.BOXCAR_ENABLED:
             BOXCAR().notify(prline=prline, prline2=message, module=module)
@@ -915,7 +918,7 @@ def send_all(headline, prline, message, event='downloaded', metadata=None, image
             PUSHBULLET().notify(prline=prline, prline2=message, module=module, title=headline if event in ALERT_COLOURS else None)
 
         if mylar.CONFIG.TELEGRAM_ENABLED:
-            TELEGRAM().notify(message, imageFile)
+            TELEGRAM().notify(message, imageFile if mylar.CONFIG.TELEGRAM_IMAGE else None)
 
         if mylar.CONFIG.SLACK_ENABLED:
             SLACK().notify(headline, message, module=module)
@@ -950,11 +953,77 @@ def added_line(series, year, numbers, most=10):
     return ('%s (%s) %s' % (series, year, issues) if year else '%s %s' % (series, issues)), issues
 
 
-def files_added(series, year, numbers, issueid=None, module=None):
+def wants_cover():
+    """Whether a service that is on shows a cover, so the cover is worth reading."""
+    c = mylar.CONFIG
+    return any([c.PUSHOVER_IMAGE and c.PUSHOVER_ENABLED, c.TELEGRAM_IMAGE and c.TELEGRAM_ENABLED, c.DISCORD_ENABLED,
+                c.GOTIFY_ENABLED, c.MATTERMOST_ENABLED, c.NTFY_ENABLED])
+
+
+def _scaled(image_path):
+    """An image file as a 600 px wide base64 JPEG, the size the download notification's cover has."""
+    from mylar import getimage
+    try:
+        with getimage.Image.open(image_path) as img:
+            return str(base64.b64encode(getimage.scale_image(img, 'JPEG', 600)), 'utf-8')
+    except Exception as e:
+        logger.fdebug('[NOTIFIER] No cover from %s: %s' % (image_path, e))
+        return None
+
+
+def cover(path=None, comicid=None, issueid=None):
+    """A cover for a notification, as base64 JPEG: the front cover of the file at path, else the
+    issue's ComicVine cover (fetched once and cached), else the series cover Issuarr keeps; None
+    when there is none."""
+    from mylar import getimage
+    if path and os.path.isfile(path):
+        try:
+            got = getimage.extract_image(path, single=True, imquality='notif')
+            if got and got.get('rawImage'):
+                return got['ComicImage']
+        except Exception as e:
+            logger.fdebug('[NOTIFIER] No cover from %s: %s' % (path, e))
+    if issueid:
+        try:
+            from mylar import attention
+            found = attention.issue_cover(issueid)
+            if found and os.path.isfile(found):
+                return _scaled(found)
+        except Exception as e:
+            logger.fdebug('[NOTIFIER] No cover for issue %s: %s' % (issueid, e))
+    series_cover = os.path.join(mylar.CONFIG.CACHE_DIR or '', '%s.jpg' % comicid) if comicid else None
+    if series_cover and os.path.isfile(series_cover):
+        return _scaled(series_cover)
+    return None
+
+
+def cover_url(metadata):
+    """The ComicVine address of the issue's cover, else the series', for services that take a link
+    instead of an image (Mattermost)."""
+    metadata = metadata or {}
+    try:
+        from mylar import db
+        myDB = db.DBConnection()
+        if metadata.get('issueid'):
+            row = myDB.selectone('SELECT ImageURL, ImageURL_ALT, ComicID FROM issues WHERE IssueID=?', [metadata['issueid']]).fetchone()
+            if row and (row['ImageURL'] or row['ImageURL_ALT']):
+                return row['ImageURL'] or row['ImageURL_ALT']
+            metadata = dict(metadata, comicid=metadata.get('comicid') or (row and row['ComicID']))
+        if metadata.get('comicid'):
+            row = myDB.selectone('SELECT ComicImageURL FROM comics WHERE ComicID=?', [metadata['comicid']]).fetchone()
+            if row and row['ComicImageURL']:
+                return row['ComicImageURL']
+    except Exception as e:
+        logger.fdebug('[NOTIFIER] No cover link: %s' % e)
+    return None
+
+
+def files_added(series, year, numbers, issueid=None, module=None, comicid=None, path=None):
     """Files turned up for issues of a series outside a download. Sent only when the
-    'Files added by hand' notification is on."""
+    'Files added by hand' notification is on. The cover is path's, else the series cover."""
     if not mylar.CONFIG.NOTIFY_ON_ADDED or not numbers:
         return
     prline, issues = added_line(series, year, numbers)
-    send_all('Files added', prline, 'Added to Issuarr: ' + prline, event='added',
-             metadata={'series': series, 'issue': issues, 'year': year, 'issueid': issueid}, module=module)
+    image = cover(path, comicid, issueid) if wants_cover() else None
+    send_all('Files added', prline, 'Added to Issuarr: ' + prline, event='added', imageFile=image,
+             metadata={'series': series, 'issue': issues, 'year': year, 'issueid': issueid, 'comicid': comicid}, module=module)

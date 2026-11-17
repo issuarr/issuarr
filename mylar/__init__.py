@@ -525,6 +525,15 @@ def start():
             from mylar import downloadqueue
             SCHED.add_job(func=downloadqueue.clear_stuck_tick, id='snatched', name='Stuck Snatched', max_instances=1, coalesce=True,
                           trigger=IntervalTrigger(hours=0, minutes=downloadqueue.CLEAR_EVERY, timezone='UTC'))
+            # Grabs SABnzbd, NZBGet or a torrent client no longer has (history cleared, removed there)
+            SCHED.add_job(func=downloadqueue.clear_vanished_tick, id='client_gone', name='Grabs the client no longer has', max_instances=1,
+                          coalesce=True, trigger=IntervalTrigger(hours=0, minutes=downloadqueue.VANISH_EVERY, timezone='UTC'))
+
+            # Downloads in Issuarr's category at qBittorrent, SABnzbd and NZBGet, including ones added by hand
+            from mylar import clientwatch
+            SCHED.add_job(func=clientwatch.tick, id='clientwatch', name='Check download clients', max_instances=1, coalesce=True,
+                          next_run_time=datetime.datetime.utcnow() + datetime.timedelta(minutes=1),
+                          trigger=IntervalTrigger(hours=0, minutes=clientwatch.TICK, timezone='UTC'))
 
             # Indexers from Prowlarr, while Keep in sync is on (does nothing otherwise)
             from mylar import prowlarr
@@ -859,7 +868,7 @@ def dbcheck():
     c.execute('CREATE TABLE IF NOT EXISTS weekly (SHIPDATE TEXT, PUBLISHER TEXT, ISSUE TEXT, COMIC VARCHAR(150), EXTRA TEXT, STATUS TEXT, ComicID TEXT, IssueID TEXT, CV_Last_Update TEXT, DynamicName TEXT, weeknumber TEXT, year TEXT, volume TEXT, seriesyear TEXT, annuallink TEXT, format TEXT, rowid INTEGER PRIMARY KEY)')
     c.execute('CREATE TABLE IF NOT EXISTS importresults (impID TEXT, ComicName TEXT, ComicYear TEXT, Status TEXT, ImportDate TEXT, ComicFilename TEXT, ComicLocation TEXT, WatchMatch TEXT, DisplayName TEXT, SRID TEXT, ComicID TEXT, IssueID TEXT, Volume TEXT, IssueNumber TEXT, DynamicName TEXT)')
     c.execute('CREATE TABLE IF NOT EXISTS readlist (IssueID TEXT, ComicName TEXT, Issue_Number TEXT, Status TEXT, DateAdded TEXT, Location TEXT, inCacheDir TEXT, SeriesYear TEXT, ComicID TEXT, StatusChange TEXT)')
-    c.execute('CREATE TABLE IF NOT EXISTS annuals (IssueID TEXT, Issue_Number TEXT, IssueName TEXT, IssueDate TEXT, Status TEXT, ComicID TEXT, GCDComicID TEXT, Location TEXT, ComicSize TEXT, Int_IssueNumber INT, ComicName TEXT, ReleaseDate TEXT, DigitalDate TEXT, ReleaseComicID TEXT, ReleaseComicName TEXT, IssueDate_Edit TEXT, DateAdded TEXT, Deleted INT DEFAULT 0)')
+    c.execute('CREATE TABLE IF NOT EXISTS annuals (IssueID TEXT, Issue_Number TEXT, IssueName TEXT, IssueDate TEXT, Status TEXT, ComicID TEXT, GCDComicID TEXT, Location TEXT, ComicSize TEXT, Int_IssueNumber INT, ComicName TEXT, ReleaseDate TEXT, DigitalDate TEXT, ReleaseComicID TEXT, ReleaseComicName TEXT, IssueDate_Edit TEXT, DateAdded TEXT, Deleted INT DEFAULT 0, forced_file INT)')
     c.execute('CREATE TABLE IF NOT EXISTS rssdb (Title TEXT UNIQUE, Link TEXT, Pubdate TEXT, Site TEXT, Size TEXT, Issue_Number TEXT, ComicName TEXT)')
     c.execute('CREATE TABLE IF NOT EXISTS futureupcoming (ComicName TEXT, IssueNumber TEXT, ComicID TEXT, IssueID TEXT, IssueDate TEXT, Publisher TEXT, Status TEXT, DisplayComicName TEXT, weeknumber TEXT, year TEXT)')
     c.execute('CREATE TABLE IF NOT EXISTS failed (ID TEXT, Status TEXT, ComicID TEXT, IssueID TEXT, Provider TEXT, ComicName TEXT, Issue_Number TEXT, NZBName TEXT, DateFailed TEXT)')
@@ -910,6 +919,11 @@ def dbcheck():
         c.execute('SELECT LastUpdated from comics')
     except sqlite3.OperationalError:
         c.execute('ALTER TABLE comics ADD COLUMN LastUpdated TEXT')
+
+    try:
+        c.execute('SELECT Reason from failed')
+    except sqlite3.OperationalError:
+        c.execute('ALTER TABLE failed ADD COLUMN Reason TEXT')
 
     try:
         c.execute('SELECT QUALalt_vers from comics')
@@ -1144,6 +1158,11 @@ def dbcheck():
         c.execute('SELECT forced_file from issues')
     except sqlite3.OperationalError:
         c.execute('ALTER TABLE issues ADD COLUMN forced_file INT')
+
+    try:
+        c.execute('SELECT forced_file from annuals')
+    except sqlite3.OperationalError:
+        c.execute('ALTER TABLE annuals ADD COLUMN forced_file INT')
 
     try:
         c.execute('SELECT Description from issues')
