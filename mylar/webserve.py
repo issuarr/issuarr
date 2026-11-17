@@ -11264,14 +11264,13 @@ class WebInterface(object):
                 cvSeriesID = databaseEntry.get('Series')
                 cvIssueID = databaseEntry.get('Issue')
 
-                if cvSeriesID in volume_cache.keys():
-                    vol_exists = volume_cache[cvSeriesID]
-                else:
-                    comic = myDB.selectone('SELECT * FROM comics WHERE ComicID=?', [cvSeriesID]).fetchone()
-                    vol_exists = False if comic is None else True
-                    volume_cache[cvSeriesID] = vol_exists
-                    if not vol_exists:
+                if cvSeriesID not in volume_cache:
+                    # an annual series kept with its series is in the library under that series
+                    volume_cache[cvSeriesID] = cbl_catalog.watched_series(myDB, cvSeriesID)
+                    if volume_cache[cvSeriesID] is None:
                         newvol_count += 1
+                held_by = volume_cache[cvSeriesID]
+                vol_exists = held_by is not None
                 
                 if vol_exists:
                     issue = myDB.selectone('SELECT * FROM issues WHERE IssueID=?', [cvIssueID]).fetchone()
@@ -11308,7 +11307,7 @@ class WebInterface(object):
                 
                 # List to return to import table display: Entry, Volume, Issue, Status, Action
                 results.append([issueIndex, 
-                                f'<a href="{"comicDetails?ComicID=" if vol_exists else "https://comicvine.com/volume/4050-"}{cvSeriesID}" target="{"_self" if vol_exists else "_blank"}">{volumeName} ({volumeYear})</a>',
+                                f'<a href="{"comicDetails?ComicID=" if vol_exists else "https://comicvine.com/volume/4050-"}{held_by if vol_exists else cvSeriesID}" target="{"_self" if vol_exists else "_blank"}">{volumeName} ({volumeYear})</a>',
                                 issueNumber,
                                 iss_status,
                                 action_text])
@@ -11386,7 +11385,7 @@ class WebInterface(object):
                     else:
                         checkIssue = True
                 else:
-                    volume = myDB.selectone('SELECT * FROM comics WHERE ComicID=?', [cvSeriesID]).fetchone()
+                    volume = cbl_catalog.watched_series(myDB, cvSeriesID)
                     if volume is None:
                         logger.fdebug(f'CBL File: Volume "{volumeName} ({volumeYear})" does not exist exist.  Adding Volume, and Issue #{issueNumber} to be marked as Wanted')
                         

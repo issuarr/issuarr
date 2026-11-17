@@ -110,3 +110,17 @@ def fetch(path):
     if len(r.content) > MAX_LIST_BYTES:
         return None, 'That list is too big to read.'
     return os.path.basename(path), r.content
+
+
+def watched_series(myDB, cv_series_id):
+    """The watchlist series a reading list's ComicVine series is in: that series itself, or with
+    "Keep annuals with their series" on, the series its annuals are kept with. None when neither."""
+    row = myDB.selectone('SELECT ComicID FROM comics WHERE ComicID=?', [cv_series_id]).fetchone()
+    if row is not None:
+        return row['ComicID']
+    if mylar.CONFIG.ANNUALS_ON:
+        row = myDB.selectone('SELECT a.ComicID FROM annuals a JOIN comics c ON c.ComicID=a.ComicID '
+                             'WHERE a.ReleaseComicID=? AND NOT a.Deleted', [cv_series_id]).fetchone()
+        if row is not None:
+            return row['ComicID']
+    return None
