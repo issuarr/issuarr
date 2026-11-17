@@ -1779,9 +1779,10 @@ def forceRescan(ComicID, archive=None, module=None, recheck=False):
 
     # Files the name didn't place: a file tagged with a ComicVine issue ID of this series is that issue.
     issStatus = 'Archived' if archive else 'Downloaded'
-    for tagged in matching.by_tags(ComicID, [(f['ComicLocation'], f.get('sub'), f['ComicFilename'], f['ComicSize']) for f in leftovers] +
-                                   [(f['comiclocation'], f['sub'], f['comicfilename'], None) for f in unnamed],
-                                   pins, set(issID_to_ignore) | set(annID_to_ignore)):
+    unplaced = [(f['ComicLocation'], f.get('sub'), f['ComicFilename'], f['ComicSize']) for f in leftovers] + \
+               [(f['comiclocation'], f['sub'], f['comicfilename'], None) for f in unnamed]
+    for tagged in matching.by_tags(ComicID, unplaced, pins, set(issID_to_ignore) | set(annID_to_ignore)):
+        unplaced = [f for f in unplaced if f[2] != tagged['name']]
         logger.fdebug('%s [TAGGED-MATCH] %s is #%s by its ComicVine issue ID %s' % (module, tagged['name'], tagged['number'], tagged['issueid']))
         havefiles += 1
         if tagged['annual']:
@@ -1790,6 +1791,13 @@ def forceRescan(ComicID, archive=None, module=None, recheck=False):
         else:
             d_issues.append((issStatus, tagged['size'], tagged['name'], tagged['issueid']))
             issID_to_ignore.append(tagged['issueid'])
+
+    # Files still unplaced that are named for an annual kept with this series ("X Annual 2024 001")
+    for named in matching.by_annual_name(ComicID, unplaced, pins, set(issID_to_ignore) | set(annID_to_ignore)):
+        logger.fdebug('%s [ANNUAL-MATCH] %s is annual #%s by its annual series name' % (module, named['name'], named['number']))
+        havefiles += 1
+        d_annuals.append((issStatus, named['size'], named['name'], named['issueid']))
+        annID_to_ignore.append(named['issueid'])
 
     added = [] if archive or recheck else newly_owned(myDB, d_issues, d_annuals)   # recheck: post-processing already says so
     b_start = datetime.datetime.now()
