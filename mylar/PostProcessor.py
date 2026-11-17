@@ -684,6 +684,27 @@ class PostProcessor(object):
         self.__dict__.setdefault('_att_listed', []).append(path)
         return False
 
+    def _named_annual(self, myDB, fl, path):
+        """A file named for an annual kept with a watchlist series ("Sonic the Hedgehog Annual 2024 001"),
+        as an entry to file, or None. The old matching reads such names as another series."""
+        if not mylar.CONFIG.ANNUALS_ON or fl.get('issueid') or not os.path.isfile(path):
+            return None
+        from mylar import matching
+        try:
+            row = matching.annual_for(None, os.path.basename(path))
+        except Exception as e:
+            logger.fdebug('%s Could not check %s against the annuals: %s' % (self.module, path, e))
+            return None
+        comic = row and myDB.selectone('SELECT ComicID, ComicName, ComicYear, AgeRating FROM comics WHERE ComicID=?', [row['ComicID']]).fetchone()
+        if not comic:
+            return None
+        logger.info('%s[ANNUAL-MATCH] %s is %s #%s, kept with %s (%s).' % (self.module, os.path.basename(path), row['ReleaseComicName'],
+                                                                          row['Issue_Number'], comic['ComicName'], comic['ComicYear']))
+        return {'ComicLocation': path, 'ComicID': comic['ComicID'], 'IssueID': row['IssueID'], 'IssueNumber': row['Issue_Number'],
+                'AnnualType': 'Annual', 'AnnualSeries': row['ReleaseComicName'], 'ComicName': comic['ComicName'],
+                'AgeRating': comic['AgeRating'], 'Series': row['ReleaseComicName'], 'SeriesYear': comic['ComicYear'],
+                'AltSeries': None, 'One-Off': False, 'ForcedMatch': False}
+
     def _att_settle(self, counts):
         cur, self._att = getattr(self, '_att', None), None
         if cur and cur['path'] and counts == cur['counts'] and os.path.isfile(cur['path']):
@@ -848,6 +869,10 @@ class PostProcessor(object):
                         logger.warn(f"Could not find file {full_filename}.  Skipping condition check.")
 
                     self.matched = False
+                    named = self._named_annual(myDB, fl, full_filename)
+                    if named:
+                        manual_list.append(named)
+                        continue
                     as_d = filechecker.FileChecker()
                     as_dinfo = as_d.dynamic_replace(fl['series_name']) #helpers.conversion(fl['series_name']))
                     orig_seriesname = as_dinfo['mod_seriesname']

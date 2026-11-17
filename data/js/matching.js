@@ -137,11 +137,8 @@
     if (none) none.hidden = shown > 0;
   }
 
-  function options(selected, waiting) {
-    // a file in Needs attention is filed as a series issue; annuals are matched to files already in the folder
-    return (selected ? '' : '<option value="" selected disabled>Choose an issue</option>') + data.issues.filter(function (i) {
-      return !(waiting && i.annual);
-    }).map(function (i) {
+  function options(selected) {
+    return (selected ? '' : '<option value="" selected disabled>Choose an issue</option>') + data.issues.map(function (i) {
       return '<option value="' + esc(i.issueid) + '"' + (String(i.issueid) === String(selected) ? ' selected' : '') + '>' +
         esc(lbl(i)) + (i.name ? ' · ' + esc(i.name) : '') + '</option>';
     }).join('');
@@ -152,7 +149,7 @@
     return '<li class="match-row' + (current ? '' : ' is-unmatched') + '" data-text="' + esc(searchText(f)) + '" data-kind="' + kind + '" data-n="' + n + '">' +
       '<div class="match-covers">' + fileCover(f) + issueCover(issueById(f.issueid), f.issueid ? null : '') + '</div>' +
       '<div class="match-file"><span class="match-name">' + fileName(f) + '</span><span class="match-meta">' + meta(f) + '</span>' +
-      '<div class="match-do"><select aria-label="Issue for ' + esc(f.name) + '">' + options(f.issueid, kind === 'waiting') + '</select>' +
+      '<div class="match-do"><select aria-label="Issue for ' + esc(f.name) + '">' + options(f.issueid) + '</select>' +
       '<button type="button" class="btn btn-sm btn-primary" data-match hidden>' + (kind === 'waiting' ? 'File as this issue' : 'Match') + '</button>' +
       (f.pinned ? '<button type="button" class="btn btn-sm btn-ghost" data-undo="' + esc(f.issueid) + '">Undo</button>' : '') +
       '</div></div></li>';
@@ -201,7 +198,7 @@
     title.textContent = 'Match a file to ' + lbl(issue);
     var mine = num(issue.number);
     function rank(f) { return num(f.reads_as) === mine || num(f.number) === mine && f.path ? 0 : !f.issueid ? 1 : f.path ? 1 : 2; }
-    var files = data.files.concat(issue.annual ? [] : data.waiting).slice().sort(function (a, b) { return rank(a) - rank(b); });
+    var files = data.files.concat(data.waiting).slice().sort(function (a, b) { return rank(a) - rank(b); });
     intro.innerHTML = 'Compare each file\'s cover with this issue\'s cover from ComicVine. ' +
       (issue.file ? 'Now ' + esc(issue.file) + (issue.pinned ? ' <span class="match-hand">matched by hand</span>' : '') + '.' : 'No file is matched to it yet.');
     body.innerHTML = '<div class="match-issue">' + issueCover(issue, lbl(issue) + (issue.name ? ' · ' + issue.name : '')) +
