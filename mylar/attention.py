@@ -387,10 +387,11 @@ def _named(want, comicid=None, floor=0.75):
     return named
 
 
-def suggest(parsed, limit=3, comicid=None):
+def suggest(parsed, limit=3, comicid=None, annuals=False):
     """Watchlist series closest to what the file name says, each with the issue it would be
     and which parts of the name agree. Series with the same name are told apart by whether
-    the issue is on them and its year and volume agree."""
+    the issue is on them and its year and volume agree. annuals: a file named for an annual
+    kept with a series ("X Annual 2024 001") may be that annual."""
     want = _norm(parsed.get('series'))
     if not want and not comicid:
         return []
@@ -406,6 +407,19 @@ def suggest(parsed, limit=3, comicid=None):
         extra = [(s, c, True) for s, c in _named(tnorm, comicid) if s >= 0.92 and s > best.get(str(c['ComicID']), 0)]
         named = sorted([n for n in named if not any(str(n[1]['ComicID']) == str(e[1]['ComicID']) for e in extra)] + extra, key=lambda x: -x[0])
     myDB = db.DBConnection()
+    ann = None
+    if annuals and mylar.CONFIG.ANNUALS_ON and parsed.get('name'):
+        from mylar import matching
+        ann = matching.annual_for(comicid, parsed['name'])
+        if ann is not None:
+            # named for its annual series, so its parent series is a match whatever its own name
+            ann = myDB.selectone('SELECT IssueID, ComicID, Issue_Number, Status, IssueDate, ReleaseDate, ReleaseComicName FROM annuals '
+                                 'WHERE IssueID=? AND ComicID=?', [ann['IssueID'], ann['ComicID']]).fetchone()
+        parent = ann is not None and next((c for c in _watchlist() if str(c['ComicID']) == str(ann['ComicID'])), None)
+        if parent:
+            named = [(1.0, parent, False)] + [n for n in named if str(n[1]['ComicID']) != str(parent['ComicID'])]
+        else:
+            ann = None
     fyear = str(parsed.get('year') or '')
     out = []
     for s, c, by_title in named[:10]:
@@ -429,6 +443,11 @@ def suggest(parsed, limit=3, comicid=None):
             # a one-shot: the name says no number, or the number was part of the name. "X-Men Annual 2000"
             # is only the one-shot of a series named for that year, not of X-Men Annual (2023)
             issue = dict(rows[0])
+        label = None
+        if ann is not None and str(c['ComicID']) == str(ann['ComicID']):
+            from mylar import matching
+            issue = dict(ann)
+            label = matching.annual_label(ann['ReleaseComicName'], ann['Issue_Number'])
         iyear = str((issue or {}).get('IssueDate') or (issue or {}).get('ReleaseDate') or '')[:4]
         fvol, svol = _vol(parsed.get('volume')), _vol(c.get('ComicVersion'))
         agree = {
@@ -449,7 +468,7 @@ def suggest(parsed, limit=3, comicid=None):
                      'published': c.get('ComicPublished'),
                      'total': c['Total'], 'score': round(s, 2), 'rank': round(rank, 2), 'agree': agree,
                      'format': 'Single issues' if singles else stype,
-                     'issueid': (issue or {}).get('IssueID'), 'number': (issue or {}).get('Issue_Number'),
+                     'issueid': (issue or {}).get('IssueID'), 'number': (issue or {}).get('Issue_Number'), 'label': label,
                      'status': (issue or {}).get('Status'), 'issue_year': iyear or None,
                      # filing it would only duplicate the copy already filed
                      'owned': (issue or {}).get('Status') in ('Downloaded', 'Archived')})
@@ -486,7 +505,7 @@ def items():
         hit = _SUGGESTED.get(key)
         if hit is None or time.time() - hit[2] > SUGGEST_SECONDS:
             parsed = parse(path)
-            hit = (parsed, [] if library else suggest(parsed, comicid=row.get('comicid')), time.time())
+            hit = (parsed, [] if library else suggest(parsed, comicid=row.get('comicid'), annuals=True), time.time())
             _SUGGESTED[key] = hit
         parsed, matches = hit[0], covermatch.annotate(path, hit[1])
         job = JOBS.get(path)
@@ -652,9 +671,16 @@ def series_state(comicid):
 
 
 def issues(comicid):
-    rows =db.DBConnection().select('SELECT IssueID, Issue_Number, Status, IssueDate FROM issues WHERE ComicID=?', [comicid])
-    rows = [dict(r) for r in rows]
+    """The series' issues to pick from, then the annuals kept with it ("Annual 2024 #1" as Label)."""
+    from mylar import matching
+    myDB = db.DBConnection()
+    rows = [dict(r) for r in myDB.select('SELECT IssueID, Issue_Number, Status, IssueDate FROM issues WHERE ComicID=?', [comicid])]
     rows.sort(key=lambda r: (_num(r['Issue_Number']) is None, _num(r['Issue_Number']) or 0))
+    if mylar.CONFIG.ANNUALS_ON:
+        for r in myDB.select('SELECT IssueID, Issue_Number, Status, IssueDate, ReleaseComicName FROM annuals '
+                             'WHERE ComicID=? AND NOT Deleted ORDER BY IssueDate, Int_IssueNumber', [comicid]):
+            rows.append({'IssueID': r['IssueID'], 'Issue_Number': r['Issue_Number'], 'Status': r['Status'], 'IssueDate': r['IssueDate'],
+                         'Label': matching.annual_label(r['ReleaseComicName'], r['Issue_Number']), 'Annual': True})
     return rows
 
 
@@ -926,18 +952,35 @@ def file_as(path, comicid, issueid):
     if in_library(path):
         return {'ok': False, 'note': 'That file is already in your library. Replace it with a good copy, or move it to the trash.'}
     myDB = db.DBConnection()
-    issue = myDB.selectone('SELECT i.IssueID, i.Issue_Number, i.ComicID, c.ComicName, c.ComicYear FROM issues i '
-                           'JOIN comics c ON c.ComicID=i.ComicID WHERE i.IssueID=? AND i.ComicID=?', [issueid, comicid]).fetchone()
+    issue = _issue_to_file(myDB, issueid, comicid)
     if issue is None:
         return {'ok': False, 'note': 'That issue isn\'t on your watchlist.'}
     with _LOCK:
         if (JOBS.get(path) or {}).get('state') in ('waiting', 'filing'):
             return {'ok': False, 'note': 'Already being filed.'}
-        label = '%s #%s' % (issue['ComicName'], issue['Issue_Number'])
+        label = _label(issue)
         JOBS[path] = {'state': 'waiting', 'note': 'Waiting to file as %s' % label}
     _keep_pick(path, comicid, issueid)
-    threading.Thread(target=_file_now, args=(path, dict(issue)), name='ATTENTION-FILE', daemon=True).start()
+    threading.Thread(target=_file_now, args=(path, issue), name='ATTENTION-FILE', daemon=True).start()
     return {'ok': True, 'note': 'Filing as %s. It starts as soon as the filing that\'s running now finishes.' % label}
+
+
+def _issue_to_file(myDB, issueid, comicid):
+    """An issue of a watchlist series, or an annual kept with it, to file a file as, or None."""
+    row = myDB.selectone('SELECT i.IssueID, i.Issue_Number, i.ComicID, c.ComicName, c.ComicYear FROM issues i '
+                         'JOIN comics c ON c.ComicID=i.ComicID WHERE i.IssueID=? AND i.ComicID=?', [issueid, comicid]).fetchone()
+    if row is not None:
+        return dict(row, annual=None)
+    if mylar.CONFIG.ANNUALS_ON:
+        row = myDB.selectone('SELECT a.IssueID, a.Issue_Number, a.ComicID, a.ReleaseComicName, c.ComicName, c.ComicYear FROM annuals a '
+                             'JOIN comics c ON c.ComicID=a.ComicID WHERE a.IssueID=? AND a.ComicID=? AND NOT a.Deleted', [issueid, comicid]).fetchone()
+        if row is not None:
+            return dict(row, annual=row['ReleaseComicName'] or '%s Annual' % row['ComicName'])
+    return None
+
+
+def _label(issue):
+    return '%s #%s' % (issue['annual'] or issue['ComicName'], issue['Issue_Number'])
 
 
 def _keep_pick(path, comicid, issueid):
@@ -973,12 +1016,11 @@ def resume_picks():
         if not os.path.isfile(r['path']):
             forget(r['path'])
             continue
-        issue = myDB.selectone('SELECT i.IssueID, i.Issue_Number, i.ComicID, c.ComicName, c.ComicYear FROM issues i '
-                               'JOIN comics c ON c.ComicID=i.ComicID WHERE i.IssueID=? AND i.ComicID=?', [issueid, comicid]).fetchone()
+        issue = _issue_to_file(myDB, issueid, comicid)
         if issue is None:
             _drop_pick(r['path'])
             continue
-        JOBS[r['path']] = {'state': 'waiting', 'note': 'Waiting to file as %s #%s' % (issue['ComicName'], issue['Issue_Number'])}
+        JOBS[r['path']] = {'state': 'waiting', 'note': 'Waiting to file as %s' % _label(issue)}
         todo.append((r['path'], dict(issue)))
     if todo:
         logger.info('[ATTENTION] Filing %s file(s) you chose an issue for before the restart.' % len(todo))
@@ -993,19 +1035,21 @@ def resume_picks():
 def entry_for(path, issue):
     return {'ComicLocation': path, 'ComicID': issue['ComicID'], 'IssueID': issue['IssueID'],
             'IssueNumber': issue['Issue_Number'], 'ComicName': issue['ComicName'], 'SeriesYear': issue['ComicYear'],
-            'Series': issue['ComicName'], 'AltSeries': None, 'AnnualType': None, 'AnnualSeries': None,
+            'Series': issue['ComicName'], 'AltSeries': None, 'AnnualType': 'Annual' if issue.get('annual') else None,
+            'AnnualSeries': issue.get('annual'),
             'AgeRating': None, 'One-Off': False, 'ForcedMatch': True}   # no IssueArcID: that would start story-arc filing
 
 
 def _file_now(path, issue):
     from mylar import PostProcessor
-    label = '%s #%s' % (issue['ComicName'], issue['Issue_Number'])
+    label = _label(issue)
     try:
         pp = PostProcessor.PostProcessor('Manual Run', os.path.dirname(path), queue=queue.Queue())
         with PostProcessor.PP_LOCK:
             JOBS[path] = {'state': 'filing', 'note': 'Filing as %s' % label}
             pp.nzb_or_oneoff_pp(manual=[entry_for(path, issue)])
-        row = db.DBConnection().selectone('SELECT Status FROM issues WHERE IssueID=?', [issue['IssueID']]).fetchone()
+        row = db.DBConnection().selectone('SELECT Status FROM %s WHERE IssueID=?' % ('annuals' if issue.get('annual') else 'issues'),
+                                          [issue['IssueID']]).fetchone()
         if row is not None and row['Status'] in ('Downloaded', 'Archived'):
             if os.path.isfile(path):
                 # filing copies when set to copy - the original isn't needed here any more

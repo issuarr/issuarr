@@ -100,7 +100,7 @@
             return '<div class="att-read" role="group" aria-label="The file name next to the closest series">' +
                 '<div class="att-col att-rowhead"><span class="att-part">&nbsp;</span><span class="att-file">File name</span><span class="att-lib">' + (m ? 'Closest match' : 'No close match') + '</span></div>' +
                 cell('Series', p.series, m && label(i, m), m ? a.series : null) +
-                cell('Issue', p.issue && '#' + p.issue, m && m.number && '#' + m.number, m ? a.issue : null, m ? 'not on this series' : '') +
+                cell('Issue', p.issue && '#' + p.issue, m && m.number && (m.label || '#' + m.number), m ? a.issue : null, m ? 'not on this series' : '') +
                 cell('Year', p.year, m && m.issue_year, m ? a.year : null) +
                 cell('Volume', p.volume, m && m.volume, m ? a.volume : null) +
                 cell('Format', p.collected ? 'Collected edition' : 'Single issue', m && m.format, m ? a.format : null, m ? 'not known' : '') +
@@ -132,7 +132,7 @@
                 // the suggested issue is already filed: this file is a spare copy
                 out += '<button type="button" class="btn btn-sm btn-primary" data-trash>Move to trash</button>';
             } else if (m && m.issueid) {
-                out += '<button type="button" class="btn btn-sm btn-primary" data-file="' + esc(m.comicid) + '|' + esc(m.issueid) + '">File as ' + esc(m.name) + ' #' + esc(m.number) + '</button>';
+                out += '<button type="button" class="btn btn-sm btn-primary" data-file="' + esc(m.comicid) + '|' + esc(m.issueid) + '">File as ' + esc(m.name) + ' ' + esc(m.label || '#' + m.number) + '</button>';
             }
             out += '<button type="button" class="btn btn-sm" data-pick aria-expanded="' + (open === i.path) + '">' + (m && m.issueid ? 'Choose another' : 'Choose the issue') + '</button>';
             if (!(m && m.issueid && m.owned)) out += '<button type="button" class="btn btn-sm btn-ghost" data-trash>Move to trash</button>';
@@ -143,7 +143,7 @@
         function owned(i) {
             var m = i.matches[0];
             if (!m || !m.issueid || !m.owned) return '';
-            return '<p class="att-owned"><b>' + esc(m.name) + ' (' + esc(m.year) + ') #' + esc(m.number) + ' is already in your library.</b> ' +
+            return '<p class="att-owned"><b>' + esc(m.name) + ' (' + esc(m.year) + ') ' + esc(m.label || '#' + m.number) + ' is already in your library.</b> ' +
                    'This file looks like a spare copy. Move it to the trash, or choose another issue if it\'s something else.</p>';
         }
 
@@ -151,7 +151,7 @@
             var rest = i.matches.slice(1).filter(function (m) { return m.issueid; });
             if (!rest.length) return '';
             return '<p class="att-others">Or ' + rest.map(function (m) {
-                return '<button type="button" class="link-btn" data-file="' + esc(m.comicid) + '|' + esc(m.issueid) + '">' + esc(label(i, m)) + ' #' + esc(m.number) + '</button>' +
+                return '<button type="button" class="link-btn" data-file="' + esc(m.comicid) + '|' + esc(m.issueid) + '">' + esc(label(i, m)) + ' ' + esc(m.label || '#' + m.number) + '</button>' +
                        (m.owned ? ' <span class="faint">(already in your library)</span>' : '');
             }).join(', ') + '</p>';
         }
@@ -164,8 +164,8 @@
                 '</button><figcaption>This file</figcaption></figure>';
             var issue = '<figure class="att-cover" data-issue-cover' + (m && m.issueid ? '' : ' hidden') + '>' +
                 '<button type="button" class="att-cover-btn" data-zoom aria-label="Show the covers larger">' +
-                (m && m.issueid ? '<img src="attention_issue_cover?' + q({ issueid: m.issueid }) + '" alt="Cover of ' + esc(m.name) + ' #' + esc(m.number) + '" loading="lazy" data-cover-img />' : '') +
-                '</button><figcaption>' + (m && m.issueid ? esc(m.name) + ' #' + esc(m.number) : '') + '</figcaption></figure>';
+                (m && m.issueid ? '<img src="attention_issue_cover?' + q({ issueid: m.issueid }) + '" alt="Cover of ' + esc(m.name) + ' ' + esc(m.label || '#' + m.number) + '" loading="lazy" data-cover-img />' : '') +
+                '</button><figcaption>' + (m && m.issueid ? esc(m.name) + ' ' + esc(m.label || '#' + m.number) : '') + '</figcaption></figure>';
             return '<div class="att-covers">' + file + issue + '</div>';
         }
 
@@ -486,8 +486,8 @@
                 var byId = wantId && d.issues.some(function (s) { return String(s.IssueID) === wantId; });
                 sel.innerHTML = d.issues.map(function (s) {
                     var n = String(s.Issue_Number);
-                    var pick = byId ? String(s.IssueID) === wantId : n === want;
-                    return '<option value="' + esc(comicid) + '|' + esc(s.IssueID) + '"' + (pick ? ' selected' : '') + '>#' + esc(n) +
+                    var pick = byId ? String(s.IssueID) === wantId : !s.Annual && n === want;
+                    return '<option value="' + esc(comicid) + '|' + esc(s.IssueID) + '"' + (pick ? ' selected' : '') + '>' + esc(s.Label || '#' + n) +
                            (s.IssueDate ? ' (' + esc(String(s.IssueDate).slice(0, 7)) + ')' : '') + ' - ' + esc(s.Status) + '</option>';
                 }).join('');
                 pk.querySelector('[data-issue-wrap]').hidden = !d.issues.length;

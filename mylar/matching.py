@@ -182,8 +182,9 @@ def _annual_key(name):
 
 
 def annual_for(comicid, filename):
-    """The annual kept with this series that a file name points to, by its annual series' own name
-    ("Sonic the Hedgehog Annual 2024 001 (2024)", "Sonic the Hedgehog Annual (2024)"), or None."""
+    """The annual kept with this series (any series when comicid is None) that a file name points to,
+    by its annual series' own name ("Sonic the Hedgehog Annual 2024 001 (2024)", "Sonic the Hedgehog
+    Annual (2024)"), or None."""
     from mylar import filechecker, helpers
     p = filechecker.FileChecker(file=filename, justparse=True).listFiles() or {}
     if p.get('parse_status') != 'success' or not p.get('series_name'):
@@ -196,8 +197,8 @@ def annual_for(comicid, filename):
         number = None
     if year:
         keys.add(_annual_key('%s %s' % (p['series_name'], year)))
-    rows = db.DBConnection().select('SELECT IssueID, Issue_Number, IssueDate, ReleaseComicID, ReleaseComicName FROM annuals '
-                                    'WHERE ComicID=? AND NOT Deleted', [comicid])
+    sql = 'SELECT IssueID, ComicID, Issue_Number, IssueDate, ReleaseComicID, ReleaseComicName FROM annuals WHERE NOT Deleted'
+    rows = db.DBConnection().select(sql + ' AND ComicID=?', [comicid]) if comicid else db.DBConnection().select(sql)
     rows = [r for r in rows if r['ReleaseComicName'] and _annual_key(r['ReleaseComicName']) in keys]
     if number is not None:
         want = helpers.issue_number_parser(number).asInt
