@@ -6,7 +6,7 @@ Releases come from the `main` branch and are the `latest` Docker image. Changes 
 
 ## Unreleased (on dev)
 
-Nothing yet.
+- [fix] Match a file now shows the ComicVine cover of an annual kept with its series, the same as for an issue. Annuals added before this update get their cover from ComicVine the first time it's shown (issue #274). ([`29b0166`](https://github.com/issuarr/issuarr/commit/29b0166))
 
 ## 0.12.0 (16 November 2026)
 
