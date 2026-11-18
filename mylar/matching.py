@@ -252,8 +252,8 @@ def files(comicid):
                           'WHERE ComicID=? ORDER BY Int_IssueNumber', [comicid])]
     if _annuals_on():
         # annuals kept with the series can be matched here too
-        issues += [dict(r, label=annual_label(r['ReleaseComicName'], r['Issue_Number']), annual=True, ImageURL=None, ImageURL_ALT=None) for r in
-                   myDB.select('SELECT IssueID, Issue_Number, IssueName, Status, Location, forced_file, ReleaseComicName FROM annuals '
+        issues += [dict(r, label=annual_label(r['ReleaseComicName'], r['Issue_Number']), annual=True) for r in
+                   myDB.select('SELECT IssueID, Issue_Number, IssueName, Status, Location, forced_file, ReleaseComicName, ImageURL, ImageURL_ALT FROM annuals '
                                'WHERE ComicID=? AND NOT Deleted ORDER BY IssueDate, Int_IssueNumber', [comicid])]
     # Archived issues keep the name of a file that has gone, so only Downloaded ones count as having one
     linked = {i['Location']: i for i in issues if i['Location'] and i['Status'] == 'Downloaded'}
@@ -268,7 +268,7 @@ def files(comicid):
             'issues': [{'issueid': i['IssueID'], 'number': i['Issue_Number'], 'label': i['label'], 'annual': i['annual'],
                         'name': i['IssueName'], 'status': i['Status'],
                         'file': i['Location'] if i['Status'] == 'Downloaded' else None,
-                        'pinned': bool(i['forced_file']), 'cover': bool(i['ImageURL'] or i['ImageURL_ALT'])} for i in issues]}
+                        'pinned': bool(i['forced_file']), 'cover': bool(i['annual'] or i['ImageURL'] or i['ImageURL_ALT'])} for i in issues]}
 
 
 def waiting(comicid):

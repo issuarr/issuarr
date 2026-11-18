@@ -763,10 +763,31 @@ def cover_of(path):
 
 
 def issue_cover(issueid):
-    """The issue's cover from ComicVine, fetched once and cached, or None."""
-    row = db.DBConnection().selectone('SELECT ImageURL, ImageURL_ALT FROM issues WHERE IssueID=?', [issueid]).fetchone()
+    """The issue's (or annual's) cover from ComicVine, fetched once and cached, or None."""
+    myDB = db.DBConnection()
+    name = 'issue-%s' % re.sub(r'[^0-9A-Za-z_-]', '', str(issueid))
+    row = myDB.selectone('SELECT ImageURL, ImageURL_ALT FROM issues WHERE IssueID=?', [issueid]).fetchone()
+    if row is None:
+        row = myDB.selectone('SELECT ImageURL, ImageURL_ALT FROM annuals WHERE IssueID=?', [issueid]).fetchone()
+        if row is not None and not _cover_url(row):
+            # annuals added before their covers were kept: ask ComicVine once
+            out = os.path.join(_cover_dir(), '%s.jpg' % name)
+            if os.path.isfile(out):
+                return out
+            if _remembered_none(out, NO_COVER_DAYS):
+                return None
+            url = cvlink.cv_issue_image(issueid)
+            if not url:
+                _remember_none(out)
+                return None
+            myDB.action('UPDATE annuals SET ImageURL=? WHERE IssueID=?', [url, issueid])
+            return url_cover(name, url)
+    return url_cover(name, _cover_url(row))
+
+
+def _cover_url(row):
     url = row and (row['ImageURL'] or row['ImageURL_ALT'])
-    return url_cover('issue-%s' % re.sub(r'[^0-9A-Za-z_-]', '', str(issueid)), url)
+    return url if url and str(url).startswith('http') else None
 
 
 def url_cover(name, url):
