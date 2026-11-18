@@ -67,6 +67,25 @@ def cv_issue(issueid):
     return None
 
 
+def cv_issue_image(issueid):
+    """The issue's cover image URL from ComicVine, or None. Goes through the shared ComicVine schedule."""
+    from mylar import cv
+    key = mylar.CONFIG.COMICVINE_API
+    if not key or key == 'None':
+        return None
+    url = mylar.CVURL + 'issues/?api_key=' + str(key) + '&format=json&filter=id:' + str(issueid) + '&field_list=id,image'
+    try:
+        found = (cv.cv_request(url).json() or {}).get('results') or []
+    except Exception as e:
+        logger.warn('[COMICVINE] Couldn\'t look up the cover of issue %s: %s' % (issueid, e))
+        return None
+    for x in found:
+        if str(x.get('id')) == str(issueid):
+            image = x.get('image') or {}
+            return image.get('small_url') or image.get('medium_url') or image.get('super_url')
+    return None
+
+
 def resolve(text, ask_cv=True):
     """None when text isn't a ComicVine link. Otherwise a dict with kind, comicid (the series)
     and, for an issue link, issueid and number; comicid is None when the issue couldn't be

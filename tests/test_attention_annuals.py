@@ -91,3 +91,45 @@ def test_filing_picks_up_a_file_named_for_an_annual(env):
     assert pp._named_annual(db.DBConnection(), {'issueid': None}, touch(env.root / 'dl' / 'Sonic the Hedgehog 002 (2018).cbz')) is None
     mylar.CONFIG.ANNUALS_ON = False
     assert pp._named_annual(db.DBConnection(), {'issueid': None}, p) is None
+
+
+def fake_get(calls):
+    def get(url, **kw):
+        calls.append(url)
+        return types.SimpleNamespace(content=b'\xff\xd8jpeg', headers={'Content-Type': 'image/jpeg'}, raise_for_status=lambda: None)
+    return get
+
+
+@pytest.mark.unit
+def test_an_annual_shows_its_kept_cover(env, monkeypatch):
+    import requests
+    from mylar import cvlink
+    monkeypatch.setattr(mylar.CONFIG, 'CACHE_DIR', str(env.root / 'cache'), raising=False)
+    for table in ('issues', 'annuals'):
+        env.db.action('ALTER TABLE %s ADD COLUMN ImageURL TEXT' % table)
+        env.db.action('ALTER TABLE %s ADD COLUMN ImageURL_ALT TEXT' % table)
+    env.db.action("UPDATE annuals SET ImageURL='https://comicvine.gamespot.com/a/uploads/scale_small/sonic24.jpg' WHERE IssueID='a24'")
+    calls = []
+    monkeypatch.setattr(requests, 'get', fake_get(calls))
+    monkeypatch.setattr(cvlink, 'cv_issue_image', lambda i: pytest.fail('asked ComicVine for a kept cover'))
+    out = attention.issue_cover('a24')
+    assert open(out, 'rb').read() == b'\xff\xd8jpeg' and calls == ['https://comicvine.gamespot.com/a/uploads/scale_small/sonic24.jpg']
+
+
+@pytest.mark.unit
+def test_an_older_annual_gets_its_cover_from_comicvine_once(env, monkeypatch):
+    import requests
+    from mylar import cvlink
+    monkeypatch.setattr(mylar.CONFIG, 'CACHE_DIR', str(env.root / 'cache'), raising=False)
+    for table in ('issues', 'annuals'):
+        env.db.action('ALTER TABLE %s ADD COLUMN ImageURL TEXT' % table)
+        env.db.action('ALTER TABLE %s ADD COLUMN ImageURL_ALT TEXT' % table)
+    asked = []
+    monkeypatch.setattr(cvlink, 'cv_issue_image', lambda i: asked.append(i) or ('https://cv/small/%s.jpg' % i if i == 'a24' else None))
+    monkeypatch.setattr(requests, 'get', fake_get([]))
+    assert attention.issue_cover('a24') is not None
+    assert attention.issue_cover('a24') is not None
+    assert env.db.selectone("SELECT ImageURL FROM annuals WHERE IssueID='a24'").fetchone()[0] == 'https://cv/small/a24.jpg'
+    # ComicVine has none for this one: not asked again straight away
+    assert attention.issue_cover('a19') is None and attention.issue_cover('a19') is None
+    assert asked == ['a24', 'a19']

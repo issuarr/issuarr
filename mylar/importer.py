@@ -1315,6 +1315,8 @@ def manualAnnual(manual_comicid=None, comicname=None, comicyear=None, comicid=No
                                'DigitalDate':      str(firstval['Digital_Date']),
                                'Status':           astatus,
                                'ReleaseComicName': sr['ComicName'],
+                               'ImageURL':         firstval.get('Image'),
+                               'ImageURL_ALT':     firstval.get('ImageALT'),
                                'Deleted':          deleted})
                 n+=1
 
@@ -1335,6 +1337,10 @@ def manualAnnual(manual_comicid=None, comicname=None, comicyear=None, comicid=No
                    "ReleaseComicName": ann['ReleaseComicName'], #series ComicName for the manual_comicid
                    "Status":           ann['Status'],
                    "Deleted":          ann['Deleted']}
+        for k in ('ImageURL', 'ImageURL_ALT'):
+            # the annual's cover from ComicVine, for the cover shown when matching files
+            if ann.get(k) and ann[k] != 'None':
+                newVals[k] = ann[k]
                    #need to add in the values for the new series to be added.
                    #"M_ComicName":    sr['ComicName'],
                    #"M_ComicID":      manual_comicid}
@@ -1768,6 +1774,8 @@ def annual_check(ComicName, SeriesYear, comicid, issuetype, issuechk, annualslis
                                                 "ComicName":        ComicName,
                                                 "ReleaseComicID":   re.sub('4050-', '', firstval['Comic_ID']).strip(),
                                                 "ReleaseComicName": sr['name'],
+                                                "ImageURL":         firstval.get('Image'),
+                                                "ImageURL_ALT":     firstval.get('ImageALT'),
                                                 "Deleted":          False,
                                                 "Status":           astatus})
 

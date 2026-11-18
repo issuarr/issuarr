@@ -83,3 +83,20 @@ def test_annuals_kept_apart_are_not_offered(series, monkeypatch):
     monkeypatch.setattr(mylar.CONFIG, 'ANNUALS_ON', False)
     assert 'a24' not in {i['issueid'] for i in matching.files('110000')['issues']}
     assert not matching.match('110000', 'a24', 'sonic special thing.cbz')['ok']
+
+
+@pytest.mark.unit
+def test_refreshing_annuals_keeps_their_covers(series):
+    from mylar import importer
+    row = {'IssueID': 'a24', 'Issue_Number': '1', 'IssueDate': '2024-07-01', 'ReleaseDate': '2024-06-26', 'DigitalDate': '0000-00-00',
+           'IssueName': None, 'ComicID': '110000', 'ReleaseComicID': '160329', 'ComicName': 'Sonic the Hedgehog',
+           'ReleaseComicName': 'Sonic the Hedgehog Annual 2024', 'Status': 'Wanted', 'Deleted': False,
+           'ImageURL': 'https://cv/small/a24.jpg', 'ImageURL_ALT': 'https://cv/medium/a24.jpg'}
+    importer.manualAnnual(annchk=[row])
+    got = db.DBConnection().selectone("SELECT ImageURL, ImageURL_ALT FROM annuals WHERE IssueID='a24'").fetchone()
+    assert (got[0], got[1]) == ('https://cv/small/a24.jpg', 'https://cv/medium/a24.jpg')
+    # a refresh without covers leaves the kept ones alone
+    importer.manualAnnual(annchk=[dict(row, ImageURL=None, ImageURL_ALT='None')])
+    assert db.DBConnection().selectone("SELECT ImageURL FROM annuals WHERE IssueID='a24'").fetchone()[0] == 'https://cv/small/a24.jpg'
+    listed = {i['issueid']: i for i in matching.files('110000')['issues']}
+    assert listed['a24']['cover']
