@@ -6,6 +6,7 @@ Releases come from the `main` branch and are the `latest` Docker image. Changes 
 
 ## Unreleased (on dev)
 
+- [fix] "Want and search missing" on a story arc now marks the arc's issues as Wanted in your library, so they show on the Wanted page and stay Wanted after "Match with library". Before, only the arc's own list changed and the issues stayed Skipped. ([`6a5a52b`](https://github.com/issuarr/issuarr/commit/6a5a52b))
 - [fix] Match a file now shows the ComicVine cover of an annual kept with its series, the same as for an issue. Annuals added before this update get their cover from ComicVine the first time it's shown (issue #274). ([`29b0166`](https://github.com/issuarr/issuarr/commit/29b0166))
 
 ## 0.12.0 (16 November 2026)
