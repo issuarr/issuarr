@@ -6666,7 +6666,7 @@ class WebInterface(object):
         if wantedlist is not None:
             for want in wantedlist:
                 print(want)
-                issuechk = myDB.selectone("SELECT a.Type, a.ComicYear, b.ComicName, b.Issue_Number, b.ComicID, b.IssueID FROM comics as a INNER JOIN issues as b on a.ComicID = b.ComicID WHERE b.IssueID=?", [want['IssueArcID']]).fetchone()
+                issuechk = myDB.selectone("SELECT a.Type, a.ComicYear, b.ComicName, b.Issue_Number, b.ComicID, b.IssueID FROM comics as a INNER JOIN issues as b on a.ComicID = b.ComicID WHERE b.IssueID=?", [want['IssueID']]).fetchone()
                 SARC = want['StoryArc']
                 IssueArcID = want['IssueArcID']
                 Publisher = want['Publisher']
@@ -6714,12 +6714,12 @@ class WebInterface(object):
                     actual_issueid = want['IssueID']
                     logger.fdebug("-- watched series queue.")
                     logger.fdebug('%s --- #%s' % (issuechk['ComicName'], issuechk['Issue_Number']))
-                    seriesyear = issuechk['SeriesYear']
+                    seriesyear = issuechk['ComicYear']
                     comicname = issuechk['ComicName']
                     issuenumber = issuechk['Issue_Number']
                     passinfo = {'issueid':     s_issueid,
                                 'comicname':   issuechk['ComicName'],
-                                'seriesyear':  issuechk['SeriesYear'],
+                                'seriesyear':  issuechk['ComicYear'],
                                 'comicid':     s_comicid,
                                 'issuenumber': issuechk['Issue_Number'],
                                 'booktype':    issuechk['Type']}
@@ -6735,7 +6735,7 @@ class WebInterface(object):
         if watchlistchk is not None:
             for watchchk in watchlistchk:
                 logger.fdebug('Watchlist hit - %s' % watchchk['ComicName'])
-                issuechk = myDB.selectone("SELECT a.Type, a.ComicYear, b.ComicName, b.Issue_Number, b.ComicID, b.IssueID FROM comics as a INNER JOIN issues as b on a.ComicID = b.ComicID WHERE b.IssueID=?", [watchchk['IssueArcID']]).fetchone()
+                issuechk = myDB.selectone("SELECT a.Type, a.ComicYear, b.ComicName, b.Issue_Number, b.ComicID, b.IssueID FROM comics as a INNER JOIN issues as b on a.ComicID = b.ComicID WHERE b.IssueID=?", [watchchk['IssueID']]).fetchone()
                 SARC = watchchk['StoryArc']
                 IssueArcID = watchchk['IssueArcID']
                 if issuechk is None:
@@ -6789,7 +6789,7 @@ class WebInterface(object):
                     logger.fdebug('%s -- #%s' % (issuechk['ComicName'], issuechk['Issue_Number']))
                     passinfo = {'issueid':     s_issueid,
                                 'comicname':   issuechk['ComicName'],
-                                'seriesyear':  issuechk['SeriesYear'],
+                                'seriesyear':  issuechk['ComicYear'],
                                 'comicid':     s_comicid,
                                 'issuenumber': issuechk['Issue_Number'],
                                 'booktype':    issuechk['Type']}
